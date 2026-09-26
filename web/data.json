@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-26T12:01:00.088457+00:00",
+  "generated_at": "2026-09-26T12:25:22.913127+00:00",
   "mode": "paper",
   "portfolio": {
     "starting_cash": 10000,
@@ -13,7 +13,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "idle",
-      "last_active": null
+      "last_active": "2026-09-26T12:25:22.034827+00:00"
     },
     {
       "id": "market_analyst",
