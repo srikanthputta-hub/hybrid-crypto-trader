@@ -18,27 +18,81 @@ const stars = (n) => {
   return `${"★".repeat(full)}${"☆".repeat(5 - full)} (${Number(n).toFixed(1)})`;
 };
 
+// What each desk owns — static, mirrors the roster in CLAUDE.md / README.
+const ROLE_OWNS = {
+  boss: "Whole repo. Reads each request, routes it to the owning role below, sizes complexity, and picks the model tier — Opus always for anything touching risk_engine.py or broker_live.py.",
+  market_analyst: "src/scanner.py, src/signal_engine.py, src/indicators.py — the 5 pattern detectors, indicator math, and confluence filtering.",
+  trade_strategist: "src/trade_planner.py — entry zone, stop loss, take-profit, invalidation level, and the rule-based 1-5 star confidence score.",
+  risk_officer: "src/risk_engine.py — position sizing, exposure cap, max loss per trade, daily loss limit, volatility filter, cooldown, kill switch. Always reviewed at Opus.",
+  compliance_reviewer: "src/claude_advisor.py — the optional Claude second opinion. APPROVE/VETO only, never originates or resizes a trade, fails closed on error.",
+  execution_trader: "src/broker_paper.py, src/broker_live.py, src/monitor.py, src/trade_plan_store.py — order execution and the PENDING/OPEN/CLOSED lifecycle. broker_live.py is always Opus-reviewed.",
+};
+
 function renderRoles(roles) {
   const container = document.getElementById("roles");
   container.innerHTML = "";
-  for (const role of roles) {
-    const initials = role.label.split(" ").map((w) => w[0]).slice(0, 2).join("");
-    const tierClass = `tier-${role.model_tier}`;
-    const desk = document.createElement("div");
-    desk.className = "desk";
-    desk.title = `${role.label} — ${role.model_tier.toUpperCase()} tier`;
-    desk.innerHTML = `
-      <div class="desk-avatar ${tierClass}">${initials}</div>
-      <div class="desk-label">${role.label}</div>
-      <div class="desk-status">
-        <span class="status-dot ${role.status === "working" ? "working" : ""}"></span>
-        ${role.status === "working" ? "working" : "idle"}
-      </div>
-      <div class="muted" style="margin-top:4px;">${role.last_active ? "last active " + fmtTime(role.last_active) : "no activity yet"}</div>
-    `;
-    container.appendChild(desk);
+
+  const boss = roles.find((r) => r.id === "boss");
+  const others = roles.filter((r) => r.id !== "boss");
+  const workingCount = roles.filter((r) => r.status === "working").length;
+  document.getElementById("office-status").textContent = `${workingCount}/${roles.length} working`;
+
+  const radiusPct = 40;
+  others.forEach((role, i) => {
+    const angle = (2 * Math.PI * i) / others.length - Math.PI / 2; // start at top, clockwise
+    const x = 50 + radiusPct * Math.cos(angle);
+    const y = 50 + radiusPct * Math.sin(angle);
+    container.appendChild(buildDesk(role, { x: `${x}%`, y: `${y}%` }));
+  });
+
+  if (boss) {
+    container.appendChild(buildDesk(boss, { x: "50%", y: "50%" }, true));
   }
 }
+
+function buildDesk(role, pos, isBoss) {
+  const initials = role.label.split(" ").map((w) => w[0]).slice(0, 2).join("");
+  const tierClass = `tier-${role.model_tier}`;
+  const desk = document.createElement("div");
+  desk.className = "desk" + (isBoss ? " desk-boss" : "");
+  desk.style.setProperty("--x", pos.x);
+  desk.style.setProperty("--y", pos.y);
+  desk.dataset.roleId = role.id;
+  desk.innerHTML = `
+    <div class="desk-avatar ${tierClass}">${initials}</div>
+    <div class="desk-label">${isBoss ? '<span class="desk-crown">&#128081;</span>' : ""}${role.label}</div>
+    <div class="desk-status">
+      <span class="status-dot ${role.status === "working" ? "working" : ""}"></span>
+      ${role.status === "working" ? "working" : "idle"}
+    </div>
+  `;
+  desk.addEventListener("click", () => showRoleDrawer(role, isBoss));
+  return desk;
+}
+
+function showRoleDrawer(role, isBoss) {
+  document.querySelectorAll(".desk").forEach((d) => d.classList.toggle("selected", d.dataset.roleId === role.id));
+
+  document.getElementById("role-drawer-crown").hidden = !isBoss;
+  document.getElementById("role-drawer-label").textContent = role.label;
+  document.getElementById("role-drawer-status").innerHTML = `
+    <span class="status-dot ${role.status === "working" ? "working" : ""}"></span>
+    ${role.status === "working" ? "working" : "idle"}
+    · ${role.last_active ? "last active " + fmtTime(role.last_active) : "no activity yet"}
+    · ${role.model_tier.toUpperCase()} tier
+  `;
+  document.getElementById("role-drawer-owns").textContent = ROLE_OWNS[role.id] || "";
+
+  const drawer = document.getElementById("role-drawer");
+  drawer.hidden = false;
+}
+
+function hideRoleDrawer() {
+  document.getElementById("role-drawer").hidden = true;
+  document.querySelectorAll(".desk").forEach((d) => d.classList.remove("selected"));
+}
+
+document.getElementById("role-drawer-close").addEventListener("click", hideRoleDrawer);
 
 function renderSummary(data) {
   const modeBadge = document.getElementById("mode-badge");
