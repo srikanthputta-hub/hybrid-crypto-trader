@@ -46,6 +46,19 @@
       </div>
     </section>
 
+    <section class="card live-market-section">
+      <div class="chart-header">
+        <h2>Live Market <span class="muted">— real-time, via TradingView</span></h2>
+        <select id="tv-symbol-select" class="symbol-select"></select>
+      </div>
+      <div id="tv-widget-container" class="tv-widget-container"></div>
+      <div class="muted" style="margin-top:8px;">
+        This chart streams live from TradingView directly in your browser — independent of
+        <code>web/data.json</code> and the bot's own (slower) price feed. It does not reflect the bot's
+        positions or plans; see the trade-plan chart below for that.
+      </div>
+    </section>
+
     <section class="summary-row">
       <div class="card stat">
         <div class="stat-label">Equity</div>
@@ -111,6 +124,11 @@
   </footer>
 
   <script src="vendor/lightweight-charts.standalone.production.js"></script>
+  <!-- Live Market widget only: loaded from TradingView's own CDN since a live
+       streaming widget can't be vendored like the static lightweight-charts
+       library above. If this script is blocked (offline, strict network
+       policy, ad blocker), app.js shows a fallback message instead of failing. -->
+  <script src="https://s3.tradingview.com/tv.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
