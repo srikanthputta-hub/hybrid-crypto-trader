@@ -2,7 +2,10 @@
 # Start in "paper" mode and leave it there until you have watched it trade
 # for a while and are comfortable with what it does.
 
-mode: paper              # "paper" or "live" — see .env.example for the second safety switch live mode needs
+mode: live               # "paper" or "live" — see .env.example for the second safety switch live mode needs
+                          # NOTE: exchange.testnet below is still true, so "live" here means
+                          # real order-placement code running against Binance's TESTNET, not
+                          # real markets. This is a deliberate dress rehearsal, not real trading.
 
 exchange:
   id: binance             # any ccxt exchange id: binance, kraken, coinbase, bybit, ...
