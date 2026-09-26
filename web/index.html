@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trading Desk — Hybrid Crypto Bot</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      TRADING DESK <span class="brand-sub">· hybrid-crypto-trader</span>
+    </div>
+    <div class="topbar-right">
+      <span id="mode-badge" class="badge">—</span>
+      <span class="legend">
+        <span class="legend-item"><i class="dot tier-haiku"></i>H=Haiku</span>
+        <span class="legend-item"><i class="dot tier-sonnet"></i>S=Sonnet</span>
+        <span class="legend-item"><i class="dot tier-opus"></i>O=Opus</span>
+      </span>
+      <span id="generated-at" class="muted">loading…</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="office" id="office">
+      <div class="office-header">
+        <h2>The Desk</h2>
+        <span class="muted">click a role to see what it owns</span>
+      </div>
+      <div id="roles" class="roles-row"><!-- role desks injected here --></div>
+    </section>
+
+    <section class="summary-row">
+      <div class="card stat">
+        <div class="stat-label">Equity</div>
+        <div id="stat-equity" class="stat-value">—</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-label">Cash</div>
+        <div id="stat-cash" class="stat-value">—</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-label">P&amp;L</div>
+        <div id="stat-pnl" class="stat-value">—</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-label">Open / Pending</div>
+        <div id="stat-positions" class="stat-value">—</div>
+      </div>
+    </section>
+
+    <section class="chart-section card">
+      <div class="chart-header">
+        <h2 id="chart-symbol">Latest Trade Plan</h2>
+        <div id="chart-confidence" class="confidence-row"></div>
+      </div>
+      <div id="chart-container"></div>
+      <div id="chart-empty" class="muted" style="display:none;">
+        No active or recent trade plan to chart yet — run the bot, then re-run
+        <code>scripts/export_dashboard_data.py</code>.
+      </div>
+    </section>
+
+    <section class="tables-grid">
+      <div class="card">
+        <h3>Open Positions</h3>
+        <table id="table-positions"><thead>
+          <tr><th>Symbol</th><th>Pattern</th><th>Entry</th><th>Stop</th><th>Target</th><th>Invalidation</th><th>P&amp;L</th><th>Confidence</th></tr>
+        </thead><tbody></tbody></table>
+      </div>
+      <div class="card">
+        <h3>Pending Plans</h3>
+        <table id="table-pending"><thead>
+          <tr><th>Symbol</th><th>Pattern</th><th>Entry Zone</th><th>Stop</th><th>Target</th><th>Invalidation</th><th>Confidence</th></tr>
+        </thead><tbody></tbody></table>
+      </div>
+      <div class="card">
+        <h3>Recent Scanner Activity</h3>
+        <table id="table-candidates"><thead>
+          <tr><th>When</th><th>Symbol</th><th>Patterns Detected</th></tr>
+        </thead><tbody></tbody></table>
+      </div>
+      <div class="card">
+        <h3>Recent Risk Decisions</h3>
+        <table id="table-risk"><thead>
+          <tr><th>When</th><th>Symbol</th><th>Allowed</th><th>Reason</th></tr>
+        </thead><tbody></tbody></table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="muted footer">
+    Static dashboard — data refreshes only when <code>web/data.json</code> is
+    regenerated and redeployed. Not financial advice.
+  </footer>
+
+  <script src="vendor/lightweight-charts.standalone.production.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

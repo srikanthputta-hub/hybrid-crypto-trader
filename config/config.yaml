@@ -1,0 +1,88 @@
+# Hybrid crypto trading bot configuration.
+# Start in "paper" mode and leave it there until you have watched it trade
+# for a while and are comfortable with what it does.
+
+mode: paper              # "paper" or "live" — see .env.example for the second safety switch live mode needs
+
+exchange:
+  id: binance             # any ccxt exchange id: binance, kraken, coinbase, bybit, ...
+  testnet: true            # use the exchange's sandbox/testnet endpoint where supported
+
+market:
+  symbols:                 # whitelist — the bot will only ever look at / trade these
+    - "BTC/USDT"
+    - "ETH/USDT"
+  timeframe: "1h"           # ccxt timeframe string: 1m, 5m, 15m, 1h, 4h, 1d
+  history_bars: 200         # bars of OHLCV history fetched each cycle for indicators/scanner
+
+# EMA/RSI/ATR settings, shared by the scanner, the pullback/trend detectors, and the trade planner.
+indicators:
+  fast_ema: 12
+  slow_ema: 26
+  rsi_period: 14
+
+# Pipeline stage 1 — "scans the market 24/7 for potential setups."
+# Each detector's own thresholds; see src/scanner.py for exactly how each is used.
+scanner:
+  breakout_lookback: 20
+  breakout_volume_multiplier: 1.5
+  pullback_bounce_lookback: 5
+  pullback_tolerance_pct: 0.004
+  momentum_lookback: 5
+  momentum_return_threshold: 0.03
+  trend_confirm_bars: 10
+  consolidation_bars: 8
+  consolidation_max_range_atr: 2.5
+  reversal_swing_lookback: 10
+  reversal_rsi_oversold: 30
+  reversal_rsi_overbought: 70
+
+# Pipeline stage 2 — "filters noise and generates high-probability trade signals."
+signal_engine:
+  min_strength: 0.5          # drop any scanner candidate weaker than this
+  confluence_bonus: 0.08     # score boost per additional pattern agreeing on direction
+  pattern_priority:          # tie-breaker when two candidates have equal strength
+    - "BREAKOUT"
+    - "TREND_CONTINUATION"
+    - "MOMENTUM"
+    - "PULLBACK"
+    - "REVERSAL"
+
+# Pipeline stage 3 — "creates the trade plan with entry, target, stop loss, and invalidation."
+trade_planner:
+  entry_buffer_atr_mult: 0.1     # how wide the entry zone is, in ATRs, around the pattern's level
+  stop_atr_mult: 1.0             # stop loss = entry zone low - this many ATRs
+  invalidation_atr_mult: 0.5     # invalidation = stop loss - this many further ATRs
+  min_risk_reward: 2.0           # take-profit target is sized to hit at least this R:R
+
+# Pipeline stage 4 — "checks position size, exposure, drawdown, volatility and max loss."
+risk:
+  starting_cash_usd: 10000       # paper-trading starting balance
+  max_position_pct: 0.10         # flat ceiling: never put more than 10% of equity in one position
+  max_total_exposure_pct: 0.40   # never have more than 40% of equity committed across all open positions at once
+  max_loss_per_trade_pct: 0.01   # size each position so a stop-out never loses more than 1% of equity
+  max_daily_loss_pct: 0.05       # halt all new trades for the day if realized+unrealized loss exceeds 5%
+  max_volatility_pct: 0.08       # skip new entries when ATR/price exceeds 8% (too chaotic to size risk on)
+  min_risk_reward: 1.5           # reject any trade plan whose risk/reward is below this, even if the risk engine would otherwise size it
+  cooldown_minutes: 60           # minimum time between new plans on the same symbol
+  kill_switch_file: "KILL_SWITCH"  # if this file exists in the project root, refuse all new entries
+
+# Pipeline stage 4b — Claude's second opinion. Can only veto a plan the pipeline
+# above already built; see src/claude_advisor.py.
+advisor:
+  enabled: true
+  model: "claude-sonnet-4-5"  # any current Claude model id your API key can access
+  fail_mode: "closed"         # "closed" = skip the trade if the advisor errors/times out; "open" = proceed without review
+  timeout_seconds: 20
+
+# Pipeline stage 5 — the 24/7 monitor (src/monitor.py) checks every PENDING/OPEN
+# plan against current price every cycle; there's no separate config for it,
+# since every threshold it checks already lives on the trade plan itself.
+loop:
+  poll_interval_seconds: 300   # how often the main loop runs a full cycle in live/paper continuous mode
+
+logging:
+  audit_log_path: "logs/audit_log.jsonl"
+  trade_log_path: "logs/trades.csv"
+  trade_plan_current_path: "logs/trade_plans_current.json"
+  trade_plan_history_path: "logs/trade_plans_history.jsonl"
