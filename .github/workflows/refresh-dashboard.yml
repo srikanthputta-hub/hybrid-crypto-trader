@@ -1,0 +1,75 @@
+name: Refresh dashboard data
+
+# Runs one paper-trading cycle on a schedule and pushes a fresh web/data.json
+# so the Cloudflare Pages dashboard reflects real (paper) activity instead of
+# a static snapshot. See README.md "Dashboard" section for the manual
+# equivalent of what this automates.
+#
+# State (logs/) is intentionally gitignored (see .gitignore) — it's runtime
+# data, not something this repo persists in git history. To carry portfolio
+# state (cash, open positions, cooldowns) between scheduled runs anyway, this
+# workflow round-trips logs/ through actions/cache instead of committing it.
+# That cache can be evicted (GitHub drops caches unused for 7 days, or past
+# the repo's 10GB cap) — if that happens, the bot silently starts over from
+# starting_cash_usd with no open positions, which is a state reset, not a
+# failure. Fine for a synthetic paper-trading demo; don't rely on this for
+# anything that needs guaranteed continuity.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *" # every 15 minutes — adjust freely, GitHub Actions doesn't guarantee exact timing anyway
+  workflow_dispatch: {} # manual "Run workflow" button for on-demand refresh
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-dashboard
+  cancel-in-progress: false # never abandon a cycle mid-run; let it finish and let the next tick wait
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore paper-trading state
+        uses: actions/cache/restore@v4
+        with:
+          path: logs
+          key: bot-logs-${{ github.run_id }}
+          restore-keys: |
+            bot-logs-
+
+      - name: Run one paper-trading cycle
+        run: python -m src.bot --once
+        # No ANTHROPIC_API_KEY secret is passed: the Claude advisor step
+        # (src/claude_advisor.py) fails *closed* by design when the key is
+        # missing — it vetoes rather than erroring, so this still runs clean.
+        # Add an ANTHROPIC_API_KEY repo secret and pass it here as an env var
+        # if you want the advisor's real second opinion in these runs.
+
+      - name: Export dashboard data
+        run: python scripts/export_dashboard_data.py
+
+      - name: Save paper-trading state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: logs
+          key: bot-logs-${{ github.run_id }}
+
+      - name: Commit and push refreshed dashboard data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web/data.json
+          git diff --cached --quiet || git commit -m "chore: refresh dashboard data [skip ci]"
+          git push
