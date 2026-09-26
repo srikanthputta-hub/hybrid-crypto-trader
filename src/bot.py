@@ -18,7 +18,7 @@ import logging
 import time
 from pathlib import Path
 
-from src import claude_advisor, monitor, scanner, signal_engine, trade_planner
+from src import claude_advisor, monitor, notifier, scanner, signal_engine, trade_planner
 from src.audit import AuditLog
 from src.broker_paper import PaperBroker
 from src.config import Config, load_config
@@ -77,6 +77,45 @@ def build_components(cfg: Config):
     return exchange, risk_engine, portfolio, broker, store, audit
 
 
+def _maybe_notify(cfg: Config, event: dict) -> None:
+    """Sends a Telegram message for the events worth interrupting someone's day for:
+    a new signal, a fill, or a close. Everything else (no-op cycles, discards,
+    vetoes) stays in the audit log only. No-ops entirely if Telegram isn't configured
+    (see src/notifier.py)."""
+    bot_token, chat_id = cfg.telegram_bot_token, cfg.telegram_chat_id
+    if not bot_token or not chat_id:
+        return
+
+    if event.get("action") == "planned" and "plan" in event:
+        plan = event["plan"]
+        notifier.send_telegram_message(
+            bot_token,
+            chat_id,
+            f"🔔 *New signal*: {event['symbol']} — {plan.get('pattern')}\n"
+            f"Entry: {plan.get('entry_zone')}\n"
+            f"Stop: {plan.get('stop_loss')}  Target: {plan.get('take_profit')}\n"
+            f"R:R 1:{plan.get('risk_reward')}  Confidence: {plan.get('rule_based_confidence_stars')}★",
+        )
+
+    execution = event.get("execution")
+    monitor_action = (event.get("monitor_action") or {}).get("action")
+    if execution and monitor_action in ("STOP_LOSS", "TAKE_PROFIT"):
+        notifier.send_telegram_message(
+            bot_token,
+            chat_id,
+            f"🏁 *Closed* ({monitor_action}): {event['symbol']} @ {execution.get('price')}",
+        )
+    elif execution:
+        # A monitor-triggered FILL, or the immediate-fill-on-plan path (monitor_action is
+        # unset there since it bypasses monitor.check_pending's normal call site).
+        notifier.send_telegram_message(
+            bot_token,
+            chat_id,
+            f"✅ *Filled*: {event['symbol']} @ {execution.get('price')} "
+            f"(amount {execution.get('base_amount')})",
+        )
+
+
 def _execute_monitor_action(action, record, broker, store, risk_engine, event) -> None:
     event["monitor_action"] = action.__dict__
     if action.action == "FILL":
@@ -94,6 +133,10 @@ def _execute_monitor_action(action, record, broker, store, risk_engine, event) -
 
 
 def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfolio, broker, store: TradePlanStore, audit: AuditLog) -> None:
+    def _record(event: dict) -> None:
+        audit.write(event)
+        _maybe_notify(cfg, event)
+
     indicators_cfg = cfg.indicators
     enriched_by_symbol = {}
     current_prices: dict[str, float] = {}
@@ -116,7 +159,7 @@ def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfol
         if symbol not in enriched_by_symbol:
             event["action"] = "none"
             event["error"] = "market data unavailable this cycle"
-            audit.write(event)
+            _record(event)
             continue
 
         try:
@@ -131,7 +174,7 @@ def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfol
                 else:
                     event["action"] = "none"
                     event["note"] = f"{record.status} plan active for {symbol}, no trigger this cycle"
-                audit.write(event)
+                _record(event)
                 continue
 
             # No active plan for this symbol — look for a brand new setup.
@@ -143,7 +186,7 @@ def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfol
             signal = signal_engine.evaluate(candidates, **cfg.signal_engine)
             if signal is None:
                 event["action"] = "none"
-                audit.write(event)
+                _record(event)
                 continue
             event["signal"] = {
                 "direction": signal.direction,
@@ -159,14 +202,14 @@ def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfol
                 # bearish blip. It's still logged here for visibility.
                 event["action"] = "none"
                 event["note"] = "bearish signal logged only; exits are governed by the open plan's stop/target"
-                audit.write(event)
+                _record(event)
                 continue
 
             atr = float(enriched["atr"].iloc[-1])
             plan = trade_planner.build_plan(signal, symbol, price, atr, **cfg.trade_planner)
             if plan is None:
                 event["action"] = "none"
-                audit.write(event)
+                _record(event)
                 continue
             event["plan"] = {**plan.__dict__}
 
@@ -190,7 +233,7 @@ def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfol
             event["risk_decision"] = decision.__dict__
             if not decision.allowed:
                 event["action"] = "none"
-                audit.write(event)
+                _record(event)
                 continue
 
             claude_verdict_dict = None
@@ -217,7 +260,7 @@ def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfol
                 event["advisor_verdict"] = claude_verdict_dict
                 if not verdict.approved:
                     event["action"] = "none"
-                    audit.write(event)
+                    _record(event)
                     continue
 
             plan_dict = dict(plan.__dict__)
@@ -239,7 +282,7 @@ def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfol
             logger.exception("cycle failed for %s", symbol)
             event["error"] = str(exc)
 
-        audit.write(event)
+        _record(event)
 
 
 def main() -> None:
