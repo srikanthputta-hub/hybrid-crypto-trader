@@ -5,5 +5,9 @@
   "compatibility_date": "2026-09-26",
   "assets": {
     "directory": "./web"
-  }
+  },
+  // Cloudflare's Workers Builds pipeline deploys PR/non-production branches
+  // with `wrangler preview`, which requires this block to exist (can be
+  // empty) even though this project doesn't otherwise use named previews.
+  "previews": {}
 }
