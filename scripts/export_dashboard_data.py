@@ -205,6 +205,8 @@ def main() -> None:
     data = {
         "generated_at": now.isoformat(),
         "mode": cfg.mode,
+        "exchange_id": cfg.exchange_id,
+        "symbols": cfg.symbols,
         "portfolio": {
             "starting_cash": cfg.risk["starting_cash_usd"],
             "cash": round(cash, 2),

@@ -254,6 +254,65 @@ function renderChart(chart) {
   window.addEventListener("resize", () => lwc.applyOptions({ width: containerEl.clientWidth }), { once: true });
 }
 
+// Exchange id (ccxt) -> TradingView exchange prefix. Falls back to an
+// uppercased exchange id for anything not listed, which is correct for most
+// TradingView-covered exchanges.
+const TV_EXCHANGE_PREFIX = {
+  binance: "BINANCE",
+  binanceus: "BINANCEUS",
+  coinbase: "COINBASE",
+  coinbasepro: "COINBASE",
+  kraken: "KRAKEN",
+  bybit: "BYBIT",
+  okx: "OKX",
+  kucoin: "KUCOIN",
+};
+
+function toTradingViewSymbol(exchangeId, symbol) {
+  const prefix = TV_EXCHANGE_PREFIX[exchangeId] || exchangeId.toUpperCase();
+  return `${prefix}:${symbol.replace("/", "")}`;
+}
+
+let tvWidget = null;
+
+function renderTradingViewWidget(tvSymbol) {
+  const container = document.getElementById("tv-widget-container");
+  if (typeof TradingView === "undefined" || !TradingView.widget) {
+    container.innerHTML =
+      '<div class="muted" style="padding:24px;">TradingView\'s widget script didn\'t load (offline, network policy, or an ad blocker) — live chart unavailable right now.</div>';
+    return;
+  }
+  container.innerHTML = "";
+  tvWidget = new TradingView.widget({
+    autosize: true,
+    symbol: tvSymbol,
+    interval: "15",
+    timezone: "Etc/UTC",
+    theme: "dark",
+    style: "1",
+    locale: "en",
+    toolbar_bg: "#101a2e",
+    enable_publishing: false,
+    hide_top_toolbar: false,
+    hide_legend: false,
+    save_image: false,
+    container_id: "tv-widget-container",
+  });
+}
+
+function initLiveMarket(data) {
+  const exchangeId = data.exchange_id || "binance";
+  const symbols = data.symbols && data.symbols.length ? data.symbols : ["BTC/USDT"];
+
+  const select = document.getElementById("tv-symbol-select");
+  select.innerHTML = symbols.map((s) => `<option value="${s}">${s}</option>`).join("");
+  select.addEventListener("change", () => {
+    renderTradingViewWidget(toTradingViewSymbol(exchangeId, select.value));
+  });
+
+  renderTradingViewWidget(toTradingViewSymbol(exchangeId, symbols[0]));
+}
+
 async function main() {
   let data;
   try {
@@ -265,6 +324,7 @@ async function main() {
     return;
   }
   renderSummary(data);
+  initLiveMarket(data);
   renderRoles(data.roles);
   renderPositions(data.positions);
   renderPending(data.pending);
