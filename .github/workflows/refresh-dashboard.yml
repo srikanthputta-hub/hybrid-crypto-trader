@@ -1,9 +1,17 @@
 name: Refresh dashboard data
 
-# Runs one paper-trading cycle on a schedule and pushes a fresh web/data.json
-# so the Cloudflare Pages dashboard reflects real (paper) activity instead of
-# a static snapshot. See README.md "Dashboard" section for the manual
-# equivalent of what this automates.
+# Runs one bot cycle on a schedule and pushes a fresh web/data.json so the
+# Cloudflare-hosted dashboard reflects real activity instead of a static
+# snapshot. See README.md "Dashboard" section for the manual equivalent of
+# what this automates.
+#
+# mode is "live" in config/config.yaml, but exchange.testnet is still true —
+# every order this places goes to Binance's TESTNET (fake funds), not real
+# markets. This exercises the real order-placement path (src/broker_live.py)
+# as a dress rehearsal, gated behind EXCHANGE_API_KEY/EXCHANGE_API_SECRET
+# repo secrets (a Binance testnet key, never a real-account key) plus the
+# LIVE_TRADING_CONFIRM flag below — both required by that module's own
+# double-gate check, same as real live trading would need.
 #
 # State (logs/) is intentionally gitignored (see .gitignore) — it's runtime
 # data, not something this repo persists in git history. To carry portfolio
@@ -12,8 +20,7 @@ name: Refresh dashboard data
 # That cache can be evicted (GitHub drops caches unused for 7 days, or past
 # the repo's 10GB cap) — if that happens, the bot silently starts over from
 # starting_cash_usd with no open positions, which is a state reset, not a
-# failure. Fine for a synthetic paper-trading demo; don't rely on this for
-# anything that needs guaranteed continuity.
+# failure, and (since this hits Binance testnet) never a real-money issue.
 
 on:
   schedule:
@@ -40,7 +47,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore paper-trading state
+      - name: Restore bot state
         uses: actions/cache/restore@v4
         with:
           path: logs
@@ -48,7 +55,11 @@ jobs:
           restore-keys: |
             bot-logs-
 
-      - name: Run one paper-trading cycle
+      - name: Run one bot cycle (Binance testnet)
+        env:
+          EXCHANGE_API_KEY: ${{ secrets.EXCHANGE_API_KEY }}
+          EXCHANGE_API_SECRET: ${{ secrets.EXCHANGE_API_SECRET }}
+          LIVE_TRADING_CONFIRM: "YES-I-UNDERSTAND-THE-RISK"
         run: python -m src.bot --once
         # No ANTHROPIC_API_KEY secret is passed: the Claude advisor step
         # (src/claude_advisor.py) fails *closed* by design when the key is
@@ -59,7 +70,7 @@ jobs:
       - name: Export dashboard data
         run: python scripts/export_dashboard_data.py
 
-      - name: Save paper-trading state
+      - name: Save bot state
         if: always()
         uses: actions/cache/save@v4
         with:
