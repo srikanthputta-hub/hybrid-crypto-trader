@@ -1,10 +1,28 @@
 {
-  "generated_at": "2026-09-27T09:56:50.176494+00:00",
+  "generated_at": "2026-09-27T10:03:12.252696+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
     "BTC/USDT",
-    "ETH/USDT"
+    "ETH/USDT",
+    "XRP/USDT",
+    "SOL/USDT",
+    "ADA/USDT",
+    "DOGE/USDT",
+    "AVAX/USDT",
+    "LINK/USDT",
+    "BNB/USDT",
+    "XMR/USDT",
+    "DASH/USDT",
+    "NEAR/USDT",
+    "SUI/USDT",
+    "ZEC/USDT",
+    "TAO/USDT",
+    "PEPE/USDT",
+    "WIF/USDT",
+    "HYPE/USDT",
+    "XAUT/USDT",
+    "FARTCOIN/USDT"
   ],
   "portfolio": {
     "starting_cash": 10000,
@@ -18,14 +36,14 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-27T09:56:48.881758+00:00"
+      "last_active": "2026-09-27T10:03:11.416871+00:00"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T09:56:48.881758+00:00"
+      "last_active": "2026-09-27T10:03:11.416871+00:00"
     },
     {
       "id": "trade_strategist",
@@ -83,13 +101,6 @@
   "chart": {
     "symbol": "BTC/USDT",
     "candles": [
-      {
-        "time": 1789963200,
-        "open": 81423.4,
-        "high": 81517.5,
-        "low": 81255.0,
-        "close": 81395.5
-      },
       {
         "time": 1789966800,
         "open": 81406.2,
@@ -1131,7 +1142,14 @@
         "open": 84797.6,
         "high": 84960.8,
         "low": 84596.6,
-        "close": 84901.2
+        "close": 84956.7
+      },
+      {
+        "time": 1790503200,
+        "open": 84955.7,
+        "high": 84955.7,
+        "low": 84918.9,
+        "close": 84943.5
       }
     ]
   }
