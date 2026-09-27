@@ -112,6 +112,45 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
   border-radius: 50%;
 }
 
+/* --- center screen: the desk's shared monitor, showing live one-line
+   activity for whichever role is currently working --- */
+.office-screen {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 46%;
+  aspect-ratio: 16 / 11;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #0c1830 0%, #070d1c 100%);
+  border: 2px solid var(--border);
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.5);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.office-screen.active {
+  border-color: var(--green);
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.5), 0 0 20px rgba(34, 197, 94, 0.25);
+}
+.office-screen-inner { text-align: center; max-width: 100%; }
+.office-screen-role {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.office-screen.active .office-screen-role { color: var(--green); }
+.office-screen-text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  word-break: break-word;
+}
+
 .desk {
   position: absolute;
   left: var(--x, 50%);
@@ -137,6 +176,9 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
 }
 .desk.desk-boss:hover { border-color: #fbbf24; box-shadow: 0 0 16px rgba(251,191,36,0.3); }
 .desk-crown { font-size: 14px; margin-right: 3px; }
+
+.desk.desk-disabled { opacity: 0.55; }
+.desk.desk-disabled:hover { border-color: var(--border); }
 
 .desk-avatar {
   width: 34px; height: 34px;
@@ -175,8 +217,9 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
 }
 .role-drawer-close:hover { color: var(--text); }
 .role-drawer-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; padding-right: 16px; }
-.role-drawer-status { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
-.role-drawer-owns { font-size: 12px; line-height: 1.5; }
+.role-drawer-status { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+.role-drawer-detail { font-size: 12px; line-height: 1.5; color: var(--text); margin-bottom: 10px; min-height: 1.5em; }
+.role-drawer-owns { font-size: 12px; line-height: 1.5; color: var(--muted); }
 
 @media (max-width: 640px) {
   .office-ring-wrap { max-width: 420px; }
@@ -185,17 +228,12 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
   .role-drawer { width: 190px; padding: 12px; }
 }
 
-.summary-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
 .card {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px 18px;
 }
-.stat-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
-.stat-value { font-size: 22px; font-weight: 700; }
-.stat-value.positive { color: var(--green); }
-.stat-value.negative { color: var(--red); }
 
 .chart-section { padding: 18px; }
 .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
@@ -205,29 +243,117 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
 .stars { color: #fbbf24; letter-spacing: 1px; }
 
 .live-market-section { padding: 18px; }
-.symbol-select {
+.tv-widget-container { width: 100%; height: 420px; border-radius: 8px; overflow: hidden; }
+
+/* --- custom symbol dropdown (replaces a plain <select>, so each row can
+   carry a colored live-signal dot) --- */
+.signal-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.5;
+  flex: none;
+}
+.signal-dot.open { background: var(--green); opacity: 1; box-shadow: 0 0 6px var(--green); animation: pulse 1.6s infinite; }
+.signal-dot.pending { background: #fbbf24; opacity: 1; box-shadow: 0 0 6px #fbbf24; }
+
+.signal-dot-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 10px; }
+.signal-dot-legend .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+
+.symbol-dropdown { position: relative; }
+.symbol-dropdown-btn {
+  display: flex; align-items: center; gap: 8px;
   background: var(--bg-card);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 5px 10px;
+  padding: 6px 10px;
   font-family: inherit;
   font-size: 12px;
+  cursor: pointer;
+  min-width: 160px;
 }
-.tv-widget-container { width: 100%; height: 420px; border-radius: 8px; overflow: hidden; }
+.symbol-dropdown-btn:hover { border-color: var(--accent); }
+.symbol-dropdown-label { flex: 1; text-align: left; }
+.symbol-dropdown-caret { color: var(--muted); font-size: 10px; }
+.symbol-dropdown-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 6;
+}
+.symbol-dropdown-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.symbol-dropdown-item:hover { background: rgba(255,255,255,0.04); }
+.symbol-dropdown-item.selected { background: rgba(56,189,248,0.1); color: var(--accent); }
+.symbol-dropdown-item span:nth-child(2) { flex: 1; }
+.signal-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
 
-.tables-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
-.card h3 { margin: 0 0 10px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+/* --- unified Signals panel (Active / History toggle) --- */
+.signals-card { padding: 18px; }
+.signals-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px; }
+.signals-header h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.signals-toggle { display: flex; gap: 6px; }
+.toggle-btn {
+  background: var(--bg-card);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.toggle-btn:hover { color: var(--text); }
+.toggle-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(56,189,248,0.08); }
+
+.status-badge, .kind-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.status-badge.status-open { color: var(--green); border: 1px solid var(--green); }
+.status-badge.status-pending { color: #fbbf24; border: 1px solid #fbbf24; }
+.kind-badge.kind-signal { color: var(--accent); border: 1px solid var(--accent); }
+.kind-badge.kind-filled { color: var(--green); border: 1px solid var(--green); }
+.kind-badge.kind-closed { color: var(--muted); border: 1px solid var(--border); }
+.kind-badge.kind-rejected, .kind-badge.kind-vetoed { color: var(--red); border: 1px solid var(--red); }
+
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 th { color: var(--muted); font-weight: 500; }
 tbody tr:hover { background: rgba(255,255,255,0.02); }
-.empty-row td { color: var(--muted); font-style: italic; }
+.empty-row td { color: var(--muted); font-style: italic; white-space: normal; }
 
 .footer { text-align: center; padding: 24px; }
 
 @media (max-width: 640px) {
   #chart-container { height: 260px; }
-  .roles-row { gap: 10px; }
-  .desk { min-width: 120px; padding: 10px 12px; }
+  .office-screen { width: 60%; padding: 6px 8px; }
+  .office-screen-role { font-size: 9px; }
+  .office-screen-text { font-size: 10px; }
+  .symbol-dropdown-list { min-width: 170px; }
 }

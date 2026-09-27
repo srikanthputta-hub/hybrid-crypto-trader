@@ -3,8 +3,6 @@
 // TradingView lightweight-charts panel, and the data tables. No build step,
 // no framework — this is meant to be dropped straight onto Cloudflare Pages.
 
-const fmtMoney = (n) => (n == null ? "—" : `$${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`);
-const fmtPct = (n) => (n == null ? "—" : `${(n * 100).toFixed(2)}%`);
 const fmtPrice = (n) => (n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: 6 }));
 const fmtTime = (iso) => {
   if (!iso) return "—";
@@ -28,33 +26,34 @@ const ROLE_OWNS = {
   execution_trader: "src/broker_paper.py, src/broker_live.py, src/monitor.py, src/trade_plan_store.py — order execution and the PENDING/OPEN/CLOSED lifecycle. broker_live.py is always Opus-reviewed.",
 };
 
+const STATUS_LABEL = { working: "working", disabled: "disabled" };
+const statusLabel = (status) => STATUS_LABEL[status] || "idle";
+
 function renderRoles(roles) {
   const container = document.getElementById("roles");
   container.innerHTML = "";
 
-  const boss = roles.find((r) => r.id === "boss");
-  const others = roles.filter((r) => r.id !== "boss");
   const workingCount = roles.filter((r) => r.status === "working").length;
   document.getElementById("office-status").textContent = `${workingCount}/${roles.length} working`;
 
-  const radiusPct = 40;
-  others.forEach((role, i) => {
-    const angle = (2 * Math.PI * i) / others.length - Math.PI / 2; // start at top, clockwise
+  // All roles (boss included) sit in a ring around the center screen — boss
+  // is first in the list, so it lands at the top and the rest go clockwise.
+  const radiusPct = 42;
+  roles.forEach((role, i) => {
+    const angle = (2 * Math.PI * i) / roles.length - Math.PI / 2; // start at top, clockwise
     const x = 50 + radiusPct * Math.cos(angle);
     const y = 50 + radiusPct * Math.sin(angle);
-    container.appendChild(buildDesk(role, { x: `${x}%`, y: `${y}%` }));
+    container.appendChild(buildDesk(role, { x: `${x}%`, y: `${y}%` }, role.id === "boss"));
   });
 
-  if (boss) {
-    container.appendChild(buildDesk(boss, { x: "50%", y: "50%" }, true));
-  }
+  updateOfficeScreen(roles);
 }
 
 function buildDesk(role, pos, isBoss) {
   const initials = role.label.split(" ").map((w) => w[0]).slice(0, 2).join("");
   const tierClass = `tier-${role.model_tier}`;
   const desk = document.createElement("div");
-  desk.className = "desk" + (isBoss ? " desk-boss" : "");
+  desk.className = "desk" + (isBoss ? " desk-boss" : "") + (role.status === "disabled" ? " desk-disabled" : "");
   desk.style.setProperty("--x", pos.x);
   desk.style.setProperty("--y", pos.y);
   desk.dataset.roleId = role.id;
@@ -63,7 +62,7 @@ function buildDesk(role, pos, isBoss) {
     <div class="desk-label">${isBoss ? '<span class="desk-crown">&#128081;</span>' : ""}${role.label}</div>
     <div class="desk-status">
       <span class="status-dot ${role.status === "working" ? "working" : ""}"></span>
-      ${role.status === "working" ? "working" : "idle"}
+      ${statusLabel(role.status)}
     </div>
   `;
   desk.addEventListener("click", () => showRoleDrawer(role, isBoss));
@@ -77,14 +76,54 @@ function showRoleDrawer(role, isBoss) {
   document.getElementById("role-drawer-label").textContent = role.label;
   document.getElementById("role-drawer-status").innerHTML = `
     <span class="status-dot ${role.status === "working" ? "working" : ""}"></span>
-    ${role.status === "working" ? "working" : "idle"}
+    ${statusLabel(role.status)}
     · ${role.last_active ? "last active " + fmtTime(role.last_active) : "no activity yet"}
     · ${role.model_tier.toUpperCase()} tier
   `;
+  document.getElementById("role-drawer-detail").textContent = role.detail || "";
   document.getElementById("role-drawer-owns").textContent = ROLE_OWNS[role.id] || "";
 
   const drawer = document.getElementById("role-drawer");
   drawer.hidden = false;
+}
+
+// --- center screen: cycles through whichever roles are "working" this cycle,
+// showing their live one-line detail; falls back to the boss's own status
+// (or a quiet default) when nothing is active. ---
+let screenRoles = null;
+let screenIndex = 0;
+let screenTimer = null;
+
+function updateOfficeScreen(roles) {
+  const working = roles.filter((r) => r.status === "working" && r.detail);
+  screenRoles = working.length ? working : null;
+  screenIndex = 0;
+  renderScreenFrame(roles);
+
+  if (screenTimer) clearInterval(screenTimer);
+  if (screenRoles && screenRoles.length > 1) {
+    screenTimer = setInterval(() => {
+      screenIndex = (screenIndex + 1) % screenRoles.length;
+      renderScreenFrame(roles);
+    }, 3500);
+  }
+}
+
+function renderScreenFrame(allRoles) {
+  const roleEl = document.getElementById("office-screen-role");
+  const textEl = document.getElementById("office-screen-text");
+  const screenEl = document.getElementById("office-screen");
+  if (screenRoles && screenRoles.length) {
+    const role = screenRoles[screenIndex];
+    roleEl.textContent = role.label.toUpperCase();
+    textEl.textContent = role.detail;
+    screenEl.classList.add("active");
+  } else {
+    const boss = allRoles.find((r) => r.id === "boss");
+    roleEl.textContent = "STATUS";
+    textEl.textContent = (boss && boss.detail) || "All quiet — waiting for the next cycle.";
+    screenEl.classList.remove("active");
+  }
 }
 
 function hideRoleDrawer() {
@@ -100,15 +139,6 @@ function renderSummary(data) {
   modeBadge.className = `badge mode-${data.mode}`;
 
   document.getElementById("generated-at").textContent = `snapshot: ${fmtTime(data.generated_at)}`;
-
-  document.getElementById("stat-equity").textContent = fmtMoney(data.portfolio.equity);
-  document.getElementById("stat-cash").textContent = fmtMoney(data.portfolio.cash);
-
-  const pnlEl = document.getElementById("stat-pnl");
-  pnlEl.textContent = fmtPct(data.portfolio.pnl_pct);
-  pnlEl.className = "stat-value " + (data.portfolio.pnl_pct > 0 ? "positive" : data.portfolio.pnl_pct < 0 ? "negative" : "");
-
-  document.getElementById("stat-positions").textContent = `${data.positions.length} / ${data.pending.length}`;
 }
 
 function renderTable(tableId, rows, columns, emptyMessage) {
@@ -125,66 +155,58 @@ function renderTable(tableId, rows, columns, emptyMessage) {
   }
 }
 
-function renderPositions(positions) {
+function renderActiveSignals(positions, pending) {
+  const rows = [
+    ...positions.map((r) => ({ ...r, statusLabel: "OPEN" })),
+    ...pending.map((r) => ({ ...r, statusLabel: "PENDING" })),
+  ];
   renderTable(
-    "table-positions",
-    positions,
+    "table-signals-active",
+    rows,
     [
       (r) => r.symbol,
+      (r) => `<span class="status-badge status-${r.statusLabel.toLowerCase()}">${r.statusLabel}</span>`,
       (r) => r.pattern ?? "—",
-      (r) => fmtPrice(r.fill_price),
+      (r) =>
+        r.statusLabel === "OPEN"
+          ? fmtPrice(r.fill_price)
+          : r.entry_zone
+          ? `${fmtPrice(r.entry_zone[0])} – ${fmtPrice(r.entry_zone[1])}`
+          : "—",
       (r) => fmtPrice(r.stop_loss),
       (r) => fmtPrice(r.take_profit),
-      (r) => fmtPrice(r.invalidation),
-      (r) => (r.unrealized_pnl_pct == null ? "—" : `<span style="color:${r.unrealized_pnl_pct >= 0 ? "#22c55e" : "#ef4444"}">${fmtPct(r.unrealized_pnl_pct)}</span>`),
-      (r) => `${stars(r.confidence_rule_based)} / ${stars(r.confidence_claude)}`,
+      (r) => stars(r.confidence_rule_based),
     ],
-    "No open positions right now."
+    "No active signals right now — the bot is still watching."
   );
 }
 
-function renderPending(pending) {
-  renderTable(
-    "table-pending",
-    pending,
-    [
-      (r) => r.symbol,
-      (r) => r.pattern ?? "—",
-      (r) => (r.entry_zone ? `${fmtPrice(r.entry_zone[0])} – ${fmtPrice(r.entry_zone[1])}` : "—"),
-      (r) => fmtPrice(r.stop_loss),
-      (r) => fmtPrice(r.take_profit),
-      (r) => fmtPrice(r.invalidation),
-      (r) => `${stars(r.confidence_rule_based)} / ${stars(r.confidence_claude)}`,
-    ],
-    "No pending plans waiting to fill."
-  );
-}
+const HISTORY_KIND_LABEL = { signal: "Signal", filled: "Bought", closed: "Closed", rejected: "Rejected", vetoed: "Vetoed" };
 
-function renderCandidates(recentCandidates) {
+function renderSignalHistory(history) {
   renderTable(
-    "table-candidates",
-    recentCandidates,
+    "table-signals-history",
+    history,
     [
       (r) => fmtTime(r.timestamp),
       (r) => r.symbol,
-      (r) => r.candidates.map((c) => `${c.pattern} (${c.direction}, ${c.strength.toFixed(2)})`).join(", ") || "none",
+      (r) => `<span class="kind-badge kind-${r.kind}">${HISTORY_KIND_LABEL[r.kind] || r.kind}</span>`,
+      (r) => r.summary,
     ],
-    "No scanner activity recorded yet."
+    "No signal history recorded yet."
   );
 }
 
-function renderRiskDecisions(recentRiskDecisions) {
-  renderTable(
-    "table-risk",
-    recentRiskDecisions,
-    [
-      (r) => fmtTime(r.timestamp),
-      (r) => r.symbol,
-      (r) => (r.allowed ? '<span style="color:#22c55e">yes</span>' : '<span style="color:#ef4444">no</span>'),
-      (r) => r.reason,
-    ],
-    "No risk engine decisions recorded yet."
-  );
+function initSignalsToggle() {
+  const buttons = document.querySelectorAll("#signals-toggle .toggle-btn");
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      buttons.forEach((b) => b.classList.toggle("active", b === btn));
+      const view = btn.dataset.view;
+      document.getElementById("table-signals-active").hidden = view !== "active";
+      document.getElementById("table-signals-history").hidden = view !== "history";
+    });
+  });
 }
 
 function renderChart(chart) {
@@ -300,17 +322,54 @@ function renderTradingViewWidget(tvSymbol) {
   });
 }
 
-function initLiveMarket(data) {
-  const exchangeId = data.exchange_id || "binance";
-  const symbols = data.symbols && data.symbols.length ? data.symbols : ["BTC/USDT"];
+function symbolSignalStatus(symbol, positions, pending) {
+  if (positions.some((p) => p.symbol === symbol)) return "open";
+  if (pending.some((p) => p.symbol === symbol)) return "pending";
+  return "none";
+}
 
-  const select = document.getElementById("tv-symbol-select");
-  select.innerHTML = symbols.map((s) => `<option value="${s}">${s}</option>`).join("");
-  select.addEventListener("change", () => {
-    renderTradingViewWidget(toTradingViewSymbol(exchangeId, select.value));
+function selectSymbol(exchangeId, symbol, status) {
+  document.getElementById("symbol-dropdown-label").textContent = symbol;
+  document.getElementById("symbol-dropdown-dot").className = `signal-dot ${status === "none" ? "" : status}`;
+  document.querySelectorAll(".symbol-dropdown-item").forEach((el) => el.classList.toggle("selected", el.dataset.symbol === symbol));
+  document.getElementById("symbol-dropdown-list").hidden = true;
+  renderTradingViewWidget(toTradingViewSymbol(exchangeId, symbol));
+}
+
+function initLiveMarket(data) {
+  const exchangeId = data.exchange_id || "kraken";
+  const symbols = data.symbols && data.symbols.length ? data.symbols : ["BTC/USDT"];
+  const positions = data.positions || [];
+  const pending = data.pending || [];
+
+  const btn = document.getElementById("symbol-dropdown-btn");
+  const list = document.getElementById("symbol-dropdown-list");
+
+  list.innerHTML = symbols
+    .map((s) => {
+      const status = symbolSignalStatus(s, positions, pending);
+      return `<div class="symbol-dropdown-item" data-symbol="${s}">
+        <span class="signal-dot ${status === "none" ? "" : status}"></span>
+        <span>${s}</span>
+        ${status !== "none" ? `<span class="signal-tag">${status}</span>` : ""}
+      </div>`;
+    })
+    .join("");
+
+  list.querySelectorAll(".symbol-dropdown-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      selectSymbol(exchangeId, item.dataset.symbol, symbolSignalStatus(item.dataset.symbol, positions, pending));
+    });
   });
 
-  renderTradingViewWidget(toTradingViewSymbol(exchangeId, symbols[0]));
+  btn.addEventListener("click", () => {
+    list.hidden = !list.hidden;
+  });
+  document.addEventListener("click", (e) => {
+    if (!document.getElementById("symbol-dropdown").contains(e.target)) list.hidden = true;
+  });
+
+  selectSymbol(exchangeId, symbols[0], symbolSignalStatus(symbols[0], positions, pending));
 }
 
 async function main() {
@@ -326,11 +385,11 @@ async function main() {
   renderSummary(data);
   initLiveMarket(data);
   renderRoles(data.roles);
-  renderPositions(data.positions);
-  renderPending(data.pending);
-  renderCandidates(data.recent_candidates);
-  renderRiskDecisions(data.recent_risk_decisions);
+  renderActiveSignals(data.positions, data.pending);
+  renderSignalHistory(data.signal_history || []);
   renderChart(data.chart);
 }
+
+initSignalsToggle();
 
 main();
