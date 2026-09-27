@@ -24,7 +24,7 @@ name: Refresh dashboard data
 
 on:
   schedule:
-    - cron: "*/15 * * * *" # every 15 minutes — adjust freely, GitHub Actions doesn't guarantee exact timing anyway
+    - cron: "*/5 * * * *" # every 5 minutes — the shortest interval GitHub Actions reliably honors on a hosted runner; adjust freely, exact timing still isn't guaranteed
   workflow_dispatch: {} # manual "Run workflow" button for on-demand refresh
 
 permissions:
