@@ -72,6 +72,8 @@ scanner:
   reversal_swing_lookback: 10
   reversal_rsi_oversold: 30
   reversal_rsi_overbought: 70
+  adx_trend_threshold: 25   # Wilder ADX convention: >=25 confirms a real/sustainable trend (used as a
+                            # strength bonus, not a hard gate — see src/scanner.py)
 
 # Pipeline stage 2 — "filters noise and generates high-probability trade signals."
 signal_engine:

@@ -103,3 +103,93 @@ def test_reversal_bullish_detected_after_capitulation_and_snapback():
     df = _enrich(_make_df(closes, opens=opens, highs=highs, lows=lows))
     hits = _patterns(scan(df, {}), "REVERSAL", "bullish")
     assert len(hits) == 1
+    # This fixture is plain capitulation (one continuous decline into the
+    # reversal candle), not real two-swing RSI divergence — see
+    # test_reversal_bullish_with_real_divergence_scores_higher_than_without below.
+    assert hits[0].details["divergence"] is False
+
+
+def test_breakout_adx_confirmed_trend_scores_higher_than_choppy_breakout():
+    """Same-shaped breakout (decisive close above resistance, 3x volume) but one
+    fixture's preceding history is a strong sustained uptrend (high ADX) and the
+    other's is a flat chop (low ADX). ADX confirmation should be a strength
+    bonus on the trending case, not a gate — both still fire as BREAKOUT."""
+    jump = 1.5
+
+    # Choppy history: oscillates with no sustained direction -> low ADX.
+    choppy_closes = [100 + (i % 3 - 1) * 0.5 for i in range(45)]
+    choppy_closes.append(choppy_closes[-1] + jump)
+    choppy_volumes = [100.0] * 45 + [300.0]  # 3x average volume confirms it
+    choppy_highs = [c * 1.002 for c in choppy_closes[:-1]] + [choppy_closes[-1] + 0.2]
+    choppy_lows = [c * 0.998 for c in choppy_closes[:-1]] + [choppy_closes[-1] - 0.2]
+    choppy_df = _enrich(_make_df(choppy_closes, choppy_volumes, choppy_highs, choppy_lows))
+    choppy_hits = _patterns(scan(choppy_df, {}), "BREAKOUT", "bullish")
+
+    # Trending history: a clean 30-bar uptrend then a short tail -> high ADX.
+    trend_closes = [100 + 0.6 * i for i in range(30)]
+    trend_closes += [trend_closes[-1] + (i % 3 - 1) * 0.5 for i in range(15)]
+    trend_closes.append(max(trend_closes[-20:]) + jump)
+    trend_volumes = [100.0] * 45 + [300.0]
+    trend_highs = [c * 1.002 for c in trend_closes[:-1]] + [trend_closes[-1] + 0.2]
+    trend_lows = [c * 0.998 for c in trend_closes[:-1]] + [trend_closes[-1] - 0.2]
+    trend_df = _enrich(_make_df(trend_closes, trend_volumes, trend_highs, trend_lows))
+    trend_hits = _patterns(scan(trend_df, {}), "BREAKOUT", "bullish")
+
+    assert len(choppy_hits) == 1 and len(trend_hits) == 1
+    assert choppy_hits[0].details["adx"] < 25
+    assert trend_hits[0].details["adx"] >= 25
+    assert trend_hits[0].strength > choppy_hits[0].strength
+
+
+def test_reversal_bullish_with_real_divergence_scores_higher_than_without():
+    """A genuine two-swing bullish RSI divergence (second low undercuts the
+    first swing low, but RSI at the second low is higher than RSI was at the
+    first) should score higher than an otherwise-equivalent plain capitulation
+    reversal with no real divergence, at the same swing_lookback."""
+    swing_lookback = 14
+    cfg = {"reversal_swing_lookback": swing_lookback}
+
+    # Two-leg structure: sharp leg down (deep oversold swing low) -> bounce ->
+    # mild leg down -> reversal candle that ekes out a marginal new low just
+    # under the first swing low, while RSI has recovered well off its floor.
+    closes = [100.0] * 20
+    for _ in range(4):
+        closes.append(closes[-1] * (1 - 0.035))  # leg 1: sharp decline
+    leg1_low = closes[-1]
+    for _ in range(5):
+        closes.append(closes[-1] * (1 + 0.02))  # bounce
+    for _ in range(5):
+        closes.append(closes[-1] * (1 - 0.006))  # leg 2: mild decline
+    opens = list(closes)
+    highs = [c * 1.001 for c in closes]
+    lows = [c * 0.999 for c in closes]
+    new_low = leg1_low * (1 - 0.003)  # marginal new low, just under leg 1's low
+    rev_close = closes[-1] * (1 + 0.02)
+    closes.append(rev_close)
+    opens.append(new_low * 1.001)
+    lows.append(new_low)
+    highs.append(rev_close * 1.001)
+    divergence_df = _enrich(_make_df(closes, opens=opens, highs=highs, lows=lows))
+    divergence_hits = _patterns(scan(divergence_df, cfg), "REVERSAL", "bullish")
+
+    # Matched, same-length plain capitulation: one continuous decline straight
+    # into the reversal candle (no real second swing) -> no divergence.
+    closes2 = [100.0] * 20
+    for _ in range(swing_lookback):
+        closes2.append(closes2[-1] * (1 - 0.015))
+    opens2 = list(closes2)
+    highs2 = [c * 1.001 for c in closes2]
+    lows2 = [c * 0.999 for c in closes2]
+    new_low2 = closes2[-1] * 0.995
+    rev_close2 = closes2[-1] * 1.02
+    closes2.append(rev_close2)
+    opens2.append(new_low2)
+    lows2.append(new_low2 * 0.999)
+    highs2.append(rev_close2 * 1.001)
+    plain_df = _enrich(_make_df(closes2, opens=opens2, highs=highs2, lows=lows2))
+    plain_hits = _patterns(scan(plain_df, cfg), "REVERSAL", "bullish")
+
+    assert len(divergence_hits) == 1 and len(plain_hits) == 1
+    assert divergence_hits[0].details["divergence"] is True
+    assert plain_hits[0].details["divergence"] is False
+    assert divergence_hits[0].strength > plain_hits[0].strength

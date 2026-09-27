@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.indicators import ema, rsi, sma
+from src.indicators import adx, ema, rsi, sma
 
 
 def test_sma_basic():
@@ -36,3 +36,25 @@ def test_rsi_flat_series_is_neutral():
     s = pd.Series([100.0] * 30)
     out = rsi(s, period=14)
     assert 45 <= out.iloc[-1] <= 55
+
+
+def _ohlc(closes):
+    return pd.DataFrame(
+        {
+            "high": [c * 1.002 for c in closes],
+            "low": [c * 0.998 for c in closes],
+            "close": closes,
+        }
+    )
+
+
+def test_adx_high_on_a_strong_sustained_trend():
+    closes = [100 + 0.6 * i for i in range(40)]  # clean, persistent uptrend
+    out = adx(_ohlc(closes), period=14)
+    assert out.iloc[-1] >= 25  # Wilder convention: >=25 confirms a real trend
+
+
+def test_adx_low_on_a_choppy_directionless_market():
+    closes = [100 + (i % 3 - 1) * 0.5 for i in range(40)]  # oscillates, no net direction
+    out = adx(_ohlc(closes), period=14)
+    assert out.iloc[-1] < 20  # Wilder convention: <20 is choppy/directionless
