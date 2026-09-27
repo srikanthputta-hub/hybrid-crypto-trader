@@ -86,8 +86,17 @@ jobs:
 
       - name: Commit and push refreshed dashboard data
         run: |
+          # Do NOT add [skip ci] to this commit message. This workflow only
+          # triggers on schedule/workflow_dispatch (see `on:` above), never on
+          # push, so [skip ci] buys nothing here -- but Cloudflare Workers
+          # Build also scans commit messages for that tag and skips deploying
+          # any commit that carries it. With it, every single automated
+          # data.json refresh was silently never reaching production; the
+          # live site only ever updated at PR-merge commits. Found and fixed
+          # 2026-09-27 after live signal charts kept showing stale/empty data
+          # despite web/data.json on `main` being correct.
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add web/data.json
-          git diff --cached --quiet || git commit -m "chore: refresh dashboard data [skip ci]"
+          git diff --cached --quiet || git commit -m "chore: refresh dashboard data"
           git push
