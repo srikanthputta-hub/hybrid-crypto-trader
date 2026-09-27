@@ -21,7 +21,11 @@ Checks, matching the risk-engine design this bot follows:
                           more than max_loss_per_trade_pct of total equity.
   5. MARKET VOLATILITY  — rejects new entries when ATR as a fraction of price
                           exceeds max_volatility_pct (too chaotic to size risk
-                          sensibly right now).
+                          sensibly right now). Below that hard cutoff, the
+                          per-trade risk budget is also tapered down as ATR
+                          climbs from half of max_volatility_pct up to the
+                          cap (to volatility_scale_floor at the cap) — this
+                          can only ever shrink a position, never grow one.
 
 Plus the account-level guards from before: symbol whitelist, daily loss limit,
 per-symbol cooldown, and a kill switch file. Selling (closing an existing
@@ -30,6 +34,7 @@ possible, even during a kill switch or a daily-loss halt.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -57,7 +62,15 @@ class RiskEngine:
         symbol_whitelist: list[str],
         stop_loss_pct: float = 0.03,
         take_profit_pct: float = 0.06,
+        volatility_scale_floor: float = 0.5,
     ) -> None:
+        # A floor above 1.0 would *enlarge* positions in volatile markets, and a
+        # negative/non-finite one is meaningless — refuse to start rather than guess.
+        if not (math.isfinite(volatility_scale_floor) and 0.0 <= volatility_scale_floor <= 1.0):
+            raise ValueError(
+                f"volatility_scale_floor must be a finite number in [0, 1], got {volatility_scale_floor!r}"
+            )
+        self.volatility_scale_floor = volatility_scale_floor
         self.starting_cash_usd = starting_cash_usd
         self.max_position_pct = max_position_pct
         self.max_total_exposure_pct = max_total_exposure_pct
@@ -82,6 +95,35 @@ class RiskEngine:
         if self._day_start_date != today:
             self._day_start_date = today
             self._day_start_equity = current_equity
+
+    def _volatility_scale(self, atr_pct: float | None) -> float:
+        """Multiplier in [volatility_scale_floor, 1.0] applied to the per-trade risk budget.
+
+        1.0 while ATR/price is at or below half of max_volatility_pct, then a linear
+        taper down to volatility_scale_floor as ATR/price reaches max_volatility_pct
+        (volatility-based sizing: shrink size as volatility rises). Never exceeds 1.0,
+        so it can only ever shrink a position relative to unscaled sizing.
+        """
+        if atr_pct is None:
+            return 1.0
+        floor = self.volatility_scale_floor
+        max_vol = self.max_volatility_pct
+        # Fail closed on NaN/inf: a NaN scale would make risk_sized_spend NaN, and
+        # min(spend, nan) silently returns spend — i.e. it would *drop* the per-trade
+        # risk cap. Treat non-finite inputs as maximally uncertain instead.
+        if not math.isfinite(atr_pct) or not math.isfinite(max_vol):
+            return floor
+        if max_vol <= 0:
+            return 1.0
+        lower = 0.5 * max_vol
+        if atr_pct <= lower:
+            return 1.0
+        if atr_pct >= max_vol:
+            return floor
+        frac = (atr_pct - lower) / (max_vol - lower)
+        scale = 1.0 - frac * (1.0 - floor)
+        # Clamp against float rounding so the result can never leave [floor, 1.0].
+        return min(1.0, max(floor, scale))
 
     def check_new_trade(
         self,
@@ -144,7 +186,7 @@ class RiskEngine:
         if entry_price is not None and stop_loss is not None and entry_price > stop_loss:
             stop_distance_pct = (entry_price - stop_loss) / entry_price
             if stop_distance_pct > 0:
-                risk_budget_usd = portfolio_equity * self.max_loss_per_trade_pct
+                risk_budget_usd = portfolio_equity * self.max_loss_per_trade_pct * self._volatility_scale(atr_pct)
                 risk_sized_spend = risk_budget_usd / stop_distance_pct
                 spend = min(spend, risk_sized_spend)
 
