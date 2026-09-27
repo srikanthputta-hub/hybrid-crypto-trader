@@ -116,6 +116,27 @@ def _maybe_notify(cfg: Config, event: dict) -> None:
         )
 
 
+def _send_heartbeat(cfg: Config, current_prices: dict[str, float], portfolio: Portfolio, equity: float) -> None:
+    """Sends one per-cycle Telegram status update (current prices + portfolio equity),
+    regardless of whether anything actionable happened this cycle -- distinct from
+    _maybe_notify's event-driven alerts. No-ops if Telegram isn't configured, or if
+    market data failed for every symbol this cycle (nothing useful to report)."""
+    bot_token, chat_id = cfg.telegram_bot_token, cfg.telegram_chat_id
+    if not bot_token or not chat_id or not current_prices:
+        return
+
+    starting_cash = cfg.risk["starting_cash_usd"]
+    pnl_pct = (equity - starting_cash) / starting_cash if starting_cash else 0.0
+    price_lines = "\n".join(f"{symbol}: {price:,.2f}" for symbol, price in current_prices.items())
+    notifier.send_telegram_message(
+        bot_token,
+        chat_id,
+        f"📊 *Heartbeat* (mode={cfg.mode})\n"
+        f"{price_lines}\n"
+        f"Equity: {equity:,.2f}  Cash: {portfolio.cash:,.2f}  PnL: {pnl_pct:+.2%}",
+    )
+
+
 def _execute_monitor_action(action, record, broker, store, risk_engine, event) -> None:
     event["monitor_action"] = action.__dict__
     if action.action == "FILL":
@@ -153,6 +174,7 @@ def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfol
             logger.exception("failed to fetch/enrich market data for %s", symbol)
 
     equity = portfolio.equity(current_prices)
+    _send_heartbeat(cfg, current_prices, portfolio, equity)
 
     for symbol in cfg.symbols:
         event: dict = {"symbol": symbol, "mode": cfg.mode, "timestamp": now_iso()}
