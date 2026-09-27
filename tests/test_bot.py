@@ -46,9 +46,12 @@ def test_new_plan_sends_signal_notification():
         _maybe_notify(CONFIGURED, event)
     mock_send.assert_called_once()
     text = mock_send.call_args[0][2]
-    assert "New signal" in text
+    assert "BUY signal" in text
     assert "BTC/USDT" in text
     assert "BREAKOUT" in text
+    assert "$49,500.00" in text and "$50,000.00" in text  # entry zone
+    assert "$48,000.00" in text  # stop-loss
+    assert "$53,000.00" in text  # target
 
 
 def test_fill_sends_filled_notification():
@@ -62,8 +65,8 @@ def test_fill_sends_filled_notification():
         _maybe_notify(CONFIGURED, event)
     mock_send.assert_called_once()
     text = mock_send.call_args[0][2]
-    assert "Filled" in text
-    assert "50000.0" in text
+    assert "Bought" in text
+    assert "$50,000.00" in text
 
 
 def test_stop_loss_close_sends_closed_notification():
@@ -77,8 +80,25 @@ def test_stop_loss_close_sends_closed_notification():
         _maybe_notify(CONFIGURED, event)
     mock_send.assert_called_once()
     text = mock_send.call_args[0][2]
-    assert "Closed" in text
-    assert "STOP_LOSS" in text
+    assert "closed" in text
+    assert "Stop-loss hit" in text
+    assert "$47,000.00" in text
+
+
+def test_take_profit_close_sends_closed_notification():
+    event = {
+        "symbol": "BTC/USDT",
+        "action": "none",
+        "monitor_action": {"action": "TAKE_PROFIT"},
+        "execution": {"price": 53000.0, "base_amount": 0.01},
+    }
+    with patch("src.bot.notifier.send_telegram_message") as mock_send:
+        _maybe_notify(CONFIGURED, event)
+    mock_send.assert_called_once()
+    text = mock_send.call_args[0][2]
+    assert "closed" in text
+    assert "Target reached" in text
+    assert "$53,000.00" in text
 
 
 def test_discard_sends_nothing():
@@ -114,3 +134,16 @@ def test_heartbeat_sends_prices_and_equity():
     assert "ETH/USDT" in text and "3,000.00" in text
     assert "9,000.00" in text  # cash
     assert "+5.00%" in text  # pnl_pct vs starting_cash_usd=10000
+
+
+def test_heartbeat_formats_sub_dollar_prices_readably():
+    # A fixed 2-decimal format would render this as "$0.00" -- useless for a
+    # sub-cent coin. _fmt_price should keep it readable instead.
+    portfolio = Portfolio(cash=10000)
+    prices = {"SHIB/USDT": 0.00001234}
+    with patch("src.bot.notifier.send_telegram_message") as mock_send:
+        _send_heartbeat(HEARTBEAT_CONFIGURED, prices, portfolio, 10000.0)
+    mock_send.assert_called_once()
+    text = mock_send.call_args[0][2]
+    assert "SHIB/USDT: $0.00\n" not in text
+    assert "SHIB/USDT: $0.000012" in text

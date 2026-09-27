@@ -77,33 +77,51 @@ def build_components(cfg: Config):
     return exchange, risk_engine, portfolio, broker, store, audit
 
 
+def _fmt_price(price: float) -> str:
+    """USD-formats a price with enough decimals to stay readable at any scale --
+    a fixed 2 decimals reads as "$0.00" for a sub-cent coin like SHIB, which is
+    useless. $1+ gets 2 decimals, 1c-$1 gets 4, anything smaller gets 6."""
+    if price >= 1:
+        return f"${price:,.2f}"
+    if price >= 0.01:
+        return f"${price:,.4f}"
+    return f"${price:,.6f}"
+
+
 def _maybe_notify(cfg: Config, event: dict) -> None:
     """Sends a Telegram message for the events worth interrupting someone's day for:
-    a new signal, a fill, or a close. Everything else (no-op cycles, discards,
-    vetoes) stays in the audit log only. No-ops entirely if Telegram isn't configured
-    (see src/notifier.py)."""
+    a new signal, a fill, or a close. Plain-language/USD-formatted, since these are
+    read by a person deciding whether to place the same trade on their own exchange,
+    not just logged for a machine. Everything else (no-op cycles, discards, vetoes)
+    stays in the audit log only. No-ops entirely if Telegram isn't configured (see
+    src/notifier.py)."""
     bot_token, chat_id = cfg.telegram_bot_token, cfg.telegram_chat_id
     if not bot_token or not chat_id:
         return
 
     if event.get("action") == "planned" and "plan" in event:
         plan = event["plan"]
+        entry_low, entry_high = plan.get("entry_zone", (None, None))
         notifier.send_telegram_message(
             bot_token,
             chat_id,
-            f"🔔 *New signal*: {event['symbol']} — {plan.get('pattern')}\n"
-            f"Entry: {plan.get('entry_zone')}\n"
-            f"Stop: {plan.get('stop_loss')}  Target: {plan.get('take_profit')}\n"
-            f"R:R 1:{plan.get('risk_reward')}  Confidence: {plan.get('rule_based_confidence_stars')}★",
+            f"🔔 *BUY signal*: {event['symbol']} ({plan.get('pattern')})\n"
+            f"Buy between {_fmt_price(entry_low)} and {_fmt_price(entry_high)}\n"
+            f"Stop-loss: {_fmt_price(plan.get('stop_loss'))} (sell here to cap the loss)\n"
+            f"Target: {_fmt_price(plan.get('take_profit'))} (take profit here)\n"
+            f"Risk:Reward 1:{plan.get('risk_reward')}  Confidence: {plan.get('rule_based_confidence_stars')}/5",
         )
 
     execution = event.get("execution")
     monitor_action = (event.get("monitor_action") or {}).get("action")
     if execution and monitor_action in ("STOP_LOSS", "TAKE_PROFIT"):
+        reason = "Stop-loss hit" if monitor_action == "STOP_LOSS" else "Target reached"
         notifier.send_telegram_message(
             bot_token,
             chat_id,
-            f"🏁 *Closed* ({monitor_action}): {event['symbol']} @ {execution.get('price')}",
+            f"🏁 *SELL* — trade closed: {event['symbol']}\n"
+            f"Reason: {reason}\n"
+            f"Price: {_fmt_price(execution.get('price'))}",
         )
     elif execution:
         # A monitor-triggered FILL, or the immediate-fill-on-plan path (monitor_action is
@@ -111,8 +129,8 @@ def _maybe_notify(cfg: Config, event: dict) -> None:
         notifier.send_telegram_message(
             bot_token,
             chat_id,
-            f"✅ *Filled*: {event['symbol']} @ {execution.get('price')} "
-            f"(amount {execution.get('base_amount')})",
+            f"✅ *Bought*: {event['symbol']}\n"
+            f"Price: {_fmt_price(execution.get('price'))}  Amount: {execution.get('base_amount')}",
         )
 
 
@@ -127,7 +145,7 @@ def _send_heartbeat(cfg: Config, current_prices: dict[str, float], portfolio: Po
 
     starting_cash = cfg.risk["starting_cash_usd"]
     pnl_pct = (equity - starting_cash) / starting_cash if starting_cash else 0.0
-    price_lines = "\n".join(f"{symbol}: {price:,.2f}" for symbol, price in current_prices.items())
+    price_lines = "\n".join(f"{symbol}: {_fmt_price(price)}" for symbol, price in current_prices.items())
     notifier.send_telegram_message(
         bot_token,
         chat_id,
