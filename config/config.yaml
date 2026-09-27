@@ -22,10 +22,17 @@ market:
                             # against USD. Kraken's API is network-blocked from this dev
                             # sandbox, so this list was built by testing against the real
                             # exchange via GitHub Actions rather than by static lookup.
-                            # Confirmed dead so far (do not re-add without re-testing): DASH,
-                            # NEAR, SUI, ZEC, TAO, PEPE, WIF, HYPE, TRX, ETC, XLM, UNI, FIL, APT,
-                            # ICP (kraken has no ICP/USDT market via ccxt; dropped 2026-09-27 --
-                            # settled at 19 confirmed-working symbols rather than chasing a 20th).
+                            # Confirmed dead on Kraken/ccxt so far (do not re-add without
+                            # re-testing): DASH, NEAR, SUI, ZEC, TAO, PEPE, WIF, HYPE, TRX, ETC,
+                            # XLM, UNI, FIL, APT, ICP (dropped 2026-09-27 -- no Kraken ccxt
+                            # /USDT market).
+                            # XMR, XAUT, and FARTCOIN were removed 2026-09-27 for a different
+                            # reason -- not a Kraken/ccxt problem, they worked fine there -- the
+                            # user couldn't find them on Revolut X (the exchange they actually
+                            # trade these signals on manually), so they're not useful watchlist
+                            # entries for this user even though the bot itself could still scan
+                            # them. Settled at 16 symbols rather than chasing further
+                            # replacements. Re-add either if that changes.
                             # If a symbol below ever starts failing, that's Kraken's own
                             # listings changing, not a bug here (a failing symbol just gets
                             # logged and skipped per-cycle, never blocks the rest -- see
@@ -39,9 +46,6 @@ market:
     - "AVAX/USDT"
     - "LINK/USDT"
     - "BNB/USDT"
-    - "XMR/USDT"
-    - "XAUT/USDT"
-    - "FARTCOIN/USDT"
     - "LTC/USDT"
     - "DOT/USDT"
     - "ATOM/USDT"
