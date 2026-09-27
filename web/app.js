@@ -1,7 +1,8 @@
 // Static dashboard renderer. Reads ./data.json (produced by
-// scripts/export_dashboard_data.py) and renders the office view, the
-// TradingView lightweight-charts panel, and the data tables. No build step,
-// no framework — this is meant to be dropped straight onto Cloudflare Pages.
+// scripts/export_dashboard_data.py) and renders the office view, the live
+// TradingView chart (with a selected signal's plan levels overlaid via
+// TradingView's own widget API), and the data tables. No build step, no
+// framework — this is meant to be dropped straight onto Cloudflare Pages.
 
 const fmtPrice = (n) => (n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: 6 }));
 const fmtTime = (iso) => {
@@ -187,7 +188,7 @@ function renderActiveSignals(positions, pending, onSelect) {
     "No active signals right now — the bot is still watching.",
     onSelect ? (row) => onSelect(row.symbol) : null
   );
-  markActiveSignalRow(currentChartSymbol);
+  markActiveSignalRow(currentSymbol);
 }
 
 function markActiveSignalRow(symbol) {
@@ -232,110 +233,11 @@ function initSignalsToggle() {
   });
 }
 
-// --- chart selection: the "Latest Trade Plan" chart follows whichever
-// active-signal row the user clicks, instead of being locked to one symbol. ---
-let currentCharts = {};
-let currentChartSymbol = null;
-
-function selectChartSymbol(symbol) {
-  currentChartSymbol = symbol;
-  renderChart(currentCharts[symbol]);
-  markActiveSignalRow(symbol);
-}
-
-function initChartSelection(data) {
-  currentCharts = data.charts || {};
-  const symbols = Object.keys(currentCharts);
-  currentChartSymbol = symbols.length ? symbols[0] : null;
-  renderChart(currentChartSymbol ? currentCharts[currentChartSymbol] : null);
-}
-
-// Single chart instance, torn down and rebuilt on every renderChart() call --
-// this now fires each time the user clicks a different signal row, not just
-// once at page load, so the old chart must be disposed first or the library
-// stacks a new canvas on top of the previous one instead of replacing it.
-let lwcInstance = null;
-
-function renderChart(chart) {
-  const emptyEl = document.getElementById("chart-empty");
-  const containerEl = document.getElementById("chart-container");
-  const confEl = document.getElementById("chart-confidence");
-  const titleEl = document.getElementById("chart-symbol");
-
-  if (lwcInstance) {
-    lwcInstance.remove();
-    lwcInstance = null;
-  }
-  containerEl.innerHTML = "";
-
-  if (!chart || !chart.candles || !chart.candles.length) {
-    containerEl.style.display = "none";
-    emptyEl.style.display = "block";
-    titleEl.textContent = "Latest Trade Plan";
-    confEl.innerHTML = "";
-    return;
-  }
-  if (typeof LightweightCharts === "undefined") {
-    containerEl.style.display = "none";
-    emptyEl.style.display = "block";
-    emptyEl.textContent = "Chart library failed to load from the CDN (network issue or blocked script) — the tables below still reflect the latest data.";
-    titleEl.textContent = `${chart.symbol} — ${chart.plan ? chart.plan.pattern : "no active plan"}`;
-    confEl.innerHTML = "";
-    return;
-  }
-  containerEl.style.display = "block";
-  emptyEl.style.display = "none";
-  titleEl.textContent = `${chart.symbol} — ${chart.plan ? chart.plan.pattern : "no active plan"}`;
-
-  const lwc = LightweightCharts.createChart(containerEl, {
-    layout: { background: { color: "transparent" }, textColor: "#e6edf7" },
-    grid: { vertLines: { color: "#22314e" }, horzLines: { color: "#22314e" } },
-    timeScale: { timeVisible: true, secondsVisible: false },
-    width: containerEl.clientWidth,
-    height: 360,
-  });
-  const series = lwc.addCandlestickSeries({
-    upColor: "#22c55e", downColor: "#ef4444", borderVisible: false,
-    wickUpColor: "#22c55e", wickDownColor: "#ef4444",
-  });
-  series.setData(chart.candles);
-
-  if (chart.plan) {
-    const p = chart.plan;
-    const lines = [
-      { price: p.take_profit, color: "#22c55e", title: "TAKE PROFIT" },
-      { price: p.entry_zone ? p.entry_zone[1] : null, color: "#38bdf8", title: "ENTRY HIGH" },
-      { price: p.entry_zone ? p.entry_zone[0] : null, color: "#38bdf8", title: "ENTRY LOW" },
-      { price: p.stop_loss, color: "#ef4444", title: "STOP LOSS" },
-      { price: p.invalidation, color: "#7b8bab", title: "INVALIDATION" },
-    ];
-    for (const line of lines) {
-      if (line.price == null) continue;
-      series.createPriceLine({
-        price: line.price, color: line.color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
-        axisLabelVisible: true, title: line.title,
-      });
-    }
-    confEl.innerHTML = `
-      <span>Risk/Reward: <strong>1 : ${p.risk_reward ?? "—"}</strong></span>
-      <span>Rule-based confidence: <span class="stars">${stars(p.confidence_rule_based)}</span></span>
-      <span>Claude confidence: <span class="stars">${stars(p.confidence_claude)}</span></span>
-    `;
-  } else {
-    confEl.innerHTML = "";
-  }
-
-  lwc.timeScale().fitContent();
-  lwcInstance = lwc;
-}
-
-// One persistent resize listener (not re-added per renderChart() call) that
-// always resizes whatever the current chart instance is, if any.
-window.addEventListener("resize", () => {
-  if (!lwcInstance) return;
-  const containerEl = document.getElementById("chart-container");
-  lwcInstance.applyOptions({ width: containerEl.clientWidth });
-});
+// --- Live Market: one TradingView chart that follows whichever symbol is
+// picked from the dropdown or clicked in the Signals panel's Active tab. If
+// that symbol has an active plan, its entry/stop/target/invalidation levels
+// are drawn as order lines directly on the TradingView chart (via its widget
+// API) instead of a separate candle chart. ---
 
 // Exchange id (ccxt) -> TradingView exchange prefix. Falls back to an
 // uppercased exchange id for anything not listed, which is correct for most
@@ -357,8 +259,61 @@ function toTradingViewSymbol(exchangeId, symbol) {
 }
 
 let tvWidget = null;
+let exchangeId = "kraken";
+let plansBySymbol = {};
+let currentSymbol = null;
 
-function renderTradingViewWidget(tvSymbol) {
+// Plan info (pattern/R:R/confidence) comes straight from data.json and has
+// nothing to do with whether the TradingView widget itself loaded -- shown
+// unconditionally so a blocked/offline TradingView script doesn't also hide
+// information the dashboard already has.
+function renderPlanInfo(plan) {
+  const confEl = document.getElementById("chart-confidence");
+  if (!plan) {
+    confEl.innerHTML = "";
+    return;
+  }
+  confEl.innerHTML = `
+    <span><strong>${plan.pattern ?? "—"}</strong></span>
+    <span>Risk/Reward: <strong>1 : ${plan.risk_reward ?? "—"}</strong></span>
+    <span>Rule-based confidence: <span class="stars">${stars(plan.confidence_rule_based)}</span></span>
+    <span>Claude confidence: <span class="stars">${stars(plan.confidence_claude)}</span></span>
+  `;
+}
+
+function drawPlanOrderLines(plan) {
+  if (!plan || !tvWidget || !tvWidget.onChartReady) return;
+  tvWidget.onChartReady(() => {
+    try {
+      const chart = tvWidget.activeChart();
+      const lines = [
+        { price: plan.take_profit, color: "#22c55e", text: "TAKE PROFIT" },
+        { price: plan.entry_zone ? plan.entry_zone[1] : null, color: "#38bdf8", text: "ENTRY HIGH" },
+        { price: plan.entry_zone ? plan.entry_zone[0] : null, color: "#38bdf8", text: "ENTRY LOW" },
+        { price: plan.stop_loss, color: "#ef4444", text: "STOP LOSS" },
+        { price: plan.invalidation, color: "#7b8bab", text: "INVALIDATION" },
+      ];
+      for (const line of lines) {
+        if (line.price == null) continue;
+        chart
+          .createOrderLine()
+          .setPrice(line.price)
+          .setText(line.text)
+          .setLineColor(line.color)
+          .setBodyTextColor(line.color)
+          .setQuantity("")
+          .setLineStyle(2); // dashed
+      }
+    } catch (err) {
+      // TradingView's widget API can change without notice -- degrade to
+      // "chart with no overlay" rather than break the whole page.
+      console.error("Could not draw plan levels on the TradingView chart:", err);
+    }
+  });
+}
+
+function renderTradingViewWidget(symbol, plan) {
+  renderPlanInfo(plan);
   const container = document.getElementById("tv-widget-container");
   if (typeof TradingView === "undefined" || !TradingView.widget) {
     container.innerHTML =
@@ -368,7 +323,7 @@ function renderTradingViewWidget(tvSymbol) {
   container.innerHTML = "";
   tvWidget = new TradingView.widget({
     autosize: true,
-    symbol: tvSymbol,
+    symbol: toTradingViewSymbol(exchangeId, symbol),
     interval: "15",
     timezone: "Etc/UTC",
     theme: "dark",
@@ -381,34 +336,41 @@ function renderTradingViewWidget(tvSymbol) {
     save_image: false,
     container_id: "tv-widget-container",
   });
+  drawPlanOrderLines(plan);
 }
 
-function symbolSignalStatus(symbol, positions, pending) {
-  if (positions.some((p) => p.symbol === symbol)) return "open";
-  if (pending.some((p) => p.symbol === symbol)) return "pending";
+function symbolSignalStatus(symbol) {
+  if (plansBySymbol[symbol]?.statusLabel === "OPEN") return "open";
+  if (plansBySymbol[symbol]?.statusLabel === "PENDING") return "pending";
   return "none";
 }
 
-function selectSymbol(exchangeId, symbol, status) {
+function selectSymbol(symbol) {
+  currentSymbol = symbol;
+  const status = symbolSignalStatus(symbol);
   document.getElementById("symbol-dropdown-label").textContent = symbol;
   document.getElementById("symbol-dropdown-dot").className = `signal-dot ${status === "none" ? "" : status}`;
   document.querySelectorAll(".symbol-dropdown-item").forEach((el) => el.classList.toggle("selected", el.dataset.symbol === symbol));
   document.getElementById("symbol-dropdown-list").hidden = true;
-  renderTradingViewWidget(toTradingViewSymbol(exchangeId, symbol));
+  markActiveSignalRow(symbol);
+  renderTradingViewWidget(symbol, plansBySymbol[symbol] || null);
 }
 
 function initLiveMarket(data) {
-  const exchangeId = data.exchange_id || "kraken";
+  exchangeId = data.exchange_id || "kraken";
   const symbols = data.symbols && data.symbols.length ? data.symbols : ["BTC/USDT"];
   const positions = data.positions || [];
   const pending = data.pending || [];
+  plansBySymbol = {};
+  for (const p of pending) plansBySymbol[p.symbol] = { ...p, statusLabel: "PENDING" };
+  for (const p of positions) plansBySymbol[p.symbol] = { ...p, statusLabel: "OPEN" }; // an OPEN record wins if a symbol is somehow in both
 
   const btn = document.getElementById("symbol-dropdown-btn");
   const list = document.getElementById("symbol-dropdown-list");
 
   list.innerHTML = symbols
     .map((s) => {
-      const status = symbolSignalStatus(s, positions, pending);
+      const status = symbolSignalStatus(s);
       return `<div class="symbol-dropdown-item" data-symbol="${s}">
         <span class="signal-dot ${status === "none" ? "" : status}"></span>
         <span>${s}</span>
@@ -418,9 +380,7 @@ function initLiveMarket(data) {
     .join("");
 
   list.querySelectorAll(".symbol-dropdown-item").forEach((item) => {
-    item.addEventListener("click", () => {
-      selectSymbol(exchangeId, item.dataset.symbol, symbolSignalStatus(item.dataset.symbol, positions, pending));
-    });
+    item.addEventListener("click", () => selectSymbol(item.dataset.symbol));
   });
 
   btn.addEventListener("click", () => {
@@ -430,7 +390,10 @@ function initLiveMarket(data) {
     if (!document.getElementById("symbol-dropdown").contains(e.target)) list.hidden = true;
   });
 
-  selectSymbol(exchangeId, symbols[0], symbolSignalStatus(symbols[0], positions, pending));
+  // Default to the most recent active signal, same as before this chart merge;
+  // falls back to the first watchlist symbol if nothing's active right now.
+  const activeSymbols = [...positions, ...pending].sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
+  selectSymbol(activeSymbols.length ? activeSymbols[0].symbol : symbols[0]);
 }
 
 async function main() {
@@ -444,10 +407,9 @@ async function main() {
     return;
   }
   renderSummary(data);
-  initLiveMarket(data);
   renderRoles(data.roles);
-  initChartSelection(data);
-  renderActiveSignals(data.positions, data.pending, selectChartSymbol);
+  initLiveMarket(data);
+  renderActiveSignals(data.positions, data.pending, selectSymbol);
   renderSignalHistory(data.signal_history || []);
 }
 
