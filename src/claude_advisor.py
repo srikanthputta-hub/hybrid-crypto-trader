@@ -45,8 +45,8 @@ signals) that suggests this is a low-quality or suspicious setup? You are not a 
 have no live news feed unless one is given to you in the message — do not invent facts about \
 current events.
 
-Respond with ONLY a JSON object, no other text, in exactly this shape:
-{"verdict": "APPROVE" | "VETO", "confidence_stars": <1.0-5.0>, "reasoning": "<one or two sentences>"}
+Your response is constrained by a JSON schema: "verdict" must be "APPROVE" or "VETO", \
+"confidence_stars" is a number from 1.0-5.0, and "reasoning" is one or two sentences.
 """
 
 
@@ -113,6 +113,21 @@ def review_trade_plan(
             max_tokens=300,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
+            output_config={
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "verdict": {"type": "string", "enum": ["APPROVE", "VETO"]},
+                            "confidence_stars": {"type": "number"},
+                            "reasoning": {"type": "string"},
+                        },
+                        "required": ["verdict", "confidence_stars", "reasoning"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
         )
         text = "".join(block.text for block in response.content if hasattr(block, "text")).strip()
         data = json.loads(text)
