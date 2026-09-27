@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-27T09:09:39.431281+00:00",
+  "generated_at": "2026-09-27T09:56:50.176494+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -18,35 +18,35 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-27T09:09:38.594425+00:00"
+      "last_active": "2026-09-27T09:56:48.881758+00:00"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T09:09:38.594425+00:00"
+      "last_active": "2026-09-27T09:56:48.881758+00:00"
     },
     {
       "id": "trade_strategist",
       "label": "Trade Strategist",
       "model_tier": "sonnet",
-      "status": "idle",
-      "last_active": null
+      "status": "working",
+      "last_active": "2026-09-27T09:56:48.878800+00:00"
     },
     {
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
-      "status": "idle",
-      "last_active": null
+      "status": "working",
+      "last_active": "2026-09-27T09:56:48.878800+00:00"
     },
     {
       "id": "compliance_reviewer",
       "label": "Compliance Reviewer",
       "model_tier": "sonnet",
-      "status": "idle",
-      "last_active": null
+      "status": "working",
+      "last_active": "2026-09-27T09:56:48.878800+00:00"
     },
     {
       "id": "execution_trader",
@@ -58,8 +58,28 @@
   ],
   "positions": [],
   "pending": [],
-  "recent_candidates": [],
-  "recent_risk_decisions": [],
+  "recent_candidates": [
+    {
+      "symbol": "BTC/USDT",
+      "timestamp": "2026-09-27T09:56:48.878800+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bullish",
+          "strength": 0.817
+        }
+      ]
+    }
+  ],
+  "recent_risk_decisions": [
+    {
+      "symbol": "BTC/USDT",
+      "timestamp": "2026-09-27T09:56:48.878800+00:00",
+      "allowed": true,
+      "reason": "ok",
+      "max_quote_amount": 1000.0
+    }
+  ],
   "chart": {
     "symbol": "BTC/USDT",
     "candles": [
@@ -1109,9 +1129,9 @@
       {
         "time": 1790499600,
         "open": 84797.6,
-        "high": 84797.6,
-        "low": 84670.8,
-        "close": 84675.0
+        "high": 84960.8,
+        "low": 84596.6,
+        "close": 84901.2
       }
     ]
   }
