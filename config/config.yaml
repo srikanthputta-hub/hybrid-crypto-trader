@@ -103,6 +103,13 @@ risk:
   max_loss_per_trade_pct: 0.01   # size each position so a stop-out never loses more than 1% of equity
   max_daily_loss_pct: 0.05       # halt all new trades for the day if realized+unrealized loss exceeds 5%
   max_volatility_pct: 0.08       # skip new entries when ATR/price exceeds 8% (too chaotic to size risk on)
+  volatility_scale_floor: 0.5    # volatility-based sizing (research: scaling size inversely to ATR/price cuts
+                                 # drawdowns vs. fixed-fractional sizing). The per-trade risk budget tapers
+                                 # linearly from 100% at ATR/price <= max_volatility_pct/2 down to this
+                                 # fraction as ATR/price approaches the hard max_volatility_pct cap. Must be
+                                 # in [0, 1] -- it can only ever shrink a position, never grow one.
+                                 # NOTE: src/bot.py does not yet pass this key to RiskEngine; the engine's
+                                 # built-in default (0.5) is what's in effect until it does.
   min_risk_reward: 1.5           # reject any trade plan whose risk/reward is below this, even if the risk engine would otherwise size it
   cooldown_minutes: 60           # minimum time between new plans on the same symbol
   kill_switch_file: "KILL_SWITCH"  # if this file exists in the project root, refuse all new entries
