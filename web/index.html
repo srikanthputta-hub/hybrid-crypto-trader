@@ -55,7 +55,7 @@
 
     <section class="card live-market-section">
       <div class="chart-header">
-        <h2>Live Market <span class="muted">— real-time, via TradingView</span></h2>
+        <h2 id="chart-title">Live Market <span class="muted">— real-time, via TradingView</span></h2>
         <div class="symbol-dropdown" id="symbol-dropdown">
           <button type="button" class="symbol-dropdown-btn" id="symbol-dropdown-btn">
             <span class="signal-dot" id="symbol-dropdown-dot"></span>
@@ -67,14 +67,18 @@
       </div>
       <div id="chart-confidence" class="confidence-row"></div>
       <div id="tv-widget-container" class="tv-widget-container"></div>
+      <div id="chart-container" class="tv-widget-container" style="display:none;"></div>
+      <div id="chart-empty" class="muted" style="display:none; padding:24px;"></div>
       <div class="signal-dot-legend muted">
         <span class="legend-item"><i class="signal-dot open"></i>open position</span>
         <span class="legend-item"><i class="signal-dot pending"></i>pending signal</span>
         <span class="legend-item"><i class="signal-dot"></i>watching, no signal</span>
       </div>
       <div class="muted" style="margin-top:8px;">
-        Streams live from TradingView. Pick a symbol above, or click a row in the Signals panel's
-        Active tab below, to overlay that signal's entry/stop/target/invalidation levels on the chart.
+        Pick a symbol above, or click a row in the Signals panel's Active tab below. A symbol with no
+        active signal streams live from TradingView; a symbol with an active signal switches to an
+        annotated chart showing its entry/stop/target/invalidation levels (TradingView's free widget
+        can't draw custom price lines, so this is a separate chart just for that case).
       </div>
     </section>
 
@@ -100,9 +104,11 @@
     regenerated and redeployed. Not financial advice.
   </footer>
 
-  <!-- Loaded from TradingView's own CDN, since a live streaming widget can't be
-       vendored. If this script is blocked (offline, strict network policy, ad
-       blocker), app.js shows a fallback message instead of failing. -->
+  <script src="vendor/lightweight-charts.standalone.production.js"></script>
+  <!-- Live Market widget only: loaded from TradingView's own CDN since a live
+       streaming widget can't be vendored like the static lightweight-charts
+       library above. If this script is blocked (offline, strict network
+       policy, ad blocker), app.js shows a fallback message instead of failing. -->
   <script src="https://s3.tradingview.com/tv.js"></script>
   <script src="app.js"></script>
 </body>

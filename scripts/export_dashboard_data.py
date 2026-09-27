@@ -8,11 +8,13 @@ Run this after (or alongside) the bot to refresh the dashboard:
 The dashboard (web/index.html) is a static site — it doesn't talk to the bot
 directly. This script is the bridge: it reads the same files the bot writes
 (logs/trade_plans_current.json, logs/audit_log.jsonl, logs/trades.csv) plus a
-live ticker-price fetch (for equity/unrealized-P&L math -- the dashboard's
-chart itself is a live TradingView widget, which fetches its own candles),
-and writes one self-contained JSON file the page reads. Re-run it (e.g. on a
-cron, or right before a git push if you're using the GitHub -> Cloudflare
-Pages auto-deploy flow from the README) to refresh what the dashboard shows.
+live ticker-price fetch (for equity/unrealized-P&L math) and, for every
+symbol with an active signal, an OHLCV candle fetch (TradingView's free
+widget has no JS API for drawing custom price lines, so an active signal
+gets its own annotated chart built from these candles instead), and writes
+one self-contained JSON file the page reads. Re-run it (e.g. on a cron, or
+right before a git push if you're using the GitHub -> Cloudflare Pages
+auto-deploy flow from the README) to refresh what the dashboard shows.
 
 Known simplification: this bot doesn't persist portfolio cash across process
 restarts (see README), so "cash" here is reconstructed by replaying
@@ -320,11 +322,19 @@ def main() -> None:
     audit_events = _read_audit_tail(PROJECT_ROOT / log_cfg.get("audit_log_path", "logs/audit_log.jsonl"))
     cash = _reconstruct_cash(PROJECT_ROOT / log_cfg.get("trade_log_path", "logs/trades.csv"), cfg.risk["starting_cash_usd"])
 
-    # Ticker prices only -- the dashboard's chart is now the live TradingView
-    # widget (which fetches its own candles directly), so this script no
-    # longer needs to fetch OHLCV history itself. These prices are still used
-    # for the equity/unrealized-P&L math below.
+    records = store.all_current()
+
+    # Ticker prices for equity/unrealized-P&L, plus OHLCV candles for every
+    # symbol with an active signal (OPEN or PENDING). The dashboard's chart
+    # is a live TradingView widget by default, but TradingView's free widget
+    # has no JS API for drawing custom price lines -- so for a symbol with an
+    # active plan, the dashboard swaps in its own annotated chart (built from
+    # these candles) that can actually show the entry/stop/target/
+    # invalidation levels. A candle-fetch failure for one symbol falls back
+    # to that symbol just not having an annotated chart (still has its
+    # TradingView view) rather than dropping the whole export.
     current_prices: dict[str, float] = {}
+    charts: dict[str, dict[str, Any]] = {}
     try:
         exchange = ExchangeClient(cfg.exchange_id, testnet=False)
         for symbol in cfg.symbols:
@@ -332,10 +342,28 @@ def main() -> None:
                 current_prices[symbol] = exchange.fetch_ticker_price(symbol)
             except Exception:
                 pass
-    except Exception as exc:  # noqa: BLE001 — a network hiccup shouldn't stop the rest of the export
-        print(f"warning: live price fetch failed, dashboard will show stale/partial data: {exc}", file=sys.stderr)
 
-    records = store.all_current()
+        for symbol in records:
+            try:
+                ohlcv = exchange.fetch_ohlcv_df(symbol, cfg.timeframe, 150)
+            except Exception as exc:  # noqa: BLE001 — one bad symbol shouldn't drop the rest of the charts
+                print(f"warning: candle fetch failed for {symbol}, it'll show the TradingView view instead: {exc}", file=sys.stderr)
+                continue
+            charts[symbol] = {
+                "candles": [
+                    {
+                        "time": int(row.timestamp.timestamp()),
+                        "open": round(row.open, 8),
+                        "high": round(row.high, 8),
+                        "low": round(row.low, 8),
+                        "close": round(row.close, 8),
+                    }
+                    for row in ohlcv.itertuples()
+                ],
+            }
+    except Exception as exc:  # noqa: BLE001 — a network hiccup shouldn't stop the rest of the export
+        print(f"warning: live price/candle fetch failed, dashboard will show stale/partial data: {exc}", file=sys.stderr)
+
     positions = [_record_view(sym, rec, current_prices.get(sym)) for sym, rec in records.items() if rec.status == "OPEN"]
     pending = [_record_view(sym, rec, current_prices.get(sym)) for sym, rec in records.items() if rec.status == "PENDING"]
     # Newest signal first -- ISO8601 UTC timestamps sort correctly as plain strings.
@@ -359,6 +387,7 @@ def main() -> None:
         "positions": positions,
         "pending": pending,
         "signal_history": _signal_history(audit_events),
+        "charts": charts,
     }
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)

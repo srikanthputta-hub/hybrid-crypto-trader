@@ -1,8 +1,11 @@
 // Static dashboard renderer. Reads ./data.json (produced by
 // scripts/export_dashboard_data.py) and renders the office view, the live
-// TradingView chart (with a selected signal's plan levels overlaid via
-// TradingView's own widget API), and the data tables. No build step, no
-// framework — this is meant to be dropped straight onto Cloudflare Pages.
+// market chart (a live TradingView widget by default, switching to an
+// annotated lightweight-charts view -- with the selected signal's plan
+// levels drawn on it -- when that symbol has an active signal, since
+// TradingView's free widget can't draw custom price lines), and the data
+// tables. No build step, no framework — this is meant to be dropped
+// straight onto Cloudflare Pages.
 
 const fmtPrice = (n) => (n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: 6 }));
 const fmtTime = (iso) => {
@@ -261,12 +264,11 @@ function toTradingViewSymbol(exchangeId, symbol) {
 let tvWidget = null;
 let exchangeId = "kraken";
 let plansBySymbol = {};
+let candlesBySymbol = {};
 let currentSymbol = null;
 
-// Plan info (pattern/R:R/confidence) comes straight from data.json and has
-// nothing to do with whether the TradingView widget itself loaded -- shown
-// unconditionally so a blocked/offline TradingView script doesn't also hide
-// information the dashboard already has.
+// Plan info (pattern/R:R/confidence) comes straight from data.json and is
+// shown regardless of which chart engine below ends up rendering.
 function renderPlanInfo(plan) {
   const confEl = document.getElementById("chart-confidence");
   if (!plan) {
@@ -281,39 +283,7 @@ function renderPlanInfo(plan) {
   `;
 }
 
-function drawPlanOrderLines(plan) {
-  if (!plan || !tvWidget || !tvWidget.onChartReady) return;
-  tvWidget.onChartReady(() => {
-    try {
-      const chart = tvWidget.activeChart();
-      const lines = [
-        { price: plan.take_profit, color: "#22c55e", text: "TAKE PROFIT" },
-        { price: plan.entry_zone ? plan.entry_zone[1] : null, color: "#38bdf8", text: "ENTRY HIGH" },
-        { price: plan.entry_zone ? plan.entry_zone[0] : null, color: "#38bdf8", text: "ENTRY LOW" },
-        { price: plan.stop_loss, color: "#ef4444", text: "STOP LOSS" },
-        { price: plan.invalidation, color: "#7b8bab", text: "INVALIDATION" },
-      ];
-      for (const line of lines) {
-        if (line.price == null) continue;
-        chart
-          .createOrderLine()
-          .setPrice(line.price)
-          .setText(line.text)
-          .setLineColor(line.color)
-          .setBodyTextColor(line.color)
-          .setQuantity("")
-          .setLineStyle(2); // dashed
-      }
-    } catch (err) {
-      // TradingView's widget API can change without notice -- degrade to
-      // "chart with no overlay" rather than break the whole page.
-      console.error("Could not draw plan levels on the TradingView chart:", err);
-    }
-  });
-}
-
-function renderTradingViewWidget(symbol, plan) {
-  renderPlanInfo(plan);
+function renderTradingViewWidget(symbol) {
   const container = document.getElementById("tv-widget-container");
   if (typeof TradingView === "undefined" || !TradingView.widget) {
     container.innerHTML =
@@ -336,8 +306,78 @@ function renderTradingViewWidget(symbol, plan) {
     save_image: false,
     container_id: "tv-widget-container",
   });
-  drawPlanOrderLines(plan);
 }
+
+// Single lightweight-charts instance, torn down and rebuilt on every call --
+// this fires each time the user selects a different signal, so the old chart
+// must be disposed first or the library stacks a new canvas on the old one.
+let lwcInstance = null;
+
+function renderAnnotatedChart(symbol, candles, plan) {
+  const containerEl = document.getElementById("chart-container");
+  const emptyEl = document.getElementById("chart-empty");
+
+  if (lwcInstance) {
+    lwcInstance.remove();
+    lwcInstance = null;
+  }
+  containerEl.innerHTML = "";
+
+  if (!candles || !candles.length) {
+    containerEl.style.display = "none";
+    emptyEl.style.display = "block";
+    return;
+  }
+  if (typeof LightweightCharts === "undefined") {
+    containerEl.style.display = "none";
+    emptyEl.style.display = "block";
+    emptyEl.textContent = "Chart library failed to load from the CDN (network issue or blocked script) — the tables below still reflect the latest data.";
+    return;
+  }
+  containerEl.style.display = "block";
+  emptyEl.style.display = "none";
+
+  const lwc = LightweightCharts.createChart(containerEl, {
+    layout: { background: { color: "transparent" }, textColor: "#e6edf7" },
+    grid: { vertLines: { color: "#22314e" }, horzLines: { color: "#22314e" } },
+    timeScale: { timeVisible: true, secondsVisible: false },
+    width: containerEl.clientWidth,
+    height: 420,
+  });
+  const series = lwc.addCandlestickSeries({
+    upColor: "#22c55e", downColor: "#ef4444", borderVisible: false,
+    wickUpColor: "#22c55e", wickDownColor: "#ef4444",
+  });
+  series.setData(candles);
+
+  if (plan) {
+    const lines = [
+      { price: plan.take_profit, color: "#22c55e", title: "TAKE PROFIT" },
+      { price: plan.entry_zone ? plan.entry_zone[1] : null, color: "#38bdf8", title: "ENTRY HIGH" },
+      { price: plan.entry_zone ? plan.entry_zone[0] : null, color: "#38bdf8", title: "ENTRY LOW" },
+      { price: plan.stop_loss, color: "#ef4444", title: "STOP LOSS" },
+      { price: plan.invalidation, color: "#7b8bab", title: "INVALIDATION" },
+    ];
+    for (const line of lines) {
+      if (line.price == null) continue;
+      series.createPriceLine({
+        price: line.price, color: line.color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true, title: line.title,
+      });
+    }
+  }
+
+  lwc.timeScale().fitContent();
+  lwcInstance = lwc;
+}
+
+// One persistent resize listener (not re-added per render) that always
+// resizes whatever the current annotated-chart instance is, if any.
+window.addEventListener("resize", () => {
+  if (!lwcInstance) return;
+  const containerEl = document.getElementById("chart-container");
+  lwcInstance.applyOptions({ width: containerEl.clientWidth });
+});
 
 function symbolSignalStatus(symbol) {
   if (plansBySymbol[symbol]?.statusLabel === "OPEN") return "open";
@@ -353,7 +393,29 @@ function selectSymbol(symbol) {
   document.querySelectorAll(".symbol-dropdown-item").forEach((el) => el.classList.toggle("selected", el.dataset.symbol === symbol));
   document.getElementById("symbol-dropdown-list").hidden = true;
   markActiveSignalRow(symbol);
-  renderTradingViewWidget(symbol, plansBySymbol[symbol] || null);
+
+  const plan = plansBySymbol[symbol] || null;
+  const candles = candlesBySymbol[symbol]?.candles;
+  renderPlanInfo(plan);
+
+  const titleEl = document.getElementById("chart-title");
+  const tvContainer = document.getElementById("tv-widget-container");
+  const emptyEl = document.getElementById("chart-empty");
+
+  if (plan && candles) {
+    // Active signal with candle data -- TradingView's free widget can't draw
+    // custom price lines, so this uses our own chart library instead, which
+    // can actually put the entry/stop/target/invalidation levels on it.
+    titleEl.innerHTML = `${symbol} — ${plan.pattern ?? "signal"} <span class="muted">— annotated chart</span>`;
+    tvContainer.style.display = "none";
+    renderAnnotatedChart(symbol, candles, plan);
+  } else {
+    titleEl.innerHTML = 'Live Market <span class="muted">— real-time, via TradingView</span>';
+    document.getElementById("chart-container").style.display = "none";
+    emptyEl.style.display = "none";
+    tvContainer.style.display = "block";
+    renderTradingViewWidget(symbol);
+  }
 }
 
 function initLiveMarket(data) {
@@ -364,6 +426,7 @@ function initLiveMarket(data) {
   plansBySymbol = {};
   for (const p of pending) plansBySymbol[p.symbol] = { ...p, statusLabel: "PENDING" };
   for (const p of positions) plansBySymbol[p.symbol] = { ...p, statusLabel: "OPEN" }; // an OPEN record wins if a symbol is somehow in both
+  candlesBySymbol = data.charts || {};
 
   const btn = document.getElementById("symbol-dropdown-btn");
   const list = document.getElementById("symbol-dropdown-list");
