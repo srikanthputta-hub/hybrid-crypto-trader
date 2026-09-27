@@ -15,16 +15,18 @@ market:
   symbols:                 # whitelist — the bot will only ever look at / trade these.
                             # Verified empirically against Kraken's real ccxt market list (a
                             # 2026-09-27 workflow_dispatch run of refresh-dashboard.yml -- see
-                            # job 108597402474's logs): 12 of an original 20-coin candidate list
-                            # resolved cleanly; 8 (DASH/NEAR/SUI/ZEC/TAO/PEPE/WIF/HYPE) raised
-                            # ccxt.base.errors.BadSymbol -- Kraken has no /USDT market for them
-                            # despite being real, liquid coins there against USD. Kraken's API
-                            # is network-blocked from this dev sandbox, so this list was built
-                            # by testing against the real exchange via GitHub Actions rather
-                            # than by static lookup -- if a symbol below ever starts failing,
-                            # that's Kraken's own listings changing, not a bug here (a failing
-                            # symbol just gets logged and skipped per-cycle, never blocks the
-                            # rest -- see run_cycle's per-symbol try/except in src/bot.py).
+                            # job 108597402474's logs, then job 108598510828): two rounds of
+                            # candidates each had some symbols raise ccxt.base.errors.BadSymbol
+                            # -- Kraken has no /USDT market for them via ccxt, despite being
+                            # real, liquid coins there against USD. Kraken's API is
+                            # network-blocked from this dev sandbox, so this list was built by
+                            # testing against the real exchange via GitHub Actions rather than
+                            # by static lookup. Confirmed dead so far (do not re-add without
+                            # re-testing): DASH, NEAR, SUI, ZEC, TAO, PEPE, WIF, HYPE, TRX, ETC,
+                            # XLM, UNI. If a symbol below ever starts failing, that's Kraken's
+                            # own listings changing, not a bug here (a failing symbol just gets
+                            # logged and skipped per-cycle, never blocks the rest -- see
+                            # run_cycle's per-symbol try/except in src/bot.py).
     - "BTC/USDT"
     - "ETH/USDT"
     - "XRP/USDT"
@@ -41,10 +43,10 @@ market:
     - "DOT/USDT"
     - "ATOM/USDT"
     - "ALGO/USDT"
-    - "TRX/USDT"
-    - "ETC/USDT"
-    - "XLM/USDT"
-    - "UNI/USDT"
+    - "BCH/USDT"
+    - "XTZ/USDT"
+    - "FIL/USDT"
+    - "SHIB/USDT"
   timeframe: "1h"           # ccxt timeframe string: 1m, 5m, 15m, 1h, 4h, 1d
   history_bars: 200         # bars of OHLCV history fetched each cycle for indicators/scanner
 
