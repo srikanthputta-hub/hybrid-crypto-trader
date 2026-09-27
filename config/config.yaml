@@ -23,7 +23,9 @@ market:
                             # sandbox, so this list was built by testing against the real
                             # exchange via GitHub Actions rather than by static lookup.
                             # Confirmed dead so far (do not re-add without re-testing): DASH,
-                            # NEAR, SUI, ZEC, TAO, PEPE, WIF, HYPE, TRX, ETC, XLM, UNI, FIL, APT.
+                            # NEAR, SUI, ZEC, TAO, PEPE, WIF, HYPE, TRX, ETC, XLM, UNI, FIL, APT,
+                            # ICP (kraken has no ICP/USDT market via ccxt; dropped 2026-09-27 --
+                            # settled at 19 confirmed-working symbols rather than chasing a 20th).
                             # If a symbol below ever starts failing, that's Kraken's own
                             # listings changing, not a bug here (a failing symbol just gets
                             # logged and skipped per-cycle, never blocks the rest -- see
@@ -47,7 +49,6 @@ market:
     - "BCH/USDT"
     - "XTZ/USDT"
     - "SHIB/USDT"
-    - "ICP/USDT"
   timeframe: "1h"           # ccxt timeframe string: 1m, 5m, 15m, 1h, 4h, 1d
   history_bars: 200         # bars of OHLCV history fetched each cycle for indicators/scanner
 
