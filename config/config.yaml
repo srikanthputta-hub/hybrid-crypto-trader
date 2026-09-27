@@ -118,7 +118,13 @@ risk:
 # Pipeline stage 4b — Claude's second opinion. Can only veto a plan the pipeline
 # above already built; see src/claude_advisor.py.
 advisor:
-  enabled: true
+  enabled: false              # disabled 2026-09-27: no ANTHROPIC_API_KEY secret is configured in
+                               # refresh-dashboard.yml's CI env, so with fail_mode "closed" every
+                               # single qualifying trade plan was being silently vetoed on every
+                               # cycle (missing key -> _fallback -> VETO) -- the scanner was finding
+                               # real setups (e.g. bullish PULLBACK on BTC/ETH/ADA/DOGE/BCH) but zero
+                               # ever reached execution. Re-enable once ANTHROPIC_API_KEY is added as
+                               # a repo secret and wired into that workflow's env block.
   model: "claude-sonnet-4-5"  # any current Claude model id your API key can access
   fail_mode: "closed"         # "closed" = skip the trade if the advisor errors/times out; "open" = proceed without review
   timeout_seconds: 20
