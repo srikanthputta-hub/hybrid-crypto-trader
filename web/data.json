@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-27T05:45:08.065125+00:00",
+  "generated_at": "2026-09-27T08:50:46.214587+00:00",
   "mode": "live",
   "exchange_id": "binance",
   "symbols": [
@@ -18,7 +18,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "idle",
-      "last_active": "2026-09-27T05:45:07.519928+00:00"
+      "last_active": "2026-09-27T08:50:45.406252+00:00"
     },
     {
       "id": "market_analyst",
