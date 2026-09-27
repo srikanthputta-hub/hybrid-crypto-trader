@@ -141,7 +141,7 @@ function renderSummary(data) {
   document.getElementById("generated-at").textContent = `snapshot: ${fmtTime(data.generated_at)}`;
 }
 
-function renderTable(tableId, rows, columns, emptyMessage) {
+function renderTable(tableId, rows, columns, emptyMessage, onRowClick) {
   const tbody = document.querySelector(`#${tableId} tbody`);
   tbody.innerHTML = "";
   if (!rows.length) {
@@ -151,11 +151,15 @@ function renderTable(tableId, rows, columns, emptyMessage) {
   for (const row of rows) {
     const tr = document.createElement("tr");
     tr.innerHTML = columns.map((col) => `<td>${col(row)}</td>`).join("");
+    if (onRowClick) {
+      tr.classList.add("row-clickable");
+      tr.addEventListener("click", () => onRowClick(row));
+    }
     tbody.appendChild(tr);
   }
 }
 
-function renderActiveSignals(positions, pending) {
+function renderActiveSignals(positions, pending, onSelect) {
   const rows = [
     ...positions.map((r) => ({ ...r, statusLabel: "OPEN" })),
     ...pending.map((r) => ({ ...r, statusLabel: "PENDING" })),
@@ -177,8 +181,18 @@ function renderActiveSignals(positions, pending) {
       (r) => fmtPrice(r.take_profit),
       (r) => stars(r.confidence_rule_based),
     ],
-    "No active signals right now — the bot is still watching."
+    "No active signals right now — the bot is still watching.",
+    onSelect ? (row) => onSelect(row.symbol) : null
   );
+  markActiveSignalRow(currentChartSymbol);
+}
+
+function markActiveSignalRow(symbol) {
+  const rows = document.querySelectorAll("#table-signals-active tbody tr");
+  rows.forEach((tr) => {
+    const symbolCell = tr.querySelector("td");
+    tr.classList.toggle("row-selected", !!symbol && !!symbolCell && symbolCell.textContent === symbol);
+  });
 }
 
 const HISTORY_KIND_LABEL = { signal: "Signal", filled: "Bought", closed: "Closed", rejected: "Rejected", vetoed: "Vetoed" };
@@ -209,11 +223,41 @@ function initSignalsToggle() {
   });
 }
 
+// --- chart selection: the "Latest Trade Plan" chart follows whichever
+// active-signal row the user clicks, instead of being locked to one symbol. ---
+let currentCharts = {};
+let currentChartSymbol = null;
+
+function selectChartSymbol(symbol) {
+  currentChartSymbol = symbol;
+  renderChart(currentCharts[symbol]);
+  markActiveSignalRow(symbol);
+}
+
+function initChartSelection(data) {
+  currentCharts = data.charts || {};
+  const symbols = Object.keys(currentCharts);
+  currentChartSymbol = symbols.length ? symbols[0] : null;
+  renderChart(currentChartSymbol ? currentCharts[currentChartSymbol] : null);
+}
+
+// Single chart instance, torn down and rebuilt on every renderChart() call --
+// this now fires each time the user clicks a different signal row, not just
+// once at page load, so the old chart must be disposed first or the library
+// stacks a new canvas on top of the previous one instead of replacing it.
+let lwcInstance = null;
+
 function renderChart(chart) {
   const emptyEl = document.getElementById("chart-empty");
   const containerEl = document.getElementById("chart-container");
   const confEl = document.getElementById("chart-confidence");
   const titleEl = document.getElementById("chart-symbol");
+
+  if (lwcInstance) {
+    lwcInstance.remove();
+    lwcInstance = null;
+  }
+  containerEl.innerHTML = "";
 
   if (!chart || !chart.candles || !chart.candles.length) {
     containerEl.style.display = "none";
@@ -273,8 +317,16 @@ function renderChart(chart) {
   }
 
   lwc.timeScale().fitContent();
-  window.addEventListener("resize", () => lwc.applyOptions({ width: containerEl.clientWidth }), { once: true });
+  lwcInstance = lwc;
 }
+
+// One persistent resize listener (not re-added per renderChart() call) that
+// always resizes whatever the current chart instance is, if any.
+window.addEventListener("resize", () => {
+  if (!lwcInstance) return;
+  const containerEl = document.getElementById("chart-container");
+  lwcInstance.applyOptions({ width: containerEl.clientWidth });
+});
 
 // Exchange id (ccxt) -> TradingView exchange prefix. Falls back to an
 // uppercased exchange id for anything not listed, which is correct for most
@@ -385,9 +437,9 @@ async function main() {
   renderSummary(data);
   initLiveMarket(data);
   renderRoles(data.roles);
-  renderActiveSignals(data.positions, data.pending);
+  initChartSelection(data);
+  renderActiveSignals(data.positions, data.pending, selectChartSymbol);
   renderSignalHistory(data.signal_history || []);
-  renderChart(data.chart);
 }
 
 initSignalsToggle();

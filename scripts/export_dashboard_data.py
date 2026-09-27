@@ -291,7 +291,11 @@ def main() -> None:
     cash = _reconstruct_cash(PROJECT_ROOT / log_cfg.get("trade_log_path", "logs/trades.csv"), cfg.risk["starting_cash_usd"])
 
     current_prices: dict[str, float] = {}
-    chart_payload = None
+    # One chart entry per symbol with an active signal (OPEN or PENDING) -- the
+    # dashboard's "Latest Trade Plan" chart switches between these as the user
+    # clicks a row in the Signals panel, instead of being locked to whichever
+    # symbol happened to be picked first.
+    charts: dict[str, dict[str, Any]] = {}
     try:
         exchange = ExchangeClient(cfg.exchange_id, testnet=False)
         for symbol in cfg.symbols:
@@ -301,10 +305,13 @@ def main() -> None:
                 pass
 
         records = store.all_current()
-        chart_symbol = next(iter(records), None) or (cfg.symbols[0] if cfg.symbols else None)
-        if chart_symbol:
-            ohlcv = exchange.fetch_ohlcv_df(chart_symbol, cfg.timeframe, 150)
-            chart_payload = {
+        for chart_symbol, record in records.items():
+            try:
+                ohlcv = exchange.fetch_ohlcv_df(chart_symbol, cfg.timeframe, 150)
+            except Exception as exc:  # noqa: BLE001 — one bad symbol shouldn't drop the rest of the charts
+                print(f"warning: candle fetch failed for {chart_symbol}, skipping its chart: {exc}", file=sys.stderr)
+                continue
+            charts[chart_symbol] = {
                 "symbol": chart_symbol,
                 "candles": [
                     {
@@ -316,10 +323,8 @@ def main() -> None:
                     }
                     for row in ohlcv.itertuples()
                 ],
+                "plan": _record_view(chart_symbol, record, current_prices.get(chart_symbol)),
             }
-            record = records.get(chart_symbol)
-            if record is not None:
-                chart_payload["plan"] = _record_view(chart_symbol, record, current_prices.get(chart_symbol))
     except Exception as exc:  # noqa: BLE001 — a network hiccup shouldn't stop the rest of the export
         print(f"warning: live price/candle fetch failed, dashboard will show stale/partial data: {exc}", file=sys.stderr)
 
@@ -344,7 +349,7 @@ def main() -> None:
         "positions": positions,
         "pending": pending,
         "signal_history": _signal_history(audit_events),
-        "chart": chart_payload,
+        "charts": charts,
     }
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
