@@ -1,10 +1,18 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.bot import _maybe_notify
+from src.bot import _maybe_notify, _send_heartbeat
+from src.portfolio import Portfolio
 
 CONFIGURED = SimpleNamespace(telegram_bot_token="token", telegram_chat_id="12345")
 UNCONFIGURED = SimpleNamespace(telegram_bot_token=None, telegram_chat_id=None)
+
+HEARTBEAT_CONFIGURED = SimpleNamespace(
+    telegram_bot_token="token", telegram_chat_id="12345", mode="paper", risk={"starting_cash_usd": 10000}
+)
+HEARTBEAT_UNCONFIGURED = SimpleNamespace(
+    telegram_bot_token=None, telegram_chat_id=None, mode="paper", risk={"starting_cash_usd": 10000}
+)
 
 
 def test_noop_when_telegram_not_configured():
@@ -78,3 +86,31 @@ def test_discard_sends_nothing():
     with patch("src.bot.notifier.send_telegram_message") as mock_send:
         _maybe_notify(CONFIGURED, event)
     mock_send.assert_not_called()
+
+
+def test_heartbeat_noop_when_telegram_not_configured():
+    portfolio = Portfolio(cash=10000)
+    with patch("src.bot.notifier.send_telegram_message") as mock_send:
+        _send_heartbeat(HEARTBEAT_UNCONFIGURED, {"BTC/USDT": 50000.0}, portfolio, 10000.0)
+    mock_send.assert_not_called()
+
+
+def test_heartbeat_noop_when_no_prices():
+    portfolio = Portfolio(cash=10000)
+    with patch("src.bot.notifier.send_telegram_message") as mock_send:
+        _send_heartbeat(HEARTBEAT_CONFIGURED, {}, portfolio, 10000.0)
+    mock_send.assert_not_called()
+
+
+def test_heartbeat_sends_prices_and_equity():
+    portfolio = Portfolio(cash=9000)
+    prices = {"BTC/USDT": 50000.0, "ETH/USDT": 3000.0}
+    with patch("src.bot.notifier.send_telegram_message") as mock_send:
+        _send_heartbeat(HEARTBEAT_CONFIGURED, prices, portfolio, 10500.0)
+    mock_send.assert_called_once()
+    text = mock_send.call_args[0][2]
+    assert "Heartbeat" in text
+    assert "BTC/USDT" in text and "50,000.00" in text
+    assert "ETH/USDT" in text and "3,000.00" in text
+    assert "9,000.00" in text  # cash
+    assert "+5.00%" in text  # pnl_pct vs starting_cash_usd=10000
