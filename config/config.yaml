@@ -2,14 +2,18 @@
 # Start in "paper" mode and leave it there until you have watched it trade
 # for a while and are comfortable with what it does.
 
-mode: live               # "paper" or "live" — see .env.example for the second safety switch live mode needs
-                          # NOTE: exchange.testnet below is still true, so "live" here means
-                          # real order-placement code running against Binance's TESTNET, not
-                          # real markets. This is a deliberate dress rehearsal, not real trading.
+mode: paper              # "paper" or "live" — see .env.example for the second safety switch live mode needs
+                          # TEMPORARY: reverted from "live" (Binance testnet) to test whether
+                          # Kraken's public market data is reachable from wherever this bot
+                          # runs, after Binance's endpoints returned HTTP 451 ("restricted
+                          # location") for both testnet and mainnet from GitHub Actions' IP
+                          # range. Paper mode here is deliberate: this is a pure "can we see
+                          # market data" test, zero chance of any order attempt either way.
 
 exchange:
-  id: binance             # any ccxt exchange id: binance, kraken, coinbase, bybit, ...
-  testnet: true            # use the exchange's sandbox/testnet endpoint where supported
+  id: kraken               # any ccxt exchange id: binance, kraken, coinbase, bybit, ...
+  testnet: false           # Kraken has no ccxt-supported sandbox mode (unlike Binance);
+                            # this is real Kraken market data (reads only, in paper mode)
 
 market:
   symbols:                 # whitelist — the bot will only ever look at / trade these
