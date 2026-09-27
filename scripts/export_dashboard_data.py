@@ -72,7 +72,68 @@ def _reconstruct_cash(trade_log_path: Path, starting_cash: float) -> float:
     return cash
 
 
-def _role_statuses(events: list[dict[str, Any]], now: datetime) -> list[dict[str, Any]]:
+def _fmt_num(n: Any) -> str:
+    if n is None:
+        return "?"
+    try:
+        n = float(n)
+    except (TypeError, ValueError):
+        return str(n)
+    return f"{n:,.2f}" if n >= 1 else f"{n:,.6f}"
+
+
+def _role_detail(role_id: str, event: dict[str, Any] | None) -> str | None:
+    """One human-readable line describing what a role's last matching audit
+    event actually was -- shown live on the dashboard's center screen and in
+    each desk's drawer, instead of just an idle/working dot."""
+    if event is None:
+        return None
+    symbol = event.get("symbol", "?")
+
+    if role_id == "market_analyst":
+        signal = event.get("signal")
+        if signal:
+            return f"{symbol}: {signal.get('pattern')} signal ({signal.get('direction')}, score {signal.get('engine_score')})"
+        candidates = event.get("candidates") or []
+        if candidates:
+            best = max(candidates, key=lambda c: c.get("strength", 0))
+            return f"{symbol}: scanning — {best.get('pattern')} candidate (strength {best.get('strength')})"
+        return f"{symbol}: scanned, no pattern found"
+
+    if role_id == "trade_strategist":
+        plan = event.get("plan")
+        if plan:
+            zone = plan.get("entry_zone")
+            zone_str = f"{_fmt_num(zone[0])}–{_fmt_num(zone[1])}" if zone else "?"
+            return f"{symbol}: built {plan.get('pattern')} plan — buy {zone_str}, stop {_fmt_num(plan.get('stop_loss'))}"
+        return None
+
+    if role_id == "risk_officer":
+        decision = event.get("risk_decision")
+        if decision:
+            verdict = "approved" if decision.get("allowed") else "rejected"
+            return f"{symbol}: {verdict} — {decision.get('reason')}"
+        return None
+
+    if role_id == "compliance_reviewer":
+        verdict = event.get("advisor_verdict")
+        if verdict:
+            return f"{symbol}: {verdict.get('verdict')} (confidence {verdict.get('confidence_stars')})"
+        return None
+
+    if role_id == "execution_trader":
+        execution = event.get("execution")
+        monitor_action = (event.get("monitor_action") or {}).get("action")
+        if execution and monitor_action in ("STOP_LOSS", "TAKE_PROFIT"):
+            return f"{symbol}: closed ({monitor_action.replace('_', ' ').title()}) @ {_fmt_num(execution.get('price'))}"
+        if execution:
+            return f"{symbol}: bought @ {_fmt_num(execution.get('price'))}"
+        return None
+
+    return None
+
+
+def _role_statuses(events: list[dict[str, Any]], now: datetime, advisor_enabled: bool) -> list[dict[str, Any]]:
     roles = []
     for role_id, label, model_tier, marker_keys in ROLE_MARKERS:
         last_event = None
@@ -90,6 +151,12 @@ def _role_statuses(events: list[dict[str, Any]], now: datetime) -> list[dict[str
                     status = "working"
             except ValueError:
                 pass
+        detail = _role_detail(role_id, last_event)
+        if role_id == "compliance_reviewer" and not advisor_enabled:
+            # advisor.enabled: false in config.yaml -- this role never fires,
+            # distinct from "idle" (which implies it's just between cycles).
+            status = "disabled"
+            detail = "Disabled — no ANTHROPIC_API_KEY configured in CI"
         roles.append(
             {
                 "id": role_id,
@@ -97,20 +164,96 @@ def _role_statuses(events: list[dict[str, Any]], now: datetime) -> list[dict[str
                 "model_tier": model_tier,
                 "status": status,
                 "last_active": last_active,
+                "detail": detail,
             }
         )
-    # CEO/Boss desk: "working" whenever any specialist role is.
+    working_specialists = [r for r in roles if r["status"] == "working"]
     roles.insert(
         0,
         {
             "id": "boss",
             "label": "CEO / Orchestrator",
             "model_tier": "opus",
-            "status": "working" if any(r["status"] == "working" for r in roles) else "idle",
+            "status": "working" if working_specialists else "idle",
             "last_active": events[-1]["timestamp"] if events and "timestamp" in events[-1] else None,
+            "detail": (
+                f"Coordinating {len(working_specialists)} active role(s) this cycle"
+                if working_specialists
+                else "Idle — waiting for the next scheduled cycle"
+            ),
         },
     )
     return roles
+
+
+def _signal_history(events: list[dict[str, Any]], max_items: int = 20) -> list[dict[str, Any]]:
+    """A curated, human-readable timeline of the notable things that have
+    happened recently -- signals planned, fills, closes, risk rejections,
+    advisor vetoes -- as opposed to every single scanner tick. Powers the
+    dashboard's "Signal History" view."""
+    history: list[dict[str, Any]] = []
+    for event in reversed(events):
+        symbol = event.get("symbol")
+        ts = event.get("timestamp")
+        if not symbol or not ts:
+            continue
+
+        if event.get("action") == "planned" and "plan" in event:
+            plan = event["plan"]
+            zone = plan.get("entry_zone")
+            zone_str = f"{_fmt_num(zone[0])}–{_fmt_num(zone[1])}" if zone else "?"
+            history.append(
+                {
+                    "timestamp": ts,
+                    "symbol": symbol,
+                    "kind": "signal",
+                    "summary": f"{plan.get('pattern')} signal — buy {zone_str}, stop {_fmt_num(plan.get('stop_loss'))}",
+                }
+            )
+
+        execution = event.get("execution")
+        monitor_action = (event.get("monitor_action") or {}).get("action")
+        if execution and monitor_action in ("STOP_LOSS", "TAKE_PROFIT"):
+            history.append(
+                {
+                    "timestamp": ts,
+                    "symbol": symbol,
+                    "kind": "closed",
+                    "summary": f"Closed ({monitor_action.replace('_', ' ').title()}) @ {_fmt_num(execution.get('price'))}",
+                }
+            )
+        elif execution:
+            history.append(
+                {"timestamp": ts, "symbol": symbol, "kind": "filled", "summary": f"Bought @ {_fmt_num(execution.get('price'))}"}
+            )
+
+        risk_decision = event.get("risk_decision")
+        if risk_decision and not risk_decision.get("allowed"):
+            history.append(
+                {
+                    "timestamp": ts,
+                    "symbol": symbol,
+                    "kind": "rejected",
+                    "summary": f"Risk check rejected — {risk_decision.get('reason')}",
+                }
+            )
+
+        advisor_verdict = event.get("advisor_verdict")
+        if advisor_verdict and advisor_verdict.get("verdict") == "VETO" and not advisor_verdict.get("raw_error"):
+            # Only a genuine content-based veto -- not the old "no API key" fallback
+            # noise (raw_error set), which old audit logs may still contain.
+            history.append(
+                {
+                    "timestamp": ts,
+                    "symbol": symbol,
+                    "kind": "vetoed",
+                    "summary": f"Advisor vetoed — {advisor_verdict.get('reasoning')}",
+                }
+            )
+
+        if len(history) >= max_items:
+            break
+    return history
 
 
 def _record_view(symbol: str, record, current_price: float | None) -> dict[str, Any]:
@@ -186,22 +329,6 @@ def main() -> None:
 
     equity = cash + sum((p["current_price"] or p["fill_price"] or 0) * (p["fill_amount"] or 0) for p in positions)
 
-    recent_candidates = []
-    for event in reversed(audit_events):
-        if event.get("candidates"):
-            recent_candidates.append({"symbol": event["symbol"], "timestamp": event.get("timestamp"), "candidates": event["candidates"]})
-        if len(recent_candidates) >= 10:
-            break
-
-    recent_risk_decisions = []
-    for event in reversed(audit_events):
-        if event.get("risk_decision"):
-            recent_risk_decisions.append(
-                {"symbol": event["symbol"], "timestamp": event.get("timestamp"), **event["risk_decision"]}
-            )
-        if len(recent_risk_decisions) >= 10:
-            break
-
     data = {
         "generated_at": now.isoformat(),
         "mode": cfg.mode,
@@ -213,11 +340,10 @@ def main() -> None:
             "equity": round(equity, 2),
             "pnl_pct": round((equity - cfg.risk["starting_cash_usd"]) / cfg.risk["starting_cash_usd"], 4),
         },
-        "roles": _role_statuses(audit_events, now),
+        "roles": _role_statuses(audit_events, now, cfg.advisor.get("enabled", False)),
         "positions": positions,
         "pending": pending,
-        "recent_candidates": recent_candidates,
-        "recent_risk_decisions": recent_risk_decisions,
+        "signal_history": _signal_history(audit_events),
         "chart": chart_payload,
     }
 
