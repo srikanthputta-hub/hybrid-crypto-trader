@@ -60,12 +60,19 @@ jobs:
           EXCHANGE_API_KEY: ${{ secrets.EXCHANGE_API_KEY }}
           EXCHANGE_API_SECRET: ${{ secrets.EXCHANGE_API_SECRET }}
           LIVE_TRADING_CONFIRM: "YES-I-UNDERSTAND-THE-RISK"
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m src.bot --once
         # No ANTHROPIC_API_KEY secret is passed: the Claude advisor step
         # (src/claude_advisor.py) fails *closed* by design when the key is
         # missing — it vetoes rather than erroring, so this still runs clean.
         # Add an ANTHROPIC_API_KEY repo secret and pass it here as an env var
         # if you want the advisor's real second opinion in these runs.
+        #
+        # TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are optional (src/notifier.py):
+        # a signal/fill/close message is sent only if both are set as repo
+        # secrets; with either missing, this step runs exactly the same,
+        # just without notifications.
 
       - name: Export dashboard data
         run: python scripts/export_dashboard_data.py

@@ -98,6 +98,14 @@ class Config:
         return os.environ.get("ANTHROPIC_API_KEY") or None
 
     @property
+    def telegram_bot_token(self) -> str | None:
+        return os.environ.get("TELEGRAM_BOT_TOKEN") or None
+
+    @property
+    def telegram_chat_id(self) -> str | None:
+        return os.environ.get("TELEGRAM_CHAT_ID") or None
+
+    @property
     def live_trading_confirmed(self) -> bool:
         return os.environ.get("LIVE_TRADING_CONFIRM") == "YES-I-UNDERSTAND-THE-RISK"
 
