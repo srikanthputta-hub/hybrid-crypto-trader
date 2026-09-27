@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-27T12:36:16.255742+00:00",
+  "generated_at": "2026-09-27T13:39:16.210405+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -12,9 +12,6 @@
     "AVAX/USDT",
     "LINK/USDT",
     "BNB/USDT",
-    "XMR/USDT",
-    "XAUT/USDT",
-    "FARTCOIN/USDT",
     "LTC/USDT",
     "DOT/USDT",
     "ATOM/USDT",
@@ -26,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 5996.0,
-    "equity": 10001.25,
-    "pnl_pct": 0.0001
+    "equity": 9976.57,
+    "pnl_pct": -0.0023
   },
   "roles": [
     {
@@ -35,42 +32,48 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-27T12:36:15.316031+00:00"
+      "last_active": "2026-09-27T13:39:15.298200+00:00",
+      "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T12:36:15.316031+00:00"
+      "last_active": "2026-09-27T13:39:15.298200+00:00",
+      "detail": "SHIB/USDT: scanned, no pattern found"
     },
     {
       "id": "trade_strategist",
       "label": "Trade Strategist",
       "model_tier": "sonnet",
-      "status": "working",
-      "last_active": "2026-09-27T12:36:14.586856+00:00"
+      "status": "idle",
+      "last_active": "2026-09-27T12:36:14.586856+00:00",
+      "detail": "ALGO/USDT: built PULLBACK plan \u2014 buy 0.117384\u20130.118301, stop 0.116177"
     },
     {
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
-      "status": "working",
-      "last_active": "2026-09-27T12:36:14.586856+00:00"
+      "status": "idle",
+      "last_active": "2026-09-27T12:36:14.586856+00:00",
+      "detail": "ALGO/USDT: approved \u2014 ok"
     },
     {
       "id": "compliance_reviewer",
       "label": "Compliance Reviewer",
       "model_tier": "sonnet",
-      "status": "idle",
-      "last_active": "2026-09-27T12:16:53.613848+00:00"
+      "status": "disabled",
+      "last_active": "2026-09-27T12:16:53.613848+00:00",
+      "detail": "Disabled \u2014 no ANTHROPIC_API_KEY configured in CI"
     },
     {
       "id": "execution_trader",
       "label": "Execution Trader",
       "model_tier": "opus",
-      "status": "working",
-      "last_active": "2026-09-27T12:36:14.586856+00:00"
+      "status": "idle",
+      "last_active": "2026-09-27T12:36:14.586856+00:00",
+      "detail": "ALGO/USDT: bought @ 0.118180"
     }
   ],
   "positions": [
@@ -90,8 +93,8 @@
       "confidence_claude": null,
       "fill_price": 84991.5,
       "fill_amount": 0.011754116588129401,
-      "current_price": 84991.5,
-      "unrealized_pnl_pct": 0.0
+      "current_price": 84899.5,
+      "unrealized_pnl_pct": -0.0010824611872952
     },
     {
       "symbol": "ETH/USDT",
@@ -109,8 +112,8 @@
       "confidence_claude": null,
       "fill_price": 2713.67,
       "fill_amount": 0.3681361403560492,
-      "current_price": 2715.26,
-      "unrealized_pnl_pct": 0.0005859223855517235
+      "current_price": 2705.88,
+      "unrealized_pnl_pct": -0.002870651184558168
     },
     {
       "symbol": "ADA/USDT",
@@ -128,8 +131,8 @@
       "confidence_claude": null,
       "fill_price": 0.257507,
       "fill_amount": 3879.506188181292,
-      "current_price": 0.257713,
-      "unrealized_pnl_pct": 0.0007999782530185179
+      "current_price": 0.255486,
+      "unrealized_pnl_pct": -0.007848330336651024
     },
     {
       "symbol": "DOGE/USDT",
@@ -147,8 +150,8 @@
       "confidence_claude": null,
       "fill_price": 0.09818,
       "fill_amount": 10175.188429415359,
-      "current_price": 0.09856,
-      "unrealized_pnl_pct": 0.0038704420452229725
+      "current_price": 0.09743,
+      "unrealized_pnl_pct": -0.00763903035241394
     },
     {
       "symbol": "BNB/USDT",
@@ -166,8 +169,8 @@
       "confidence_claude": null,
       "fill_price": 781.31,
       "fill_amount": 0.005114487207382473,
-      "current_price": 781.31,
-      "unrealized_pnl_pct": 0.0
+      "current_price": 780.08,
+      "unrealized_pnl_pct": -0.001574279095365354
     },
     {
       "symbol": "ATOM/USDT",
@@ -185,8 +188,8 @@
       "confidence_claude": null,
       "fill_price": 1.8927,
       "fill_amount": 0.002111269614786024,
-      "current_price": 1.8927,
-      "unrealized_pnl_pct": 0.0
+      "current_price": 1.8627,
+      "unrealized_pnl_pct": -0.015850372483753383
     },
     {
       "symbol": "ALGO/USDT",
@@ -204,205 +207,100 @@
       "confidence_claude": null,
       "fill_price": 0.11818,
       "fill_amount": 3.381282780429066e-05,
-      "current_price": 0.11818,
-      "unrealized_pnl_pct": 0.0
+      "current_price": 0.11695,
+      "unrealized_pnl_pct": -0.010407852428498858
     }
   ],
   "pending": [],
-  "recent_candidates": [
+  "signal_history": [
     {
-      "symbol": "ALGO/USDT",
       "timestamp": "2026-09-27T12:36:14.586856+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.612
-        }
-      ]
-    },
-    {
-      "symbol": "ATOM/USDT",
-      "timestamp": "2026-09-27T12:36:13.893344+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.698
-        }
-      ]
-    },
-    {
-      "symbol": "BNB/USDT",
-      "timestamp": "2026-09-27T12:36:13.224268+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.992
-        }
-      ]
-    },
-    {
-      "symbol": "DOGE/USDT",
-      "timestamp": "2026-09-27T12:36:12.509736+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.71
-        }
-      ]
-    },
-    {
-      "symbol": "ADA/USDT",
-      "timestamp": "2026-09-27T12:36:11.848909+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.666
-        }
-      ]
-    },
-    {
-      "symbol": "ETH/USDT",
-      "timestamp": "2026-09-27T12:36:11.174159+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.641
-        }
-      ]
-    },
-    {
-      "symbol": "BTC/USDT",
-      "timestamp": "2026-09-27T12:36:10.482981+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.772
-        }
-      ]
-    },
-    {
       "symbol": "ALGO/USDT",
-      "timestamp": "2026-09-27T12:16:53.613848+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.556
-        }
-      ]
+      "kind": "signal",
+      "summary": "PULLBACK signal \u2014 buy 0.117384\u20130.118301, stop 0.116177"
     },
     {
-      "symbol": "ATOM/USDT",
-      "timestamp": "2026-09-27T12:16:53.611611+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.681
-        }
-      ]
-    },
-    {
-      "symbol": "BNB/USDT",
-      "timestamp": "2026-09-27T12:16:53.599675+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 1.0
-        }
-      ]
-    }
-  ],
-  "recent_risk_decisions": [
-    {
-      "symbol": "ALGO/USDT",
       "timestamp": "2026-09-27T12:36:14.586856+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 3.999999989900971e-06
-    },
-    {
-      "symbol": "ATOM/USDT",
-      "timestamp": "2026-09-27T12:36:13.893344+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 0.0039999999999054126
-    },
-    {
-      "symbol": "BNB/USDT",
-      "timestamp": "2026-09-27T12:36:13.224268+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 4.0
-    },
-    {
-      "symbol": "DOGE/USDT",
-      "timestamp": "2026-09-27T12:36:12.509736+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
-    },
-    {
-      "symbol": "ADA/USDT",
-      "timestamp": "2026-09-27T12:36:11.848909+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
-    },
-    {
-      "symbol": "ETH/USDT",
-      "timestamp": "2026-09-27T12:36:11.174159+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
-    },
-    {
-      "symbol": "BTC/USDT",
-      "timestamp": "2026-09-27T12:36:10.482981+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
-    },
-    {
       "symbol": "ALGO/USDT",
-      "timestamp": "2026-09-27T12:16:53.613848+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
+      "kind": "filled",
+      "summary": "Bought @ 0.118180"
     },
     {
+      "timestamp": "2026-09-27T12:36:13.893344+00:00",
       "symbol": "ATOM/USDT",
-      "timestamp": "2026-09-27T12:16:53.611611+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
+      "kind": "signal",
+      "summary": "PULLBACK signal \u2014 buy 1.87\u20131.89, stop 1.85"
     },
     {
+      "timestamp": "2026-09-27T12:36:13.893344+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "filled",
+      "summary": "Bought @ 1.89"
+    },
+    {
+      "timestamp": "2026-09-27T12:36:13.224268+00:00",
       "symbol": "BNB/USDT",
-      "timestamp": "2026-09-27T12:16:53.599675+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
+      "kind": "signal",
+      "summary": "PULLBACK signal \u2014 buy 776.85\u2013781.48, stop 775.11"
+    },
+    {
+      "timestamp": "2026-09-27T12:36:13.224268+00:00",
+      "symbol": "BNB/USDT",
+      "kind": "filled",
+      "summary": "Bought @ 781.31"
+    },
+    {
+      "timestamp": "2026-09-27T12:36:12.509736+00:00",
+      "symbol": "DOGE/USDT",
+      "kind": "signal",
+      "summary": "PULLBACK signal \u2014 buy 0.097405\u20130.098247, stop 0.096731"
+    },
+    {
+      "timestamp": "2026-09-27T12:36:12.509736+00:00",
+      "symbol": "DOGE/USDT",
+      "kind": "filled",
+      "summary": "Bought @ 0.098180"
+    },
+    {
+      "timestamp": "2026-09-27T12:36:11.848909+00:00",
+      "symbol": "ADA/USDT",
+      "kind": "signal",
+      "summary": "PULLBACK signal \u2014 buy 0.255310\u20130.257743, stop 0.252947"
+    },
+    {
+      "timestamp": "2026-09-27T12:36:11.848909+00:00",
+      "symbol": "ADA/USDT",
+      "kind": "filled",
+      "summary": "Bought @ 0.257507"
+    },
+    {
+      "timestamp": "2026-09-27T12:36:11.174159+00:00",
+      "symbol": "ETH/USDT",
+      "kind": "signal",
+      "summary": "PULLBACK signal \u2014 buy 2,706.21\u20132,714.59, stop 2,696.97"
+    },
+    {
+      "timestamp": "2026-09-27T12:36:11.174159+00:00",
+      "symbol": "ETH/USDT",
+      "kind": "filled",
+      "summary": "Bought @ 2,713.67"
+    },
+    {
+      "timestamp": "2026-09-27T12:36:10.482981+00:00",
+      "symbol": "BTC/USDT",
+      "kind": "signal",
+      "summary": "PULLBACK signal \u2014 buy 84,680.13\u201385,012.86, stop 84,466.54"
+    },
+    {
+      "timestamp": "2026-09-27T12:36:10.482981+00:00",
+      "symbol": "BTC/USDT",
+      "kind": "filled",
+      "summary": "Bought @ 84,991.50"
     }
   ],
   "chart": {
     "symbol": "BTC/USDT",
     "candles": [
-      {
-        "time": 1789974000,
-        "open": 81635.9,
-        "high": 81727.4,
-        "low": 81487.3,
-        "close": 81720.6
-      },
       {
         "time": 1789977600,
         "open": 81758.5,
@@ -1443,8 +1341,15 @@
         "time": 1790510400,
         "open": 84899.8,
         "high": 85016.1,
-        "low": 84899.8,
-        "close": 84991.5
+        "low": 84800.4,
+        "close": 84800.4
+      },
+      {
+        "time": 1790514000,
+        "open": 84800.3,
+        "high": 85153.2,
+        "low": 84646.1,
+        "close": 84899.5
       }
     ],
     "plan": {
@@ -1463,8 +1368,8 @@
       "confidence_claude": null,
       "fill_price": 84991.5,
       "fill_amount": 0.011754116588129401,
-      "current_price": 84991.5,
-      "unrealized_pnl_pct": 0.0
+      "current_price": 84899.5,
+      "unrealized_pnl_pct": -0.0010824611872952
     }
   }
 }
