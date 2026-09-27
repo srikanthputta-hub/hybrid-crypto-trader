@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-27T12:36:16.255742+00:00",
+  "generated_at": "2026-09-27T13:19:49.446280+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -12,9 +12,13 @@
     "AVAX/USDT",
     "LINK/USDT",
     "BNB/USDT",
-    "XMR/USDT",
-    "XAUT/USDT",
-    "FARTCOIN/USDT",
+    "MATIC/USDT",
+    "POL/USDT",
+    "AAVE/USDT",
+    "GRT/USDT",
+    "SAND/USDT",
+    "MANA/USDT",
+    "CRV/USDT",
     "LTC/USDT",
     "DOT/USDT",
     "ATOM/USDT",
@@ -26,8 +30,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 5996.0,
-    "equity": 10001.25,
-    "pnl_pct": 0.0001
+    "equity": 9970.13,
+    "pnl_pct": -0.003
   },
   "roles": [
     {
@@ -35,27 +39,27 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-27T12:36:15.316031+00:00"
+      "last_active": "2026-09-27T13:19:48.486092+00:00"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T12:36:15.316031+00:00"
+      "last_active": "2026-09-27T13:19:48.486092+00:00"
     },
     {
       "id": "trade_strategist",
       "label": "Trade Strategist",
       "model_tier": "sonnet",
-      "status": "working",
+      "status": "idle",
       "last_active": "2026-09-27T12:36:14.586856+00:00"
     },
     {
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
-      "status": "working",
+      "status": "idle",
       "last_active": "2026-09-27T12:36:14.586856+00:00"
     },
     {
@@ -70,7 +74,7 @@
       "label": "Execution Trader",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-27T12:36:14.586856+00:00"
+      "last_active": "2026-09-27T13:19:48.480228+00:00"
     }
   ],
   "positions": [
@@ -90,8 +94,8 @@
       "confidence_claude": null,
       "fill_price": 84991.5,
       "fill_amount": 0.011754116588129401,
-      "current_price": 84991.5,
-      "unrealized_pnl_pct": 0.0
+      "current_price": 84740.2,
+      "unrealized_pnl_pct": -0.0029567662648618143
     },
     {
       "symbol": "ETH/USDT",
@@ -109,8 +113,8 @@
       "confidence_claude": null,
       "fill_price": 2713.67,
       "fill_amount": 0.3681361403560492,
-      "current_price": 2715.26,
-      "unrealized_pnl_pct": 0.0005859223855517235
+      "current_price": 2703.38,
+      "unrealized_pnl_pct": -0.0037919127970607934
     },
     {
       "symbol": "ADA/USDT",
@@ -128,8 +132,8 @@
       "confidence_claude": null,
       "fill_price": 0.257507,
       "fill_amount": 3879.506188181292,
-      "current_price": 0.257713,
-      "unrealized_pnl_pct": 0.0007999782530185179
+      "current_price": 0.254838,
+      "unrealized_pnl_pct": -0.010364766783038819
     },
     {
       "symbol": "DOGE/USDT",
@@ -147,8 +151,8 @@
       "confidence_claude": null,
       "fill_price": 0.09818,
       "fill_amount": 10175.188429415359,
-      "current_price": 0.09856,
-      "unrealized_pnl_pct": 0.0038704420452229725
+      "current_price": 0.09732,
+      "unrealized_pnl_pct": -0.008759421470767973
     },
     {
       "symbol": "BNB/USDT",
@@ -166,8 +170,8 @@
       "confidence_claude": null,
       "fill_price": 781.31,
       "fill_amount": 0.005114487207382473,
-      "current_price": 781.31,
-      "unrealized_pnl_pct": 0.0
+      "current_price": 777.94,
+      "unrealized_pnl_pct": -0.0043132687409605545
     },
     {
       "symbol": "ATOM/USDT",
@@ -185,8 +189,8 @@
       "confidence_claude": null,
       "fill_price": 1.8927,
       "fill_amount": 0.002111269614786024,
-      "current_price": 1.8927,
-      "unrealized_pnl_pct": 0.0
+      "current_price": 1.8687,
+      "unrealized_pnl_pct": -0.012680297987002705
     },
     {
       "symbol": "ALGO/USDT",
@@ -204,12 +208,44 @@
       "confidence_claude": null,
       "fill_price": 0.11818,
       "fill_amount": 3.381282780429066e-05,
-      "current_price": 0.11818,
-      "unrealized_pnl_pct": 0.0
+      "current_price": 0.11586,
+      "unrealized_pnl_pct": -0.019631071247249863
     }
   ],
   "pending": [],
   "recent_candidates": [
+    {
+      "symbol": "LTC/USDT",
+      "timestamp": "2026-09-27T13:19:48.475968+00:00",
+      "candidates": [
+        {
+          "pattern": "BREAKOUT",
+          "direction": "bearish",
+          "strength": 0.528
+        },
+        {
+          "pattern": "PULLBACK",
+          "direction": "bearish",
+          "strength": 0.758
+        },
+        {
+          "pattern": "TREND_CONTINUATION",
+          "direction": "bearish",
+          "strength": 0.72
+        }
+      ]
+    },
+    {
+      "symbol": "XRP/USDT",
+      "timestamp": "2026-09-27T13:19:48.464753+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bearish",
+          "strength": 0.591
+        }
+      ]
+    },
     {
       "symbol": "ALGO/USDT",
       "timestamp": "2026-09-27T12:36:14.586856+00:00",
@@ -297,28 +333,6 @@
           "strength": 0.556
         }
       ]
-    },
-    {
-      "symbol": "ATOM/USDT",
-      "timestamp": "2026-09-27T12:16:53.611611+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.681
-        }
-      ]
-    },
-    {
-      "symbol": "BNB/USDT",
-      "timestamp": "2026-09-27T12:16:53.599675+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 1.0
-        }
-      ]
     }
   ],
   "recent_risk_decisions": [
@@ -396,13 +410,6 @@
   "chart": {
     "symbol": "BTC/USDT",
     "candles": [
-      {
-        "time": 1789974000,
-        "open": 81635.9,
-        "high": 81727.4,
-        "low": 81487.3,
-        "close": 81720.6
-      },
       {
         "time": 1789977600,
         "open": 81758.5,
@@ -1443,8 +1450,15 @@
         "time": 1790510400,
         "open": 84899.8,
         "high": 85016.1,
-        "low": 84899.8,
-        "close": 84991.5
+        "low": 84800.4,
+        "close": 84800.4
+      },
+      {
+        "time": 1790514000,
+        "open": 84800.3,
+        "high": 84804.8,
+        "low": 84646.1,
+        "close": 84771.5
       }
     ],
     "plan": {
@@ -1463,8 +1477,8 @@
       "confidence_claude": null,
       "fill_price": 84991.5,
       "fill_amount": 0.011754116588129401,
-      "current_price": 84991.5,
-      "unrealized_pnl_pct": 0.0
+      "current_price": 84740.2,
+      "unrealized_pnl_pct": -0.0029567662648618143
     }
   }
 }
