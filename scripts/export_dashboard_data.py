@@ -72,14 +72,21 @@ def _reconstruct_cash(trade_log_path: Path, starting_cash: float) -> float:
     return cash
 
 
-def _fmt_num(n: Any) -> str:
+def _fmt_price(n: Any) -> str:
+    """USD-formats a price the same way src/bot.py's Telegram messages do --
+    $X,XXX.XX for $1+, more decimals below that (a sub-cent coin like SHIB
+    would just read "$0.00" at a fixed 2 decimals)."""
     if n is None:
         return "?"
     try:
         n = float(n)
     except (TypeError, ValueError):
         return str(n)
-    return f"{n:,.2f}" if n >= 1 else f"{n:,.6f}"
+    if n >= 1:
+        return f"${n:,.2f}"
+    if n >= 0.01:
+        return f"${n:,.4f}"
+    return f"${n:,.6f}"
 
 
 def _role_detail(role_id: str, event: dict[str, Any] | None) -> str | None:
@@ -93,41 +100,43 @@ def _role_detail(role_id: str, event: dict[str, Any] | None) -> str | None:
     if role_id == "market_analyst":
         signal = event.get("signal")
         if signal:
-            return f"{symbol}: {signal.get('pattern')} signal ({signal.get('direction')}, score {signal.get('engine_score')})"
+            return f"{symbol}: found a {signal.get('pattern')} setup ({signal.get('direction')})"
         candidates = event.get("candidates") or []
         if candidates:
             best = max(candidates, key=lambda c: c.get("strength", 0))
-            return f"{symbol}: scanning — {best.get('pattern')} candidate (strength {best.get('strength')})"
-        return f"{symbol}: scanned, no pattern found"
+            return f"{symbol}: watching a possible {best.get('pattern')} setup"
+        return f"{symbol}: checked, nothing worth trading"
 
     if role_id == "trade_strategist":
         plan = event.get("plan")
         if plan:
             zone = plan.get("entry_zone")
-            zone_str = f"{_fmt_num(zone[0])}–{_fmt_num(zone[1])}" if zone else "?"
-            return f"{symbol}: built {plan.get('pattern')} plan — buy {zone_str}, stop {_fmt_num(plan.get('stop_loss'))}"
+            zone_str = f"{_fmt_price(zone[0])} and {_fmt_price(zone[1])}" if zone else "?"
+            return f"{symbol}: buy between {zone_str}, stop-loss {_fmt_price(plan.get('stop_loss'))}"
         return None
 
     if role_id == "risk_officer":
         decision = event.get("risk_decision")
         if decision:
-            verdict = "approved" if decision.get("allowed") else "rejected"
+            verdict = "OK to trade" if decision.get("allowed") else "blocked"
             return f"{symbol}: {verdict} — {decision.get('reason')}"
         return None
 
     if role_id == "compliance_reviewer":
         verdict = event.get("advisor_verdict")
         if verdict:
-            return f"{symbol}: {verdict.get('verdict')} (confidence {verdict.get('confidence_stars')})"
+            plain = "approved" if verdict.get("verdict") == "APPROVE" else "vetoed"
+            return f"{symbol}: {plain} (confidence {verdict.get('confidence_stars')}/5)"
         return None
 
     if role_id == "execution_trader":
         execution = event.get("execution")
         monitor_action = (event.get("monitor_action") or {}).get("action")
         if execution and monitor_action in ("STOP_LOSS", "TAKE_PROFIT"):
-            return f"{symbol}: closed ({monitor_action.replace('_', ' ').title()}) @ {_fmt_num(execution.get('price'))}"
+            reason = "stop-loss hit" if monitor_action == "STOP_LOSS" else "target reached"
+            return f"{symbol}: sold — {reason} at {_fmt_price(execution.get('price'))}"
         if execution:
-            return f"{symbol}: bought @ {_fmt_num(execution.get('price'))}"
+            return f"{symbol}: bought at {_fmt_price(execution.get('price'))}"
         return None
 
     return None
@@ -201,30 +210,44 @@ def _signal_history(events: list[dict[str, Any]], max_items: int = 20) -> list[d
         if event.get("action") == "planned" and "plan" in event:
             plan = event["plan"]
             zone = plan.get("entry_zone")
-            zone_str = f"{_fmt_num(zone[0])}–{_fmt_num(zone[1])}" if zone else "?"
+            zone_str = f"{_fmt_price(zone[0])} and {_fmt_price(zone[1])}" if zone else "?"
             history.append(
                 {
                     "timestamp": ts,
                     "symbol": symbol,
                     "kind": "signal",
-                    "summary": f"{plan.get('pattern')} signal — buy {zone_str}, stop {_fmt_num(plan.get('stop_loss'))}",
+                    "summary": f"Buy between {zone_str} — stop-loss {_fmt_price(plan.get('stop_loss'))} (sell here to cap the loss)",
                 }
             )
 
         execution = event.get("execution")
         monitor_action = (event.get("monitor_action") or {}).get("action")
-        if execution and monitor_action in ("STOP_LOSS", "TAKE_PROFIT"):
+        if execution and monitor_action == "STOP_LOSS":
             history.append(
                 {
                     "timestamp": ts,
                     "symbol": symbol,
-                    "kind": "closed",
-                    "summary": f"Closed ({monitor_action.replace('_', ' ').title()}) @ {_fmt_num(execution.get('price'))}",
+                    "kind": "stop_loss",
+                    "summary": f"Sold — stop-loss hit at {_fmt_price(execution.get('price'))}",
+                }
+            )
+        elif execution and monitor_action == "TAKE_PROFIT":
+            history.append(
+                {
+                    "timestamp": ts,
+                    "symbol": symbol,
+                    "kind": "take_profit",
+                    "summary": f"Sold — target reached at {_fmt_price(execution.get('price'))}",
                 }
             )
         elif execution:
             history.append(
-                {"timestamp": ts, "symbol": symbol, "kind": "filled", "summary": f"Bought @ {_fmt_num(execution.get('price'))}"}
+                {
+                    "timestamp": ts,
+                    "symbol": symbol,
+                    "kind": "filled",
+                    "summary": f"Bought at {_fmt_price(execution.get('price'))}",
+                }
             )
 
         risk_decision = event.get("risk_decision")
@@ -234,7 +257,7 @@ def _signal_history(events: list[dict[str, Any]], max_items: int = 20) -> list[d
                     "timestamp": ts,
                     "symbol": symbol,
                     "kind": "rejected",
-                    "summary": f"Risk check rejected — {risk_decision.get('reason')}",
+                    "summary": f"Skipped — risk check said no ({risk_decision.get('reason')})",
                 }
             )
 
@@ -247,7 +270,7 @@ def _signal_history(events: list[dict[str, Any]], max_items: int = 20) -> list[d
                     "timestamp": ts,
                     "symbol": symbol,
                     "kind": "vetoed",
-                    "summary": f"Advisor vetoed — {advisor_verdict.get('reasoning')}",
+                    "summary": f"Skipped — advisor said no ({advisor_verdict.get('reasoning')})",
                 }
             )
 
@@ -272,6 +295,12 @@ def _record_view(symbol: str, record, current_price: float | None) -> dict[str, 
         "fill_price": record.fill_price,
         "fill_amount": record.fill_amount,
         "current_price": current_price,
+        "created_at": record.created_at,
+        "filled_at": record.filled_at,
+        # what "When" means for this row: an OPEN position's fill time, or
+        # a PENDING plan's plan time -- used for both display and sorting
+        # newest-first in the dashboard's Active signals table.
+        "timestamp": record.filled_at or record.created_at,
     }
     if record.status == "OPEN" and record.fill_price and current_price:
         view["unrealized_pnl_pct"] = (current_price - record.fill_price) / record.fill_price
@@ -331,6 +360,9 @@ def main() -> None:
     records = store.all_current()
     positions = [_record_view(sym, rec, current_prices.get(sym)) for sym, rec in records.items() if rec.status == "OPEN"]
     pending = [_record_view(sym, rec, current_prices.get(sym)) for sym, rec in records.items() if rec.status == "PENDING"]
+    # Newest signal first -- ISO8601 UTC timestamps sort correctly as plain strings.
+    positions.sort(key=lambda p: p["timestamp"] or "", reverse=True)
+    pending.sort(key=lambda p: p["timestamp"] or "", reverse=True)
 
     equity = cash + sum((p["current_price"] or p["fill_price"] or 0) * (p["fill_amount"] or 0) for p in positions)
 

@@ -151,6 +151,7 @@ function renderTable(tableId, rows, columns, emptyMessage, onRowClick) {
   for (const row of rows) {
     const tr = document.createElement("tr");
     tr.innerHTML = columns.map((col) => `<td>${col(row)}</td>`).join("");
+    if (row.symbol) tr.dataset.symbol = row.symbol;
     if (onRowClick) {
       tr.classList.add("row-clickable");
       tr.addEventListener("click", () => onRowClick(row));
@@ -163,11 +164,13 @@ function renderActiveSignals(positions, pending, onSelect) {
   const rows = [
     ...positions.map((r) => ({ ...r, statusLabel: "OPEN" })),
     ...pending.map((r) => ({ ...r, statusLabel: "PENDING" })),
-  ];
+  ].sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || "")); // newest first
+
   renderTable(
     "table-signals-active",
     rows,
     [
+      (r) => fmtTime(r.timestamp),
       (r) => r.symbol,
       (r) => `<span class="status-badge status-${r.statusLabel.toLowerCase()}">${r.statusLabel}</span>`,
       (r) => r.pattern ?? "—",
@@ -190,12 +193,18 @@ function renderActiveSignals(positions, pending, onSelect) {
 function markActiveSignalRow(symbol) {
   const rows = document.querySelectorAll("#table-signals-active tbody tr");
   rows.forEach((tr) => {
-    const symbolCell = tr.querySelector("td");
-    tr.classList.toggle("row-selected", !!symbol && !!symbolCell && symbolCell.textContent === symbol);
+    tr.classList.toggle("row-selected", !!symbol && tr.dataset.symbol === symbol);
   });
 }
 
-const HISTORY_KIND_LABEL = { signal: "Signal", filled: "Bought", closed: "Closed", rejected: "Rejected", vetoed: "Vetoed" };
+const HISTORY_KIND_LABEL = {
+  signal: "Signal",
+  filled: "Bought",
+  stop_loss: "Stop-loss",
+  take_profit: "Target hit",
+  rejected: "Skipped",
+  vetoed: "Skipped",
+};
 
 function renderSignalHistory(history) {
   renderTable(

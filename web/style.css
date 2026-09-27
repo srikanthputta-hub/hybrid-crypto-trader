@@ -339,8 +339,9 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
 .status-badge.status-pending { color: #fbbf24; border: 1px solid #fbbf24; }
 .kind-badge.kind-signal { color: var(--accent); border: 1px solid var(--accent); }
 .kind-badge.kind-filled { color: var(--green); border: 1px solid var(--green); }
-.kind-badge.kind-closed { color: var(--muted); border: 1px solid var(--border); }
-.kind-badge.kind-rejected, .kind-badge.kind-vetoed { color: var(--red); border: 1px solid var(--red); }
+.kind-badge.kind-take_profit { color: var(--green); border: 1px solid var(--green); }
+.kind-badge.kind-stop_loss { color: var(--red); border: 1px solid var(--red); }
+.kind-badge.kind-rejected, .kind-badge.kind-vetoed { color: var(--muted); border: 1px solid var(--border); }
 
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
