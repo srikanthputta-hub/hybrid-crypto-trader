@@ -3,22 +3,43 @@
 # for a while and are comfortable with what it does.
 
 mode: paper              # "paper" or "live" — see .env.example for the second safety switch live mode needs
-                          # TEMPORARY: reverted from "live" (Binance testnet) to test whether
-                          # Kraken's public market data is reachable from wherever this bot
-                          # runs, after Binance's endpoints returned HTTP 451 ("restricted
-                          # location") for both testnet and mainnet from GitHub Actions' IP
-                          # range. Paper mode here is deliberate: this is a pure "can we see
-                          # market data" test, zero chance of any order attempt either way.
 
 exchange:
   id: kraken               # any ccxt exchange id: binance, kraken, coinbase, bybit, ...
+                            # (switched from Binance: its endpoints return HTTP 451 "restricted
+                            # location" from GitHub Actions' IP range, blocking market data)
   testnet: false           # Kraken has no ccxt-supported sandbox mode (unlike Binance);
                             # this is real Kraken market data (reads only, in paper mode)
 
 market:
-  symbols:                 # whitelist — the bot will only ever look at / trade these
+  symbols:                 # whitelist — the bot will only ever look at / trade these.
+                            # Top-20-by-volume coins on Kraken (per CoinGecko, Sep 2026) that
+                            # trade against USDT -- includes a synthetic-pair note: Kraken's
+                            # native pairs are mostly USD/EUR, but it synthesizes a USDT quote
+                            # for any coin with a USD pair, so these should all resolve. If any
+                            # symbol 404s from ccxt, that cycle just logs and skips it (see
+                            # run_cycle's per-symbol try/except in src/bot.py) -- it won't break
+                            # the rest of the cycle.
     - "BTC/USDT"
     - "ETH/USDT"
+    - "XRP/USDT"
+    - "SOL/USDT"
+    - "ADA/USDT"
+    - "DOGE/USDT"
+    - "AVAX/USDT"
+    - "LINK/USDT"
+    - "BNB/USDT"
+    - "XMR/USDT"
+    - "DASH/USDT"
+    - "NEAR/USDT"
+    - "SUI/USDT"
+    - "ZEC/USDT"
+    - "TAO/USDT"
+    - "PEPE/USDT"
+    - "WIF/USDT"
+    - "HYPE/USDT"
+    - "XAUT/USDT"
+    - "FARTCOIN/USDT"
   timeframe: "1h"           # ccxt timeframe string: 1m, 5m, 15m, 1h, 4h, 1d
   history_bars: 200         # bars of OHLCV history fetched each cycle for indicators/scanner
 
