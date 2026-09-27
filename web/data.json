@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-27T10:09:57.418440+00:00",
+  "generated_at": "2026-09-27T10:47:55.445202+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -19,10 +19,10 @@
     "DOT/USDT",
     "ATOM/USDT",
     "ALGO/USDT",
-    "TRX/USDT",
-    "ETC/USDT",
-    "XLM/USDT",
-    "UNI/USDT"
+    "BCH/USDT",
+    "XTZ/USDT",
+    "FIL/USDT",
+    "SHIB/USDT"
   ],
   "portfolio": {
     "starting_cash": 10000,
@@ -36,35 +36,35 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-27T10:09:56.600984+00:00"
+      "last_active": "2026-09-27T10:47:54.598951+00:00"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T10:09:56.599325+00:00"
+      "last_active": "2026-09-27T10:47:54.598951+00:00"
     },
     {
       "id": "trade_strategist",
       "label": "Trade Strategist",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T10:09:56.574081+00:00"
+      "last_active": "2026-09-27T10:47:54.587384+00:00"
     },
     {
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-27T10:09:56.574081+00:00"
+      "last_active": "2026-09-27T10:47:54.587384+00:00"
     },
     {
       "id": "compliance_reviewer",
       "label": "Compliance Reviewer",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T10:09:56.574081+00:00"
+      "last_active": "2026-09-27T10:47:54.587384+00:00"
     },
     {
       "id": "execution_trader",
@@ -77,6 +77,28 @@
   "positions": [],
   "pending": [],
   "recent_candidates": [
+    {
+      "symbol": "LTC/USDT",
+      "timestamp": "2026-09-27T10:47:54.589217+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bearish",
+          "strength": 0.598
+        }
+      ]
+    },
+    {
+      "symbol": "FARTCOIN/USDT",
+      "timestamp": "2026-09-27T10:47:54.587384+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bullish",
+          "strength": 0.874
+        }
+      ]
+    },
     {
       "symbol": "BTC/USDT",
       "timestamp": "2026-09-27T10:09:56.574081+00:00",
@@ -101,6 +123,13 @@
     }
   ],
   "recent_risk_decisions": [
+    {
+      "symbol": "FARTCOIN/USDT",
+      "timestamp": "2026-09-27T10:47:54.587384+00:00",
+      "allowed": true,
+      "reason": "ok",
+      "max_quote_amount": 1000.0
+    },
     {
       "symbol": "BTC/USDT",
       "timestamp": "2026-09-27T10:09:56.574081+00:00",
@@ -1165,9 +1194,9 @@
       {
         "time": 1790503200,
         "open": 84955.7,
-        "high": 84983.4,
-        "low": 84906.0,
-        "close": 84977.3
+        "high": 85120.8,
+        "low": 84852.1,
+        "close": 84857.4
       }
     ]
   }
