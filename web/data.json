@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-27T11:00:33.484620+00:00",
+  "generated_at": "2026-09-27T11:29:54.556250+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -22,7 +22,7 @@
     "BCH/USDT",
     "XTZ/USDT",
     "SHIB/USDT",
-    "APT/USDT"
+    "ICP/USDT"
   ],
   "portfolio": {
     "starting_cash": 10000,
@@ -36,35 +36,35 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-27T11:00:32.663665+00:00"
+      "last_active": "2026-09-27T11:29:53.618690+00:00"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T11:00:32.662633+00:00"
+      "last_active": "2026-09-27T11:29:53.617390+00:00"
     },
     {
       "id": "trade_strategist",
       "label": "Trade Strategist",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T10:47:54.587384+00:00"
+      "last_active": "2026-09-27T11:29:53.597212+00:00"
     },
     {
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-27T10:47:54.587384+00:00"
+      "last_active": "2026-09-27T11:29:53.597212+00:00"
     },
     {
       "id": "compliance_reviewer",
       "label": "Compliance Reviewer",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T10:47:54.587384+00:00"
+      "last_active": "2026-09-27T11:29:53.597212+00:00"
     },
     {
       "id": "execution_trader",
@@ -77,6 +77,17 @@
   "positions": [],
   "pending": [],
   "recent_candidates": [
+    {
+      "symbol": "ADA/USDT",
+      "timestamp": "2026-09-27T11:29:53.597212+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bullish",
+          "strength": 0.656
+        }
+      ]
+    },
     {
       "symbol": "LTC/USDT",
       "timestamp": "2026-09-27T10:47:54.589217+00:00",
@@ -123,6 +134,13 @@
     }
   ],
   "recent_risk_decisions": [
+    {
+      "symbol": "ADA/USDT",
+      "timestamp": "2026-09-27T11:29:53.597212+00:00",
+      "allowed": true,
+      "reason": "ok",
+      "max_quote_amount": 1000.0
+    },
     {
       "symbol": "FARTCOIN/USDT",
       "timestamp": "2026-09-27T10:47:54.587384+00:00",
@@ -1194,9 +1212,9 @@
       {
         "time": 1790506800,
         "open": 84874.0,
-        "high": 84874.0,
-        "low": 84849.6,
-        "close": 84874.0
+        "high": 84923.6,
+        "low": 84834.7,
+        "close": 84885.1
       }
     ]
   }
