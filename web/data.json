@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-27T12:13:04.714877+00:00",
+  "generated_at": "2026-09-27T12:16:54.484493+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -35,35 +35,35 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-27T12:13:03.842484+00:00"
+      "last_active": "2026-09-27T12:16:53.620188+00:00"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T12:13:03.842484+00:00"
+      "last_active": "2026-09-27T12:16:53.620188+00:00"
     },
     {
       "id": "trade_strategist",
       "label": "Trade Strategist",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T12:13:03.836513+00:00"
+      "last_active": "2026-09-27T12:16:53.613848+00:00"
     },
     {
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-27T12:13:03.836513+00:00"
+      "last_active": "2026-09-27T12:16:53.613848+00:00"
     },
     {
       "id": "compliance_reviewer",
       "label": "Compliance Reviewer",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T12:13:03.836513+00:00"
+      "last_active": "2026-09-27T12:16:53.613848+00:00"
     },
     {
       "id": "execution_trader",
@@ -76,6 +76,94 @@
   "positions": [],
   "pending": [],
   "recent_candidates": [
+    {
+      "symbol": "ALGO/USDT",
+      "timestamp": "2026-09-27T12:16:53.613848+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bullish",
+          "strength": 0.556
+        }
+      ]
+    },
+    {
+      "symbol": "ATOM/USDT",
+      "timestamp": "2026-09-27T12:16:53.611611+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bullish",
+          "strength": 0.681
+        }
+      ]
+    },
+    {
+      "symbol": "BNB/USDT",
+      "timestamp": "2026-09-27T12:16:53.599675+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bullish",
+          "strength": 1.0
+        }
+      ]
+    },
+    {
+      "symbol": "LINK/USDT",
+      "timestamp": "2026-09-27T12:16:53.597493+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bullish",
+          "strength": 0.628
+        }
+      ]
+    },
+    {
+      "symbol": "DOGE/USDT",
+      "timestamp": "2026-09-27T12:16:53.593403+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bullish",
+          "strength": 0.74
+        }
+      ]
+    },
+    {
+      "symbol": "SOL/USDT",
+      "timestamp": "2026-09-27T12:16:53.588931+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bullish",
+          "strength": 0.779
+        }
+      ]
+    },
+    {
+      "symbol": "ETH/USDT",
+      "timestamp": "2026-09-27T12:16:53.584640+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bullish",
+          "strength": 0.684
+        }
+      ]
+    },
+    {
+      "symbol": "BTC/USDT",
+      "timestamp": "2026-09-27T12:16:53.581566+00:00",
+      "candidates": [
+        {
+          "pattern": "PULLBACK",
+          "direction": "bullish",
+          "strength": 0.791
+        }
+      ]
+    },
     {
       "symbol": "ALGO/USDT",
       "timestamp": "2026-09-27T12:13:03.836513+00:00",
@@ -97,97 +185,65 @@
           "strength": 0.595
         }
       ]
-    },
-    {
-      "symbol": "DOGE/USDT",
-      "timestamp": "2026-09-27T12:13:03.814379+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.735
-        }
-      ]
-    },
-    {
-      "symbol": "ETH/USDT",
-      "timestamp": "2026-09-27T12:13:03.805651+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.647
-        }
-      ]
-    },
-    {
-      "symbol": "BTC/USDT",
-      "timestamp": "2026-09-27T12:13:03.802560+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.76
-        }
-      ]
-    },
-    {
-      "symbol": "BCH/USDT",
-      "timestamp": "2026-09-27T12:06:22.263469+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.574
-        }
-      ]
-    },
-    {
-      "symbol": "DOGE/USDT",
-      "timestamp": "2026-09-27T12:06:22.250812+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.743
-        }
-      ]
-    },
-    {
-      "symbol": "ADA/USDT",
-      "timestamp": "2026-09-27T12:06:22.249581+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.659
-        }
-      ]
-    },
-    {
-      "symbol": "ETH/USDT",
-      "timestamp": "2026-09-27T12:06:22.245512+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.648
-        }
-      ]
-    },
-    {
-      "symbol": "BTC/USDT",
-      "timestamp": "2026-09-27T12:06:22.243076+00:00",
-      "candidates": [
-        {
-          "pattern": "PULLBACK",
-          "direction": "bullish",
-          "strength": 0.746
-        }
-      ]
     }
   ],
   "recent_risk_decisions": [
+    {
+      "symbol": "ALGO/USDT",
+      "timestamp": "2026-09-27T12:16:53.613848+00:00",
+      "allowed": true,
+      "reason": "ok",
+      "max_quote_amount": 1000.0
+    },
+    {
+      "symbol": "ATOM/USDT",
+      "timestamp": "2026-09-27T12:16:53.611611+00:00",
+      "allowed": true,
+      "reason": "ok",
+      "max_quote_amount": 1000.0
+    },
+    {
+      "symbol": "BNB/USDT",
+      "timestamp": "2026-09-27T12:16:53.599675+00:00",
+      "allowed": true,
+      "reason": "ok",
+      "max_quote_amount": 1000.0
+    },
+    {
+      "symbol": "LINK/USDT",
+      "timestamp": "2026-09-27T12:16:53.597493+00:00",
+      "allowed": true,
+      "reason": "ok",
+      "max_quote_amount": 1000.0
+    },
+    {
+      "symbol": "DOGE/USDT",
+      "timestamp": "2026-09-27T12:16:53.593403+00:00",
+      "allowed": true,
+      "reason": "ok",
+      "max_quote_amount": 1000.0
+    },
+    {
+      "symbol": "SOL/USDT",
+      "timestamp": "2026-09-27T12:16:53.588931+00:00",
+      "allowed": true,
+      "reason": "ok",
+      "max_quote_amount": 1000.0
+    },
+    {
+      "symbol": "ETH/USDT",
+      "timestamp": "2026-09-27T12:16:53.584640+00:00",
+      "allowed": true,
+      "reason": "ok",
+      "max_quote_amount": 1000.0
+    },
+    {
+      "symbol": "BTC/USDT",
+      "timestamp": "2026-09-27T12:16:53.581566+00:00",
+      "allowed": true,
+      "reason": "ok",
+      "max_quote_amount": 1000.0
+    },
     {
       "symbol": "ALGO/USDT",
       "timestamp": "2026-09-27T12:13:03.836513+00:00",
@@ -198,62 +254,6 @@
     {
       "symbol": "LINK/USDT",
       "timestamp": "2026-09-27T12:13:03.819169+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
-    },
-    {
-      "symbol": "DOGE/USDT",
-      "timestamp": "2026-09-27T12:13:03.814379+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
-    },
-    {
-      "symbol": "ETH/USDT",
-      "timestamp": "2026-09-27T12:13:03.805651+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
-    },
-    {
-      "symbol": "BTC/USDT",
-      "timestamp": "2026-09-27T12:13:03.802560+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
-    },
-    {
-      "symbol": "BCH/USDT",
-      "timestamp": "2026-09-27T12:06:22.263469+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
-    },
-    {
-      "symbol": "DOGE/USDT",
-      "timestamp": "2026-09-27T12:06:22.250812+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
-    },
-    {
-      "symbol": "ADA/USDT",
-      "timestamp": "2026-09-27T12:06:22.249581+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
-    },
-    {
-      "symbol": "ETH/USDT",
-      "timestamp": "2026-09-27T12:06:22.245512+00:00",
-      "allowed": true,
-      "reason": "ok",
-      "max_quote_amount": 1000.0
-    },
-    {
-      "symbol": "BTC/USDT",
-      "timestamp": "2026-09-27T12:06:22.243076+00:00",
       "allowed": true,
       "reason": "ok",
       "max_quote_amount": 1000.0
@@ -1308,9 +1308,9 @@
       {
         "time": 1790510400,
         "open": 84899.8,
-        "high": 85000.0,
+        "high": 85016.1,
         "low": 84899.8,
-        "close": 85000.0
+        "close": 85012.1
       }
     ]
   }
