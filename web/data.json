@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-27T10:47:55.445202+00:00",
+  "generated_at": "2026-09-27T11:00:33.484620+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -21,8 +21,8 @@
     "ALGO/USDT",
     "BCH/USDT",
     "XTZ/USDT",
-    "FIL/USDT",
-    "SHIB/USDT"
+    "SHIB/USDT",
+    "APT/USDT"
   ],
   "portfolio": {
     "starting_cash": 10000,
@@ -36,14 +36,14 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-27T10:47:54.598951+00:00"
+      "last_active": "2026-09-27T11:00:32.663665+00:00"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-27T10:47:54.598951+00:00"
+      "last_active": "2026-09-27T11:00:32.662633+00:00"
     },
     {
       "id": "trade_strategist",
@@ -148,13 +148,6 @@
   "chart": {
     "symbol": "BTC/USDT",
     "candles": [
-      {
-        "time": 1789966800,
-        "open": 81406.2,
-        "high": 81782.5,
-        "low": 81300.3,
-        "close": 81566.4
-      },
       {
         "time": 1789970400,
         "open": 81562.6,
@@ -1195,8 +1188,15 @@
         "time": 1790503200,
         "open": 84955.7,
         "high": 85120.8,
-        "low": 84852.1,
-        "close": 84857.4
+        "low": 84805.4,
+        "close": 84873.9
+      },
+      {
+        "time": 1790506800,
+        "open": 84874.0,
+        "high": 84874.0,
+        "low": 84849.6,
+        "close": 84874.0
       }
     ]
   }
