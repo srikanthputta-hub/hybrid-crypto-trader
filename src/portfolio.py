@@ -7,6 +7,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+def reconstruct_cash(trade_log_path: Path, starting_cash: float) -> float:
+    """Replays trade_log_path (src.portfolio.Portfolio.log_trade's CSV) from
+    starting_cash to recover real cash on hand.
+
+    Portfolio itself is in-memory only and doesn't survive a process restart —
+    each scheduled bot.py run starts a brand new one. src.bot.build_components
+    calls this at startup so cash reflects every buy/sell actually executed so
+    far, not just this process's own. (scripts/export_dashboard_data.py used to
+    duplicate this same logic purely for display; it now calls this too.)
+    """
+    if not trade_log_path.exists():
+        return starting_cash
+    cash = starting_cash
+    with open(trade_log_path) as f:
+        for row in csv.DictReader(f):
+            amount = float(row["quote_amount"])
+            cash += amount if row["side"] == "sell" else -amount
+    return cash
+
+
 @dataclass
 class Position:
     symbol: str

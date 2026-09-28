@@ -24,7 +24,7 @@ from src.broker_paper import PaperBroker
 from src.config import Config, load_config
 from src.exchange import ExchangeClient
 from src.indicators import add_indicators
-from src.portfolio import Portfolio, now_iso
+from src.portfolio import Portfolio, Position, now_iso, reconstruct_cash
 from src.risk_engine import RiskEngine
 from src.trade_plan_store import TradePlanStore
 
@@ -59,7 +59,27 @@ def build_components(cfg: Config):
 
     log_cfg = cfg.logging_cfg
     trade_log_path = PROJECT_ROOT / log_cfg.get("trade_log_path", "logs/trades.csv")
-    portfolio = Portfolio(cash=risk_cfg["starting_cash_usd"], trade_log_path=trade_log_path)
+
+    store = TradePlanStore(
+        current_path=PROJECT_ROOT / log_cfg.get("trade_plan_current_path", "logs/trade_plans_current.json"),
+        history_path=PROJECT_ROOT / log_cfg.get("trade_plan_history_path", "logs/trade_plans_history.jsonl"),
+    )
+
+    # Portfolio itself is in-memory only (see reconstruct_cash's docstring in
+    # src/portfolio.py) -- rebuild it from what's actually happened so far
+    # instead of a blank slate, or every scheduled run "forgets" every prior
+    # fill. Without this, the paper broker's sell() KeyErrors the moment an
+    # OPEN position's stop-loss/take-profit fires (that symbol was never bought
+    # into *this* process's Portfolio), the plan can never actually close, and
+    # the symbol stays locked out of new signals forever since run_cycle below
+    # never re-scans a symbol that still has an active plan.
+    cash = reconstruct_cash(trade_log_path, risk_cfg["starting_cash_usd"])
+    positions = {
+        symbol: Position(symbol=symbol, amount=record.fill_amount, entry_price=record.fill_price)
+        for symbol, record in store.all_current().items()
+        if record.status == "OPEN" and record.fill_amount and record.fill_price
+    }
+    portfolio = Portfolio(cash=cash, positions=positions, trade_log_path=trade_log_path)
 
     if cfg.mode == "live":
         from src.broker_live import LiveBroker  # imported lazily: paper mode never needs this
@@ -68,10 +88,6 @@ def build_components(cfg: Config):
     else:
         broker = PaperBroker(portfolio)
 
-    store = TradePlanStore(
-        current_path=PROJECT_ROOT / log_cfg.get("trade_plan_current_path", "logs/trade_plans_current.json"),
-        history_path=PROJECT_ROOT / log_cfg.get("trade_plan_history_path", "logs/trade_plans_history.jsonl"),
-    )
     audit = AuditLog(PROJECT_ROOT / log_cfg.get("audit_log_path", "logs/audit_log.jsonl"))
 
     return exchange, risk_engine, portfolio, broker, store, audit

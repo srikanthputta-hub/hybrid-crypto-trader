@@ -16,14 +16,13 @@ one self-contained JSON file the page reads. Re-run it (e.g. on a cron, or
 right before a git push if you're using the GitHub -> Cloudflare Pages
 auto-deploy flow from the README) to refresh what the dashboard shows.
 
-Known simplification: this bot doesn't persist portfolio cash across process
-restarts (see README), so "cash" here is reconstructed by replaying
-logs/trades.csv from the configured starting balance — accurate for a
-single continuous run, approximate if the bot has been restarted since.
+Portfolio itself (src/portfolio.py) is in-memory only and doesn't survive a
+process restart, so "cash" here is reconstructed the same way src/bot.py
+reconstructs it at startup: replaying logs/trades.csv from the configured
+starting balance (see src.portfolio.reconstruct_cash).
 """
 from __future__ import annotations
 
-import csv
 import json
 import sys
 from datetime import datetime, timedelta, timezone
@@ -34,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import load_config
 from src.exchange import ExchangeClient
+from src.portfolio import reconstruct_cash
 from src.trade_plan_store import TradePlanStore
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -62,17 +62,6 @@ def _read_audit_tail(path: Path, max_lines: int = 500) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             continue
     return events
-
-
-def _reconstruct_cash(trade_log_path: Path, starting_cash: float) -> float:
-    if not trade_log_path.exists():
-        return starting_cash
-    cash = starting_cash
-    with open(trade_log_path) as f:
-        for row in csv.DictReader(f):
-            amount = float(row["quote_amount"])
-            cash += amount if row["side"] == "sell" else -amount
-    return cash
 
 
 def _fmt_price(n: Any) -> str:
@@ -320,7 +309,7 @@ def main() -> None:
         history_path=PROJECT_ROOT / log_cfg.get("trade_plan_history_path", "logs/trade_plans_history.jsonl"),
     )
     audit_events = _read_audit_tail(PROJECT_ROOT / log_cfg.get("audit_log_path", "logs/audit_log.jsonl"))
-    cash = _reconstruct_cash(PROJECT_ROOT / log_cfg.get("trade_log_path", "logs/trades.csv"), cfg.risk["starting_cash_usd"])
+    cash = reconstruct_cash(PROJECT_ROOT / log_cfg.get("trade_log_path", "logs/trades.csv"), cfg.risk["starting_cash_usd"])
 
     records = store.all_current()
 

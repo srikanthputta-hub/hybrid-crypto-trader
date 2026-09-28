@@ -1,7 +1,11 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.bot import _maybe_notify, _send_heartbeat
+import pytest
+
+from src.bot import _maybe_notify, _send_heartbeat, build_components
+from src.config import Config
 from src.portfolio import Portfolio
 
 CONFIGURED = SimpleNamespace(telegram_bot_token="token", telegram_chat_id="12345")
@@ -147,3 +151,109 @@ def test_heartbeat_formats_sub_dollar_prices_readably():
     text = mock_send.call_args[0][2]
     assert "SHIB/USDT: $0.00\n" not in text
     assert "SHIB/USDT: $0.000012" in text
+
+
+def _minimal_raw_config() -> dict:
+    return {
+        "mode": "paper",
+        "exchange": {"id": "kraken", "testnet": False},
+        "market": {"symbols": ["BTC/USDT", "ETH/USDT"], "timeframe": "1h"},
+        "indicators": {"fast_ema": 12, "slow_ema": 26, "rsi_period": 14},
+        "risk": {
+            "starting_cash_usd": 10000,
+            "max_position_pct": 0.1,
+            "max_total_exposure_pct": 0.4,
+            "max_loss_per_trade_pct": 0.01,
+            "max_daily_loss_pct": 0.05,
+            "max_volatility_pct": 0.08,
+            "min_risk_reward": 1.5,
+            "cooldown_minutes": 60,
+            "kill_switch_file": "KILL_SWITCH",
+        },
+        "logging": {
+            "audit_log_path": "logs/audit_log.jsonl",
+            "trade_log_path": "logs/trades.csv",
+            "trade_plan_current_path": "logs/trade_plans_current.json",
+            "trade_plan_history_path": "logs/trade_plans_history.jsonl",
+        },
+    }
+
+
+def test_build_components_reconstructs_portfolio_from_persisted_state(tmp_path, monkeypatch):
+    # Regression test: the paper broker's sell() used to KeyError on every
+    # scheduled run for any already-OPEN position, because Portfolio was built
+    # fresh (cash=starting_cash, no positions) instead of from what src/bot.py's
+    # own trade log and trade-plan store already record. That silently stuck
+    # every open position forever and locked its symbol out of new signals.
+    monkeypatch.setattr("src.bot.PROJECT_ROOT", tmp_path)
+
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    (logs_dir / "trades.csv").write_text(
+        "timestamp,mode,symbol,side,price,base_amount,quote_amount\n"
+        "t1,paper,BTC/USDT,buy,50000,0.02,1000\n"
+    )
+    (logs_dir / "trade_plans_current.json").write_text(
+        json.dumps(
+            {
+                "BTC/USDT": {
+                    "symbol": "BTC/USDT",
+                    "status": "OPEN",
+                    "plan": {"stop_loss": 48000, "take_profit": 53000},
+                    "claude_verdict": None,
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "filled_at": "2026-01-01T00:00:00+00:00",
+                    "fill_price": 50000.0,
+                    "fill_amount": 0.02,
+                    "closed_at": None,
+                    "close_reason": None,
+                    "close_price": None,
+                }
+            }
+        )
+    )
+
+    cfg = Config(raw=_minimal_raw_config())
+    exchange, risk_engine, portfolio, broker, store, audit = build_components(cfg)
+
+    assert portfolio.cash == pytest.approx(10000 - 1000)
+    assert "BTC/USDT" in portfolio.positions
+    assert portfolio.positions["BTC/USDT"].amount == pytest.approx(0.02)
+    assert portfolio.positions["BTC/USDT"].entry_price == pytest.approx(50000.0)
+
+    # This is exactly the call that used to KeyError on every scheduled run.
+    fill = broker.sell("BTC/USDT", 53000.0)
+    assert fill.base_amount == pytest.approx(0.02)
+    assert "BTC/USDT" not in portfolio.positions
+
+
+def test_build_components_ignores_pending_and_closed_records(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.bot.PROJECT_ROOT", tmp_path)
+
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    (logs_dir / "trade_plans_current.json").write_text(
+        json.dumps(
+            {
+                "ETH/USDT": {
+                    "symbol": "ETH/USDT",
+                    "status": "PENDING",
+                    "plan": {},
+                    "claude_verdict": None,
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "filled_at": None,
+                    "fill_price": None,
+                    "fill_amount": None,
+                    "closed_at": None,
+                    "close_reason": None,
+                    "close_price": None,
+                }
+            }
+        )
+    )
+
+    cfg = Config(raw=_minimal_raw_config())
+    _exchange, _risk_engine, portfolio, _broker, _store, _audit = build_components(cfg)
+
+    assert portfolio.positions == {}
+    assert portfolio.cash == pytest.approx(10000)
