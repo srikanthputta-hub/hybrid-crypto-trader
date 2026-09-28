@@ -8,6 +8,8 @@
 // straight onto Cloudflare Pages.
 
 const fmtPrice = (n) => (n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: 6 }));
+const escapeHtml = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtTime = (iso) => {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -40,37 +42,121 @@ function renderRoles(roles) {
   const workingCount = roles.filter((r) => r.status === "working").length;
   document.getElementById("office-status").textContent = `${workingCount}/${roles.length} working`;
 
-  // All roles (boss included) sit in a ring around the center screen — boss
-  // is first in the list, so it lands at the top and the rest go clockwise.
-  const radiusPct = 42;
-  roles.forEach((role, i) => {
-    const angle = (2 * Math.PI * i) / roles.length - Math.PI / 2; // start at top, clockwise
-    const x = 50 + radiusPct * Math.cos(angle);
-    const y = 50 + radiusPct * Math.sin(angle);
-    container.appendChild(buildDesk(role, { x: `${x}%`, y: `${y}%` }, role.id === "boss"));
+  // An elliptical stage around the center console, boss anchored front-and-
+  // center at the bottom (i=0 lands at angle = +90°, i.e. straight down) and
+  // the rest fanning out clockwise around the rest of the ellipse.
+  const radiusXPct = 45;
+  const radiusYPct = 41;
+  const positions = roles.map((role, i) => {
+    const angle = (2 * Math.PI * i) / roles.length + Math.PI / 2;
+    const x = 50 + radiusXPct * Math.cos(angle);
+    const y = 50 + radiusYPct * Math.sin(angle);
+    // Desks further "forward" (toward the bottom, nearer the viewer) render
+    // a little larger and above desks further "back" -- a cheap pseudo-depth
+    // cue for what's otherwise a flat layout.
+    const depth = (y - (50 - radiusYPct)) / (2 * radiusYPct); // 0 = back, 1 = front
+    const scale = 0.82 + 0.32 * depth;
+    return { role, x, y, scale, z: Math.round(depth * 100) };
   });
+
+  positions.forEach((pos) => {
+    container.appendChild(
+      buildDesk(pos.role, { x: `${pos.x}%`, y: `${pos.y}%`, scale: pos.scale, z: pos.z }, pos.role.id === "boss")
+    );
+  });
+
+  renderOfficeLinks(positions);
 
   updateOfficeScreen(roles);
 }
 
 function buildDesk(role, pos, isBoss) {
-  const initials = role.label.split(" ").map((w) => w[0]).slice(0, 2).join("");
   const tierClass = `tier-${role.model_tier}`;
+  const tierLetter = (role.model_tier || "?")[0].toUpperCase();
+  const isWorking = role.status === "working";
   const desk = document.createElement("div");
-  desk.className = "desk" + (isBoss ? " desk-boss" : "") + (role.status === "disabled" ? " desk-disabled" : "");
+  desk.className =
+    "desk" +
+    (isBoss ? " desk-boss" : "") +
+    (role.status === "disabled" ? " desk-disabled" : "") +
+    (isWorking ? " is-working" : "");
   desk.style.setProperty("--x", pos.x);
   desk.style.setProperty("--y", pos.y);
+  desk.style.setProperty("--scale", pos.scale);
+  desk.style.zIndex = pos.z; // boss is always frontmost (depth 1), so this alone puts it on top
   desk.dataset.roleId = role.id;
   desk.innerHTML = `
-    <div class="desk-avatar ${tierClass}">${initials}</div>
-    <div class="desk-label">${isBoss ? '<span class="desk-crown">&#128081;</span>' : ""}${role.label}</div>
-    <div class="desk-status">
-      <span class="status-dot ${role.status === "working" ? "working" : ""}"></span>
-      ${statusLabel(role.status)}
+    <div class="desk-figure">
+      <span class="desk-antenna"><span class="desk-light"></span></span>
+      <span class="desk-head ${tierClass}"></span>
+      <span class="desk-body ${tierClass}"></span>
+    </div>
+    <div class="desk-plate">${isBoss ? '<span class="desk-crown">&#128081;</span>' : ""}${escapeHtml(role.label)}</div>
+    <div class="desk-pillbar">
+      <span class="pill pill-tier ${tierClass}">${tierLetter}</span>
+      <span class="pill pill-status">
+        <span class="status-dot ${isWorking ? "working" : ""}"></span>
+        ${statusLabel(role.status)}
+      </span>
     </div>
   `;
   desk.addEventListener("click", () => showRoleDrawer(role, isBoss));
   return desk;
+}
+
+// Console position, in the same 0-100 coordinate space as desk positions --
+// must match .office-screen's `left`/`top` in style.css.
+const CONSOLE_X = 50;
+const CONSOLE_Y = 46;
+
+// A glowing line from every currently-working desk to the console, so it's
+// visually obvious who's actively reporting in right now. Both desks and the
+// console are opaque boxes, so a line drawn between their exact centers
+// mostly disappears underneath them -- only the short gap between their
+// edges is ever actually visible. edgePoint() finds where a line toward
+// (cx, cy) crosses a given box's own edge, so the line starts/ends right at
+// that box's border (a couple units past it, so it visibly overlaps the
+// border) instead of wasting length hidden under either box.
+function edgePoint(fromX, fromY, towardX, towardY, halfW, halfH) {
+  const vx = towardX - fromX;
+  const vy = towardY - fromY;
+  if (vx === 0 && vy === 0) return { x: fromX, y: fromY };
+  const t = Math.min(vx !== 0 ? halfW / Math.abs(vx) : Infinity, vy !== 0 ? halfH / Math.abs(vy) : Infinity);
+  return { x: fromX + vx * Math.min(1, t * 1.15), y: fromY + vy * Math.min(1, t * 1.15) };
+}
+
+// Half-width/height of a rendered box, converted into the same 0-100 space
+// as desk/console positions. Measured live off the actual DOM rather than
+// hardcoded, since desk boxes are a fixed pixel size while the ring itself
+// is fluid -- their size relative to the ring shifts across breakpoints
+// (and the boss desk / depth-based scale() both change a desk's size too),
+// so a hardcoded percentage can't stay right at every viewport width.
+function halfSizePct(el, wrapRect) {
+  const r = el.getBoundingClientRect();
+  return { w: (50 * r.width) / wrapRect.width, h: (50 * r.height) / wrapRect.height };
+}
+
+function renderOfficeLinks(positions) {
+  const svg = document.getElementById("office-links");
+  svg.innerHTML = "";
+  const wrapRect = document.querySelector(".office-ring-wrap").getBoundingClientRect();
+  const consoleHalf = halfSizePct(document.getElementById("office-screen"), wrapRect);
+
+  positions
+    .filter((pos) => pos.role.status === "working")
+    .forEach((pos) => {
+      const deskEl = document.querySelector(`.desk[data-role-id="${pos.role.id}"]`);
+      const deskHalf = deskEl ? halfSizePct(deskEl, wrapRect) : { w: 8, h: 8 };
+      const start = edgePoint(pos.x, pos.y, CONSOLE_X, CONSOLE_Y, deskHalf.w, deskHalf.h);
+      const end = edgePoint(CONSOLE_X, CONSOLE_Y, pos.x, pos.y, consoleHalf.w, consoleHalf.h);
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", start.x);
+      line.setAttribute("y1", start.y);
+      line.setAttribute("x2", end.x);
+      line.setAttribute("y2", end.y);
+      line.setAttribute("class", "office-link" + (pos.role.id === "boss" ? " office-link-boss" : ""));
+      svg.appendChild(line);
+    });
 }
 
 function showRoleDrawer(role, isBoss) {
@@ -91,42 +177,32 @@ function showRoleDrawer(role, isBoss) {
   drawer.hidden = false;
 }
 
-// --- center screen: cycles through whichever roles are "working" this cycle,
-// showing their live one-line detail; falls back to the boss's own status
-// (or a quiet default) when nothing is active. ---
-let screenRoles = null;
-let screenIndex = 0;
-let screenTimer = null;
+// --- center screen: a short live feed of every role working this cycle
+// (label + one-line detail), capped so it never overflows the console; falls
+// back to the boss's own status (or a quiet default) when nothing's active. ---
+const SCREEN_FEED_MAX = 3;
 
 function updateOfficeScreen(roles) {
-  const working = roles.filter((r) => r.status === "working" && r.detail);
-  screenRoles = working.length ? working : null;
-  screenIndex = 0;
-  renderScreenFrame(roles);
-
-  if (screenTimer) clearInterval(screenTimer);
-  if (screenRoles && screenRoles.length > 1) {
-    screenTimer = setInterval(() => {
-      screenIndex = (screenIndex + 1) % screenRoles.length;
-      renderScreenFrame(roles);
-    }, 3500);
-  }
-}
-
-function renderScreenFrame(allRoles) {
-  const roleEl = document.getElementById("office-screen-role");
-  const textEl = document.getElementById("office-screen-text");
   const screenEl = document.getElementById("office-screen");
-  if (screenRoles && screenRoles.length) {
-    const role = screenRoles[screenIndex];
-    roleEl.textContent = role.label.toUpperCase();
-    textEl.textContent = role.detail;
+  const content = document.getElementById("office-screen-content");
+
+  const working = roles.filter((r) => r.status === "working" && r.detail);
+
+  if (working.length) {
     screenEl.classList.add("active");
+    const shown = working.slice(0, SCREEN_FEED_MAX);
+    const lines = shown
+      .map(
+        (r) =>
+          `<div class="office-screen-line${r.id === "boss" ? " feed-boss" : ""}"><span class="feed-role">${escapeHtml(r.label)}</span>${escapeHtml(r.detail)}</div>`
+      )
+      .join("");
+    const more = working.length > shown.length ? `<div class="office-screen-line feed-more">+${working.length - shown.length} more working</div>` : "";
+    content.innerHTML = `<div class="office-screen-feed">${lines}${more}</div>`;
   } else {
-    const boss = allRoles.find((r) => r.id === "boss");
-    roleEl.textContent = "STATUS";
-    textEl.textContent = (boss && boss.detail) || "All quiet — waiting for the next cycle.";
+    const boss = roles.find((r) => r.id === "boss");
     screenEl.classList.remove("active");
+    content.innerHTML = `<div class="office-screen-text">${escapeHtml((boss && boss.detail) || "All quiet — waiting for the next cycle.")}</div>`;
   }
 }
 

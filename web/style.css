@@ -78,13 +78,36 @@ header.topbar {
 main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
 
 .office {
+  position: relative;
+  overflow: hidden;
   background:
-    radial-gradient(ellipse at 50% 30%, rgba(56,189,248,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 20%, rgba(56,189,248,0.10) 0%, transparent 55%),
     linear-gradient(180deg, #0d1830 0%, #0a1120 100%);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 20px;
 }
+/* Decorative skyline silhouette along the top edge -- pure CSS (a clip-path
+   polygon), no image asset needed. Purely atmospheric, sits behind everything
+   else via z-index. */
+.office::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 86px;
+  background: linear-gradient(180deg, rgba(56,189,248,0.14) 0%, rgba(56,189,248,0.02) 100%);
+  clip-path: polygon(
+    0% 100%, 0% 45%, 5% 45%, 5% 62%, 11% 62%, 11% 22%, 16% 22%, 16% 70%,
+    22% 70%, 22% 12%, 27% 12%, 27% 52%, 33% 52%, 33% 34%, 38% 34%, 38% 66%,
+    44% 66%, 44% 18%, 49% 18%, 49% 58%, 55% 58%, 55% 38%, 60% 38%, 60% 74%,
+    66% 74%, 66% 26%, 71% 26%, 71% 48%, 77% 48%, 77% 8%, 82% 8%, 82% 60%,
+    88% 60%, 88% 40%, 93% 40%, 93% 68%, 100% 68%, 100% 100%
+  );
+  opacity: 0.55;
+  z-index: 0;
+  pointer-events: none;
+}
+.office-header, .office-ring-wrap { position: relative; z-index: 1; }
 .office-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
 .office-header h2 { margin: 0; font-size: 15px; letter-spacing: 0.05em; text-transform: uppercase; }
 
@@ -92,13 +115,14 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
 .office-legend .legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .office-legend .status-dot { position: static; }
 
-/* --- circular hub-and-spoke role layout --- */
+/* --- the stage: an elliptical ring of desks around a center console, boss
+   anchored front-and-center at the bottom (see app.js's renderRoles) --- */
 .office-ring-wrap {
   position: relative;
   width: 100%;
-  max-width: 560px;
-  aspect-ratio: 1 / 1;
-  margin: 10px auto;
+  max-width: 660px;
+  aspect-ratio: 8 / 7;
+  margin: 10px auto 34px;
 }
 .office-ring {
   position: absolute;
@@ -107,28 +131,59 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
 .office-ring::before {
   content: "";
   position: absolute;
-  inset: 12%;
+  inset: 15% 6%;
   border: 1px dashed var(--border);
   border-radius: 50%;
 }
 
-/* --- center screen: the desk's shared monitor, showing live one-line
-   activity for whichever role is currently working --- */
+/* --- a glowing "cable" from every working desk to the console, so it's
+   obvious at a glance who's actively reporting in. Coordinates are drawn in
+   the same 0-100 space as each desk's --x/--y (see app.js's renderRoles /
+   renderOfficeLinks), stretched independently on each axis to match this
+   non-square ellipse via preserveAspectRatio="none". --- */
+.office-links {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 5;
+  pointer-events: none;
+  overflow: visible;
+}
+.office-link {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-dasharray: 3 2.2;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.95;
+  filter: drop-shadow(0 0 2px var(--green)) drop-shadow(0 0 6px var(--green));
+  animation: link-flow 0.8s linear infinite;
+}
+.office-link-boss {
+  stroke: #fbbf24;
+  filter: drop-shadow(0 0 2px #fbbf24) drop-shadow(0 0 5px #fbbf24);
+}
+@keyframes link-flow { to { stroke-dashoffset: -5.2; } }
+
+/* --- center screen: the desk's shared console -- a short live feed of
+   whichever roles are working right now, instead of a single cycling line --- */
 .office-screen {
   position: absolute;
   left: 50%;
-  top: 50%;
+  top: 46%;
   transform: translate(-50%, -50%);
-  width: 46%;
-  aspect-ratio: 16 / 11;
+  width: 38%;
+  min-height: 24%;
   border-radius: 10px;
   background: linear-gradient(180deg, #0c1830 0%, #070d1c 100%);
   border: 2px solid var(--border);
   box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.5);
-  z-index: 1;
+  z-index: 20;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  justify-content: flex-start;
   padding: 10px 14px;
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
@@ -136,64 +191,156 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
   border-color: var(--green);
   box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.5), 0 0 20px rgba(34, 197, 94, 0.25);
 }
-.office-screen-inner { text-align: center; max-width: 100%; }
+.office-screen-inner { text-align: left; max-width: 100%; width: 100%; }
 .office-screen-role {
   font-size: 10px;
   letter-spacing: 0.1em;
   color: var(--accent);
   margin-bottom: 6px;
+  text-align: center;
 }
 .office-screen.active .office-screen-role { color: var(--green); }
+.office-screen-feed { display: flex; flex-direction: column; gap: 5px; }
+.office-screen-line {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.office-screen-line .feed-role { color: var(--green); font-weight: 700; margin-right: 5px; }
+.office-screen-line.feed-boss .feed-role { color: #fbbf24; }
+.office-screen-line.feed-more { color: var(--muted); font-style: italic; }
 .office-screen-text {
   font-size: 12px;
   line-height: 1.5;
   color: var(--text);
   word-break: break-word;
+  text-align: center;
 }
 
+/* --- a desk: a small standing figure (head + body, tier-colored) behind a
+   nameplate and a compact tier/status pill bar --- */
 .desk {
   position: absolute;
   left: var(--x, 50%);
   top: var(--y, 50%);
-  transform: translate(-50%, -50%);
+  --scale: 1;
+  transform: translate(-50%, -50%) scale(var(--scale));
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 10px 12px;
-  width: 130px;
+  padding: 10px 10px 8px;
+  width: 132px;
   text-align: center;
   cursor: pointer;
-  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
-.desk:hover { transform: translate(-50%, -50%) translateY(-2px); border-color: var(--accent); }
+.desk:hover { transform: translate(-50%, -50%) scale(var(--scale)) translateY(-2px); border-color: var(--accent); }
 .desk.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 16px rgba(56,189,248,0.35); }
 
 .desk.desk-boss {
-  width: 150px;
-  z-index: 2;
+  width: 156px;
+  z-index: 50;
   background: linear-gradient(180deg, rgba(251,191,36,0.14) 0%, var(--bg-card) 70%);
   border-color: #fbbf24;
 }
 .desk.desk-boss:hover { border-color: #fbbf24; box-shadow: 0 0 16px rgba(251,191,36,0.3); }
-.desk-crown { font-size: 14px; margin-right: 3px; }
 
 .desk.desk-disabled { opacity: 0.55; }
 .desk.desk-disabled:hover { border-color: var(--border); }
 
-.desk-avatar {
-  width: 34px; height: 34px;
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: 13px;
-  margin: 0 auto 8px;
-  border: 2px solid var(--border);
+/* --- a small humanoid robot: antenna + head-mounted light above a rounded
+   dome head and a rounded torso, each shaded with a highlight + shadow
+   (radial-gradient gloss, inset/drop box-shadow) for a rounded, dimensional
+   look rather than a flat silhouette. The antenna light glows green (gold
+   for boss) only while that role is actually working -- the same signal the
+   connector line below reacts to. --- */
+.desk-figure { position: relative; height: 46px; margin-bottom: 6px; }
+.desk-antenna {
+  position: absolute;
+  left: 50%; top: -9px;
+  transform: translateX(-50%);
+  width: 2px; height: 9px;
+  background: var(--border);
 }
-.desk-avatar.tier-haiku { background: rgba(34,197,94,0.15); color: var(--tier-haiku); border-color: var(--tier-haiku); }
-.desk-avatar.tier-sonnet { background: rgba(59,130,246,0.15); color: var(--tier-sonnet); border-color: var(--tier-sonnet); }
-.desk-avatar.tier-opus { background: rgba(192,132,252,0.15); color: var(--tier-opus); border-color: var(--tier-opus); }
+.desk-light {
+  position: absolute;
+  left: 50%; top: -3px;
+  transform: translate(-50%, -50%);
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+.desk.is-working .desk-light {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green), 0 0 12px var(--green);
+  animation: light-pulse 1.4s infinite;
+}
+.desk.desk-boss.is-working .desk-light { background: #fbbf24; box-shadow: 0 0 6px #fbbf24, 0 0 12px #fbbf24; }
+@keyframes light-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 
-.desk-label { font-weight: 600; font-size: 12px; margin-bottom: 4px; }
-.desk-status { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.desk-head {
+  position: absolute;
+  left: 50%; top: 0;
+  transform: translateX(-50%);
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  box-shadow:
+    inset -3px -3px 5px rgba(0,0,0,0.4),
+    inset 2px 2px 3px rgba(255,255,255,0.3),
+    0 3px 4px rgba(0,0,0,0.45);
+  transition: box-shadow 0.2s ease;
+  z-index: 1;
+}
+.desk.is-working .desk-head {
+  box-shadow:
+    inset -3px -3px 5px rgba(0,0,0,0.4),
+    inset 2px 2px 3px rgba(255,255,255,0.3),
+    0 3px 4px rgba(0,0,0,0.45),
+    0 0 8px rgba(34,197,94,0.6);
+}
+.desk.desk-boss.is-working .desk-head {
+  box-shadow:
+    inset -3px -3px 5px rgba(0,0,0,0.4),
+    inset 2px 2px 3px rgba(255,255,255,0.3),
+    0 3px 4px rgba(0,0,0,0.45),
+    0 0 8px rgba(251,191,36,0.6);
+}
+.desk-body {
+  position: absolute;
+  left: 50%; bottom: 0;
+  transform: translateX(-50%);
+  width: 32px; height: 24px;
+  border-radius: 50% 50% 30% 30%;
+  box-shadow:
+    inset -4px -4px 6px rgba(0,0,0,0.4),
+    inset 3px 3px 4px rgba(255,255,255,0.25),
+    0 4px 5px rgba(0,0,0,0.4);
+}
+.desk-head.tier-haiku, .desk-body.tier-haiku { background: radial-gradient(circle at 32% 26%, rgba(255,255,255,0.6), rgba(255,255,255,0) 55%), var(--tier-haiku); }
+.desk-head.tier-sonnet, .desk-body.tier-sonnet { background: radial-gradient(circle at 32% 26%, rgba(255,255,255,0.6), rgba(255,255,255,0) 55%), var(--tier-sonnet); }
+.desk-head.tier-opus, .desk-body.tier-opus { background: radial-gradient(circle at 32% 26%, rgba(255,255,255,0.6), rgba(255,255,255,0) 55%), var(--tier-opus); }
+
+.desk-plate { font-weight: 600; font-size: 12px; line-height: 1.25; margin-bottom: 6px; }
+.desk-crown { font-size: 13px; margin-right: 3px; }
+
+.desk-pillbar { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.03em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.pill-tier.tier-haiku { color: var(--tier-haiku); border-color: var(--tier-haiku); }
+.pill-tier.tier-sonnet { color: var(--tier-sonnet); border-color: var(--tier-sonnet); }
+.pill-tier.tier-opus { color: var(--tier-opus); border-color: var(--tier-opus); }
+.pill-status { text-transform: none; font-weight: 500; }
+
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
 .status-dot.working { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.6s infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -208,7 +355,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
   border-radius: 12px;
   padding: 14px 16px;
   box-shadow: 0 0 24px rgba(56,189,248,0.25);
-  z-index: 5;
+  z-index: 60;
 }
 .role-drawer-close {
   position: absolute; top: 8px; right: 10px;
@@ -223,9 +370,15 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
 
 @media (max-width: 640px) {
   .office-ring-wrap { max-width: 420px; }
-  .desk { width: 100px; padding: 8px; }
-  .desk.desk-boss { width: 116px; }
+  .desk { width: 92px; padding: 8px 8px 6px; }
+  .desk.desk-boss { width: 106px; }
+  .desk-figure { height: 34px; }
+  .office-screen-line { font-size: 10px; }
   .role-drawer { width: 190px; padding: 12px; }
+  /* At this width the desk/console boxes take up nearly the entire gap
+     between them, leaving no meaningfully visible line to draw -- the
+     glowing head-light on each working desk still shows who's active. */
+  .office-links { display: none; }
 }
 
 .card {
@@ -356,7 +509,7 @@ tr.row-selected { background: rgba(56,189,248,0.1); box-shadow: inset 2px 0 0 va
 
 @media (max-width: 640px) {
   #chart-container { height: 260px; }
-  .office-screen { width: 60%; padding: 6px 8px; }
+  .office-screen { padding: 6px 8px; }
   .office-screen-role { font-size: 9px; }
   .office-screen-text { font-size: 10px; }
   .symbol-dropdown-list { min-width: 170px; }
