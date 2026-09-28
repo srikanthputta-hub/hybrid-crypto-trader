@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-28T16:59:47.371787+00:00",
+  "generated_at": "2026-09-28T22:24:16.374919+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 8758.3,
-    "equity": 9778.04,
-    "pnl_pct": -0.0222
+    "equity": 9761.97,
+    "pnl_pct": -0.0238
   },
   "roles": [
     {
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-28T16:59:46.535591+00:00",
+      "last_active": "2026-09-28T22:24:15.725181+00:00",
       "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-28T16:59:46.535591+00:00",
+      "last_active": "2026-09-28T22:24:15.725181+00:00",
       "detail": "SHIB/USDT: checked, nothing worth trading"
     },
     {
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 14.57579,
       "fill_amount": 66.74899701188544,
-      "current_price": 15.27735,
+      "current_price": 15.03659,
       "created_at": "2026-09-28T14:13:02.659038+00:00",
       "filled_at": "2026-09-28T14:13:02.664470+00:00",
       "timestamp": "2026-09-28T14:13:02.664470+00:00",
-      "unrealized_pnl_pct": 0.048131867981083744
+      "unrealized_pnl_pct": 0.031614066887626725
     }
   ],
   "pending": [],
@@ -226,41 +226,6 @@
   "charts": {
     "LINK/USDT": {
       "candles": [
-        {
-          "time": 1790078400,
-          "open": 12.93217,
-          "high": 13.00166,
-          "low": 12.83536,
-          "close": 13.00166
-        },
-        {
-          "time": 1790082000,
-          "open": 12.99616,
-          "high": 13.28555,
-          "low": 12.93961,
-          "close": 13.09391
-        },
-        {
-          "time": 1790085600,
-          "open": 13.07051,
-          "high": 13.10384,
-          "low": 12.76353,
-          "close": 12.94156
-        },
-        {
-          "time": 1790089200,
-          "open": 12.95614,
-          "high": 13.08297,
-          "low": 12.94829,
-          "close": 13.0449
-        },
-        {
-          "time": 1790092800,
-          "open": 13.02968,
-          "high": 13.03814,
-          "low": 12.90851,
-          "close": 13.01932
-        },
         {
           "time": 1790096400,
           "open": 13.02223,
@@ -1272,9 +1237,44 @@
         {
           "time": 1790614800,
           "open": 15.26823,
-          "high": 15.28855,
-          "low": 15.26525,
-          "close": 15.26525
+          "high": 15.47277,
+          "low": 15.08969,
+          "close": 15.14054
+        },
+        {
+          "time": 1790618400,
+          "open": 15.13896,
+          "high": 15.34356,
+          "low": 15.07681,
+          "close": 15.25147
+        },
+        {
+          "time": 1790622000,
+          "open": 15.25126,
+          "high": 15.25392,
+          "low": 14.94032,
+          "close": 15.09924
+        },
+        {
+          "time": 1790625600,
+          "open": 15.15113,
+          "high": 15.36835,
+          "low": 15.0568,
+          "close": 15.31631
+        },
+        {
+          "time": 1790629200,
+          "open": 15.39837,
+          "high": 15.40906,
+          "low": 15.12277,
+          "close": 15.15127
+        },
+        {
+          "time": 1790632800,
+          "open": 15.12463,
+          "high": 15.12463,
+          "low": 14.996,
+          "close": 15.03659
         }
       ]
     }
