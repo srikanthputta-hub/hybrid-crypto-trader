@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-28T16:15:44.584601+00:00",
+  "generated_at": "2026-09-28T16:59:47.371787+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 8758.3,
-    "equity": 9736.62,
-    "pnl_pct": -0.0263
+    "equity": 9778.04,
+    "pnl_pct": -0.0222
   },
   "roles": [
     {
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-28T16:15:43.602537+00:00",
+      "last_active": "2026-09-28T16:59:46.535591+00:00",
       "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-28T16:15:43.602537+00:00",
+      "last_active": "2026-09-28T16:59:46.535591+00:00",
       "detail": "SHIB/USDT: checked, nothing worth trading"
     },
     {
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 14.57579,
       "fill_amount": 66.74899701188544,
-      "current_price": 14.65675,
+      "current_price": 15.27735,
       "created_at": "2026-09-28T14:13:02.659038+00:00",
       "filled_at": "2026-09-28T14:13:02.664470+00:00",
       "timestamp": "2026-09-28T14:13:02.664470+00:00",
-      "unrealized_pnl_pct": 0.005554415918451146
+      "unrealized_pnl_pct": 0.048131867981083744
     }
   ],
   "pending": [],
@@ -226,13 +226,6 @@
   "charts": {
     "LINK/USDT": {
       "candles": [
-        {
-          "time": 1790074800,
-          "open": 12.90086,
-          "high": 12.98123,
-          "low": 12.86478,
-          "close": 12.95585
-        },
         {
           "time": 1790078400,
           "open": 12.93217,
@@ -1272,9 +1265,16 @@
         {
           "time": 1790611200,
           "open": 14.42721,
-          "high": 14.71129,
+          "high": 15.27735,
           "low": 14.41131,
-          "close": 14.67075
+          "close": 15.27735
+        },
+        {
+          "time": 1790614800,
+          "open": 15.26823,
+          "high": 15.28855,
+          "low": 15.26525,
+          "close": 15.26525
         }
       ]
     }
