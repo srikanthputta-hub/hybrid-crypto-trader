@@ -1,0 +1,15 @@
+[Unit]
+Description=hybrid-crypto-trader -- continuous live loop (bot cycles + dashboard push)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hybrid-crypto-trader
+ExecStart=/home/ubuntu/hybrid-crypto-trader/.venv/bin/python scripts/run_live.py
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

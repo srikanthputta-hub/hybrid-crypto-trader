@@ -188,6 +188,11 @@ Re-run the export script (a cron job, or right before you push) and redeploy
 to refresh it. A sample `web/data.json` ships in the repo so the dashboard
 isn't blank before you've run the bot yourself.
 
+For near-zero-gap coverage — the bot cycling continuously and the dashboard
+updating after every cycle, rather than on whatever a scheduler's next tick
+happens to be — see `deploy/README.md` for running `scripts/run_live.py` as
+a systemd service on an always-on host.
+
 To preview it locally (a plain `file://` open won't work because the page
 `fetch()`es `data.json`):
 
