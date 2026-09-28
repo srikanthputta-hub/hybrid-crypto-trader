@@ -1,6 +1,6 @@
 import pytest
 
-from src.portfolio import Portfolio
+from src.portfolio import Portfolio, reconstruct_cash
 
 
 def test_buy_reduces_cash_and_opens_position():
@@ -50,3 +50,18 @@ def test_equity_includes_open_positions_at_current_price():
     )
     equity = p.equity({"BTC/USDT": 60000})
     assert equity == pytest.approx(9000 + 0.02 * 60000)
+
+
+def test_reconstruct_cash_no_log_file_returns_starting_cash(tmp_path):
+    assert reconstruct_cash(tmp_path / "trades.csv", 10000) == 10000
+
+
+def test_reconstruct_cash_replays_buys_and_sells(tmp_path):
+    path = tmp_path / "trades.csv"
+    path.write_text(
+        "timestamp,mode,symbol,side,price,base_amount,quote_amount\n"
+        "t1,paper,BTC/USDT,buy,50000,0.02,1000\n"
+        "t2,paper,BTC/USDT,sell,55000,0.02,1100\n"
+        "t3,paper,ETH/USDT,buy,3000,0.5,1500\n"
+    )
+    assert reconstruct_cash(path, 10000) == pytest.approx(10000 - 1000 + 1100 - 1500)
