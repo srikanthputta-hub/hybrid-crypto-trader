@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-28T14:13:06.165581+00:00",
+  "generated_at": "2026-09-28T16:15:44.584601+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 8758.3,
-    "equity": 9731.29,
-    "pnl_pct": -0.0269
+    "equity": 9736.62,
+    "pnl_pct": -0.0263
   },
   "roles": [
     {
@@ -32,22 +32,22 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-28T14:13:05.357275+00:00",
-      "detail": "Coordinating 4 active role(s) this cycle"
+      "last_active": "2026-09-28T16:15:43.602537+00:00",
+      "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-28T14:13:05.357275+00:00",
+      "last_active": "2026-09-28T16:15:43.602537+00:00",
       "detail": "SHIB/USDT: checked, nothing worth trading"
     },
     {
       "id": "trade_strategist",
       "label": "Trade Strategist",
       "model_tier": "sonnet",
-      "status": "working",
+      "status": "idle",
       "last_active": "2026-09-28T14:13:02.655138+00:00",
       "detail": "LINK/USDT: buy between $14.55 and $14.60, stop-loss $14.23"
     },
@@ -55,7 +55,7 @@
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
-      "status": "working",
+      "status": "idle",
       "last_active": "2026-09-28T14:13:02.655138+00:00",
       "detail": "LINK/USDT: OK to trade \u2014 ok"
     },
@@ -71,7 +71,7 @@
       "id": "execution_trader",
       "label": "Execution Trader",
       "model_tier": "opus",
-      "status": "working",
+      "status": "idle",
       "last_active": "2026-09-28T14:13:04.907704+00:00",
       "detail": "ALGO/USDT: sold \u2014 target reached at $0.1341"
     }
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 14.57579,
       "fill_amount": 66.74899701188544,
-      "current_price": 14.57687,
+      "current_price": 14.65675,
       "created_at": "2026-09-28T14:13:02.659038+00:00",
       "filled_at": "2026-09-28T14:13:02.664470+00:00",
       "timestamp": "2026-09-28T14:13:02.664470+00:00",
-      "unrealized_pnl_pct": 7.409546926787295e-05
+      "unrealized_pnl_pct": 0.005554415918451146
     }
   ],
   "pending": [],
@@ -226,20 +226,6 @@
   "charts": {
     "LINK/USDT": {
       "candles": [
-        {
-          "time": 1790067600,
-          "open": 12.99299,
-          "high": 13.01278,
-          "low": 12.89135,
-          "close": 13.01278
-        },
-        {
-          "time": 1790071200,
-          "open": 12.96654,
-          "high": 12.96919,
-          "low": 12.86991,
-          "close": 12.91792
-        },
         {
           "time": 1790074800,
           "open": 12.90086,
@@ -1273,8 +1259,22 @@
           "time": 1790604000,
           "open": 14.70152,
           "high": 14.70498,
-          "low": 14.50681,
-          "close": 14.57687
+          "low": 14.11323,
+          "close": 14.18147
+        },
+        {
+          "time": 1790607600,
+          "open": 14.21171,
+          "high": 14.45761,
+          "low": 14.07682,
+          "close": 14.43343
+        },
+        {
+          "time": 1790611200,
+          "open": 14.42721,
+          "high": 14.71129,
+          "low": 14.41131,
+          "close": 14.67075
         }
       ]
     }
