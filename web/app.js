@@ -45,9 +45,9 @@ function renderRoles(roles) {
   // An elliptical stage around the center console, boss anchored front-and-
   // center at the bottom (i=0 lands at angle = +90°, i.e. straight down) and
   // the rest fanning out clockwise around the rest of the ellipse.
-  const radiusXPct = 44;
-  const radiusYPct = 37;
-  roles.forEach((role, i) => {
+  const radiusXPct = 45;
+  const radiusYPct = 41;
+  const positions = roles.map((role, i) => {
     const angle = (2 * Math.PI * i) / roles.length + Math.PI / 2;
     const x = 50 + radiusXPct * Math.cos(angle);
     const y = 50 + radiusYPct * Math.sin(angle);
@@ -56,10 +56,16 @@ function renderRoles(roles) {
     // cue for what's otherwise a flat layout.
     const depth = (y - (50 - radiusYPct)) / (2 * radiusYPct); // 0 = back, 1 = front
     const scale = 0.82 + 0.32 * depth;
+    return { role, x, y, scale, z: Math.round(depth * 100) };
+  });
+
+  positions.forEach((pos) => {
     container.appendChild(
-      buildDesk(role, { x: `${x}%`, y: `${y}%`, scale, z: Math.round(depth * 100) }, role.id === "boss")
+      buildDesk(pos.role, { x: `${pos.x}%`, y: `${pos.y}%`, scale: pos.scale, z: pos.z }, pos.role.id === "boss")
     );
   });
+
+  renderOfficeLinks(positions);
 
   updateOfficeScreen(roles);
 }
@@ -81,9 +87,11 @@ function buildDesk(role, pos, isBoss) {
   desk.dataset.roleId = role.id;
   desk.innerHTML = `
     <div class="desk-figure">
-      <span class="desk-glow"></span>
-      <span class="desk-head ${tierClass}"></span>
-      <span class="desk-body ${tierClass}"></span>
+      <span class="desk-antenna"><span class="desk-light"></span></span>
+      <span class="desk-head ${tierClass}">
+        <span class="desk-eye"></span><span class="desk-eye"></span>
+      </span>
+      <span class="desk-body ${tierClass}"><span class="desk-panel"></span></span>
     </div>
     <div class="desk-plate">${isBoss ? '<span class="desk-crown">&#128081;</span>' : ""}${escapeHtml(role.label)}</div>
     <div class="desk-pillbar">
@@ -96,6 +104,61 @@ function buildDesk(role, pos, isBoss) {
   `;
   desk.addEventListener("click", () => showRoleDrawer(role, isBoss));
   return desk;
+}
+
+// Console position, in the same 0-100 coordinate space as desk positions --
+// must match .office-screen's `left`/`top` in style.css.
+const CONSOLE_X = 50;
+const CONSOLE_Y = 46;
+
+// A glowing line from every currently-working desk to the console, so it's
+// visually obvious who's actively reporting in right now. Both desks and the
+// console are opaque boxes, so a line drawn between their exact centers
+// mostly disappears underneath them -- only the short gap between their
+// edges is ever actually visible. edgePoint() finds where a line toward
+// (cx, cy) crosses a given box's own edge, so the line starts/ends right at
+// that box's border (a couple units past it, so it visibly overlaps the
+// border) instead of wasting length hidden under either box.
+function edgePoint(fromX, fromY, towardX, towardY, halfW, halfH) {
+  const vx = towardX - fromX;
+  const vy = towardY - fromY;
+  if (vx === 0 && vy === 0) return { x: fromX, y: fromY };
+  const t = Math.min(vx !== 0 ? halfW / Math.abs(vx) : Infinity, vy !== 0 ? halfH / Math.abs(vy) : Infinity);
+  return { x: fromX + vx * Math.min(1, t * 1.15), y: fromY + vy * Math.min(1, t * 1.15) };
+}
+
+// Half-width/height of a rendered box, converted into the same 0-100 space
+// as desk/console positions. Measured live off the actual DOM rather than
+// hardcoded, since desk boxes are a fixed pixel size while the ring itself
+// is fluid -- their size relative to the ring shifts across breakpoints
+// (and the boss desk / depth-based scale() both change a desk's size too),
+// so a hardcoded percentage can't stay right at every viewport width.
+function halfSizePct(el, wrapRect) {
+  const r = el.getBoundingClientRect();
+  return { w: (50 * r.width) / wrapRect.width, h: (50 * r.height) / wrapRect.height };
+}
+
+function renderOfficeLinks(positions) {
+  const svg = document.getElementById("office-links");
+  svg.innerHTML = "";
+  const wrapRect = document.querySelector(".office-ring-wrap").getBoundingClientRect();
+  const consoleHalf = halfSizePct(document.getElementById("office-screen"), wrapRect);
+
+  positions
+    .filter((pos) => pos.role.status === "working")
+    .forEach((pos) => {
+      const deskEl = document.querySelector(`.desk[data-role-id="${pos.role.id}"]`);
+      const deskHalf = deskEl ? halfSizePct(deskEl, wrapRect) : { w: 8, h: 8 };
+      const start = edgePoint(pos.x, pos.y, CONSOLE_X, CONSOLE_Y, deskHalf.w, deskHalf.h);
+      const end = edgePoint(CONSOLE_X, CONSOLE_Y, pos.x, pos.y, consoleHalf.w, consoleHalf.h);
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", start.x);
+      line.setAttribute("y1", start.y);
+      line.setAttribute("x2", end.x);
+      line.setAttribute("y2", end.y);
+      line.setAttribute("class", "office-link" + (pos.role.id === "boss" ? " office-link-boss" : ""));
+      svg.appendChild(line);
+    });
 }
 
 function showRoleDrawer(role, isBoss) {

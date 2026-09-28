@@ -136,6 +136,37 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
   border-radius: 50%;
 }
 
+/* --- a glowing "cable" from every working desk to the console, so it's
+   obvious at a glance who's actively reporting in. Coordinates are drawn in
+   the same 0-100 space as each desk's --x/--y (see app.js's renderRoles /
+   renderOfficeLinks), stretched independently on each axis to match this
+   non-square ellipse via preserveAspectRatio="none". --- */
+.office-links {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 5;
+  pointer-events: none;
+  overflow: visible;
+}
+.office-link {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-dasharray: 3 2.2;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.95;
+  filter: drop-shadow(0 0 2px var(--green)) drop-shadow(0 0 6px var(--green));
+  animation: link-flow 0.8s linear infinite;
+}
+.office-link-boss {
+  stroke: #fbbf24;
+  filter: drop-shadow(0 0 2px #fbbf24) drop-shadow(0 0 5px #fbbf24);
+}
+@keyframes link-flow { to { stroke-dashoffset: -5.2; } }
+
 /* --- center screen: the desk's shared console -- a short live feed of
    whichever roles are working right now, instead of a single cycling line --- */
 .office-screen {
@@ -143,8 +174,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
   left: 50%;
   top: 46%;
   transform: translate(-50%, -50%);
-  width: 42%;
-  min-height: 30%;
+  width: 38%;
+  min-height: 24%;
   border-radius: 10px;
   background: linear-gradient(180deg, #0c1830 0%, #070d1c 100%);
   border: 2px solid var(--border);
@@ -220,41 +251,72 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
 .desk.desk-disabled { opacity: 0.55; }
 .desk.desk-disabled:hover { border-color: var(--border); }
 
-.desk-figure { position: relative; height: 42px; margin-bottom: 6px; }
-.desk-glow {
+/* --- a 2D robot figure: antenna + head-mounted light, blocky head with
+   visor "eyes", a boxy torso with a chest panel line. The antenna light
+   glows green (gold for boss) only while that role is actually working --
+   the same signal the connector line below reacts to. --- */
+.desk-figure { position: relative; height: 46px; margin-bottom: 6px; }
+.desk-antenna {
   position: absolute;
-  left: 50%; top: -10px;
+  left: 50%; top: -9px;
   transform: translateX(-50%);
-  width: 20px; height: 20px;
-  border-radius: 50%;
-  background: var(--green);
-  filter: blur(7px);
-  opacity: 0;
+  width: 2px; height: 9px;
+  background: var(--border);
 }
-.desk.is-working .desk-glow { opacity: 0.85; animation: glow-pulse 1.6s infinite; }
-.desk.desk-boss.is-working .desk-glow { background: #fbbf24; }
-@keyframes glow-pulse { 0%,100% { opacity: 0.85; } 50% { opacity: 0.35; } }
+.desk-light {
+  position: absolute;
+  left: 50%; top: -3px;
+  transform: translate(-50%, -50%);
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+.desk.is-working .desk-light {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green), 0 0 12px var(--green);
+  animation: light-pulse 1.4s infinite;
+}
+.desk.desk-boss.is-working .desk-light { background: #fbbf24; box-shadow: 0 0 6px #fbbf24, 0 0 12px #fbbf24; }
+@keyframes light-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 
 .desk-head {
   position: absolute;
   left: 50%; top: 0;
   transform: translateX(-50%);
-  width: 16px; height: 16px;
-  border-radius: 50%;
+  width: 20px; height: 15px;
+  border-radius: 4px;
   border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: box-shadow 0.2s ease;
 }
+.desk.is-working .desk-head { box-shadow: 0 0 8px rgba(34,197,94,0.55); }
+.desk.desk-boss.is-working .desk-head { box-shadow: 0 0 8px rgba(251,191,36,0.55); }
+.desk-eye { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.9; }
 .desk-body {
   position: absolute;
   left: 50%; bottom: 0;
   transform: translateX(-50%);
   width: 34px; height: 20px;
-  border-radius: 10px 10px 4px 4px;
+  border-radius: 4px 4px 3px 3px;
   border: 2px solid var(--border);
   border-bottom: none;
 }
-.desk-head.tier-haiku, .desk-body.tier-haiku { background: rgba(34,197,94,0.16); border-color: var(--tier-haiku); }
-.desk-head.tier-sonnet, .desk-body.tier-sonnet { background: rgba(59,130,246,0.16); border-color: var(--tier-sonnet); }
-.desk-head.tier-opus, .desk-body.tier-opus { background: rgba(192,132,252,0.16); border-color: var(--tier-opus); }
+.desk-panel {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px; height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.5;
+}
+.desk-head.tier-haiku, .desk-body.tier-haiku { background: rgba(34,197,94,0.16); border-color: var(--tier-haiku); color: var(--tier-haiku); }
+.desk-head.tier-sonnet, .desk-body.tier-sonnet { background: rgba(59,130,246,0.16); border-color: var(--tier-sonnet); color: var(--tier-sonnet); }
+.desk-head.tier-opus, .desk-body.tier-opus { background: rgba(192,132,252,0.16); border-color: var(--tier-opus); color: var(--tier-opus); }
 
 .desk-plate { font-weight: 600; font-size: 12px; line-height: 1.25; margin-bottom: 6px; }
 .desk-crown { font-size: 13px; margin-right: 3px; }
@@ -307,6 +369,10 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px; display: flex; flex-dir
   .desk-figure { height: 34px; }
   .office-screen-line { font-size: 10px; }
   .role-drawer { width: 190px; padding: 12px; }
+  /* At this width the desk/console boxes take up nearly the entire gap
+     between them, leaving no meaningfully visible line to draw -- the
+     glowing head-light on each working desk still shows who's active. */
+  .office-links { display: none; }
 }
 
 .card {
@@ -437,7 +503,7 @@ tr.row-selected { background: rgba(56,189,248,0.1); box-shadow: inset 2px 0 0 va
 
 @media (max-width: 640px) {
   #chart-container { height: 260px; }
-  .office-screen { width: 60%; padding: 6px 8px; }
+  .office-screen { padding: 6px 8px; }
   .office-screen-role { font-size: 9px; }
   .office-screen-text { font-size: 10px; }
   .symbol-dropdown-list { min-width: 170px; }
