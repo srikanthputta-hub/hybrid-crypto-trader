@@ -88,10 +88,8 @@ function buildDesk(role, pos, isBoss) {
   desk.innerHTML = `
     <div class="desk-figure">
       <span class="desk-antenna"><span class="desk-light"></span></span>
-      <span class="desk-head ${tierClass}">
-        <span class="desk-eye"></span><span class="desk-eye"></span>
-      </span>
-      <span class="desk-body ${tierClass}"><span class="desk-panel"></span></span>
+      <span class="desk-head ${tierClass}"></span>
+      <span class="desk-body ${tierClass}"></span>
     </div>
     <div class="desk-plate">${isBoss ? '<span class="desk-crown">&#128081;</span>' : ""}${escapeHtml(role.label)}</div>
     <div class="desk-pillbar">
