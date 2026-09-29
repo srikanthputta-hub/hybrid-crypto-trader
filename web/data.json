@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T14:03:21.169002+00:00",
+  "generated_at": "2026-09-29T14:09:13.283601+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 6001.94,
-    "equity": 9970.96,
-    "pnl_pct": -0.0029
+    "equity": 9968.92,
+    "pnl_pct": -0.0031
   },
   "roles": [
     {
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T14:03:20.542019+00:00",
+      "last_active": "2026-09-29T14:09:12.662318+00:00",
       "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T14:03:20.540041+00:00",
+      "last_active": "2026-09-29T14:09:12.660392+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 0.09596,
       "fill_amount": 2.948956924789027e-05,
-      "current_price": 0.09541,
+      "current_price": 0.09542,
       "created_at": "2026-09-29T12:47:35.682372+00:00",
       "filled_at": "2026-09-29T12:47:35.685087+00:00",
       "timestamp": "2026-09-29T12:47:35.685087+00:00",
-      "unrealized_pnl_pct": -0.005731554814506136
+      "unrealized_pnl_pct": -0.005627344726969558
     },
     {
       "symbol": "SOL/USDT",
@@ -115,11 +115,11 @@
       "confidence_claude": null,
       "fill_price": 120.61,
       "fill_amount": 2.346255707776768e-05,
-      "current_price": 120.85,
+      "current_price": 120.6,
       "created_at": "2026-09-29T12:47:35.675192+00:00",
       "filled_at": "2026-09-29T12:47:35.677713+00:00",
       "timestamp": "2026-09-29T12:47:35.677713+00:00",
-      "unrealized_pnl_pct": 0.0019898847525080415
+      "unrealized_pnl_pct": -8.291186468787925e-05
     },
     {
       "symbol": "XRP/USDT",
@@ -137,11 +137,11 @@
       "confidence_claude": null,
       "fill_price": 1.552,
       "fill_amount": 1.8233369903125753,
-      "current_price": 1.54626,
+      "current_price": 1.54707,
       "created_at": "2026-09-29T12:47:35.667971+00:00",
       "filled_at": "2026-09-29T12:47:35.670558+00:00",
       "timestamp": "2026-09-29T12:47:35.670558+00:00",
-      "unrealized_pnl_pct": -0.003698453608247473
+      "unrealized_pnl_pct": -0.003176546391752642
     },
     {
       "symbol": "SHIB/USDT",
@@ -159,11 +159,11 @@
       "confidence_claude": null,
       "fill_price": 5.869e-06,
       "fill_amount": 0.33471905934218005,
-      "current_price": 5.833e-06,
+      "current_price": 5.848e-06,
       "created_at": "2026-09-29T12:24:30.975016+00:00",
       "filled_at": "2026-09-29T12:24:30.976940+00:00",
       "timestamp": "2026-09-29T12:24:30.976940+00:00",
-      "unrealized_pnl_pct": -0.006133924007497046
+      "unrealized_pnl_pct": -0.0035781223377066465
     },
     {
       "symbol": "ATOM/USDT",
@@ -181,11 +181,11 @@
       "confidence_claude": null,
       "fill_price": 1.7899,
       "fill_amount": 1.097528491039884,
-      "current_price": 1.754,
+      "current_price": 1.7542,
       "created_at": "2026-09-29T12:24:30.957237+00:00",
       "filled_at": "2026-09-29T12:24:30.961677+00:00",
       "timestamp": "2026-09-29T12:24:30.961677+00:00",
-      "unrealized_pnl_pct": -0.020056986423822584
+      "unrealized_pnl_pct": -0.01994524833789601
     },
     {
       "symbol": "DOT/USDT",
@@ -203,11 +203,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.2038,
+      "current_price": 1.2048,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": -0.011739594450373515
+      "unrealized_pnl_pct": -0.010918643789508142
     },
     {
       "symbol": "ADA/USDT",
@@ -225,11 +225,11 @@
       "confidence_claude": null,
       "fill_price": 0.253601,
       "fill_amount": 3903.1148869013437,
-      "current_price": 0.250882,
+      "current_price": 0.251103,
       "created_at": "2026-09-29T11:44:32.199831+00:00",
       "filled_at": "2026-09-29T11:44:32.201465+00:00",
       "timestamp": "2026-09-29T11:44:32.201465+00:00",
-      "unrealized_pnl_pct": -0.010721566555337032
+      "unrealized_pnl_pct": -0.00985011888754382
     },
     {
       "symbol": "ALGO/USDT",
@@ -247,11 +247,11 @@
       "confidence_claude": null,
       "fill_price": 0.13304,
       "fill_amount": 7518.395809373793,
-      "current_price": 0.13098,
+      "current_price": 0.12986,
       "created_at": "2026-09-29T11:38:51.600594+00:00",
       "filled_at": "2026-09-29T11:38:51.602093+00:00",
       "timestamp": "2026-09-29T11:38:51.602093+00:00",
-      "unrealized_pnl_pct": -0.015484064942874163
+      "unrealized_pnl_pct": -0.023902585688514645
     },
     {
       "symbol": "ETH/USDT",
@@ -269,11 +269,11 @@
       "confidence_claude": null,
       "fill_price": 2721.95,
       "fill_amount": 0.3670873832368547,
-      "current_price": 2723.36,
+      "current_price": 2721.66,
       "created_at": "2026-09-29T11:33:12.620564+00:00",
       "filled_at": "2026-09-29T11:33:12.621817+00:00",
       "timestamp": "2026-09-29T11:33:12.621817+00:00",
-      "unrealized_pnl_pct": 0.0005180109847720602
+      "unrealized_pnl_pct": -0.00010654126637152176
     },
     {
       "symbol": "AVAX/USDT",
@@ -291,11 +291,11 @@
       "confidence_claude": null,
       "fill_price": 11.565,
       "fill_amount": 86.38132295719845,
-      "current_price": 11.572,
+      "current_price": 11.643,
       "created_at": "2026-09-29T11:10:39.554509+00:00",
       "filled_at": "2026-09-29T11:10:39.555340+00:00",
       "timestamp": "2026-09-29T11:10:39.555340+00:00",
-      "unrealized_pnl_pct": 0.0006052745352355965
+      "unrealized_pnl_pct": 0.006744487678339921
     }
   ],
   "pending": [],
@@ -1472,7 +1472,7 @@
           "open": 11.655,
           "high": 11.655,
           "low": 11.554,
-          "close": 11.598
+          "close": 11.643
         }
       ]
     },
@@ -2525,8 +2525,8 @@
           "time": 1790690400,
           "open": 2727.11,
           "high": 2728.9,
-          "low": 2723.14,
-          "close": 2723.14
+          "low": 2719.74,
+          "close": 2721.66
         }
       ]
     },
@@ -3579,8 +3579,8 @@
           "time": 1790690400,
           "open": 0.13098,
           "high": 0.13098,
-          "low": 0.13098,
-          "close": 0.13098
+          "low": 0.12986,
+          "close": 0.12986
         }
       ]
     },
@@ -4633,8 +4633,8 @@
           "time": 1790690400,
           "open": 0.252082,
           "high": 0.252082,
-          "low": 0.250594,
-          "close": 0.250882
+          "low": 0.250104,
+          "close": 0.251103
         }
       ]
     },
@@ -5686,9 +5686,9 @@
         {
           "time": 1790690400,
           "open": 1.2038,
-          "high": 1.2038,
+          "high": 1.2062,
           "low": 1.2038,
-          "close": 1.2038
+          "close": 1.2048
         }
       ]
     },
@@ -6740,9 +6740,9 @@
         {
           "time": 1790690400,
           "open": 1.754,
-          "high": 1.754,
+          "high": 1.7542,
           "low": 1.754,
-          "close": 1.754
+          "close": 1.7542
         }
       ]
     },
@@ -7796,7 +7796,7 @@
           "open": 5.85e-06,
           "high": 5.86e-06,
           "low": 5.83e-06,
-          "close": 5.83e-06
+          "close": 5.85e-06
         }
       ]
     },
@@ -8849,8 +8849,8 @@
           "time": 1790690400,
           "open": 1.54946,
           "high": 1.55266,
-          "low": 1.54626,
-          "close": 1.54626
+          "low": 1.54281,
+          "close": 1.54594
         }
       ]
     },
@@ -9903,8 +9903,8 @@
           "time": 1790690400,
           "open": 121.14,
           "high": 121.3,
-          "low": 120.78,
-          "close": 121.0
+          "low": 120.48,
+          "close": 120.48
         }
       ]
     },
@@ -10957,8 +10957,8 @@
           "time": 1790690400,
           "open": 0.09592,
           "high": 0.09593,
-          "low": 0.09541,
-          "close": 0.09543
+          "low": 0.09533,
+          "close": 0.09533
         }
       ]
     }
