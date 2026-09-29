@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T12:01:40.980305+00:00",
+  "generated_at": "2026-09-29T12:07:23.841581+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 6006.74,
-    "equity": 10029.86,
-    "pnl_pct": 0.003
+    "equity": 10033.17,
+    "pnl_pct": 0.0033
   },
   "roles": [
     {
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T12:01:40.349203+00:00",
+      "last_active": "2026-09-29T12:07:23.243341+00:00",
       "detail": "Coordinating 3 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T12:01:40.349203+00:00",
+      "last_active": "2026-09-29T12:07:23.243341+00:00",
       "detail": "SHIB/USDT: checked, nothing worth trading"
     },
     {
@@ -48,15 +48,15 @@
       "label": "Trade Strategist",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T12:01:40.347010+00:00",
-      "detail": "XTZ/USDT: buy between $0.3251 and $0.3256, stop-loss $0.3229"
+      "last_active": "2026-09-29T12:07:23.241147+00:00",
+      "detail": "XTZ/USDT: buy between $0.3241 and $0.3245, stop-loss $0.3218"
     },
     {
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T12:01:40.347010+00:00",
+      "last_active": "2026-09-29T12:07:23.241147+00:00",
       "detail": "XTZ/USDT: blocked \u2014 no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero)"
     },
     {
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.22,
+      "current_price": 1.2151,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": 0.0015598062556440462
+      "unrealized_pnl_pct": -0.002462851982595757
     },
     {
       "symbol": "ADA/USDT",
@@ -115,11 +115,11 @@
       "confidence_claude": null,
       "fill_price": 0.253601,
       "fill_amount": 3903.1148869013437,
-      "current_price": 0.254196,
+      "current_price": 0.2535,
       "created_at": "2026-09-29T11:44:32.199831+00:00",
       "filled_at": "2026-09-29T11:44:32.201465+00:00",
       "timestamp": "2026-09-29T11:44:32.201465+00:00",
-      "unrealized_pnl_pct": 0.0023462052594428124
+      "unrealized_pnl_pct": -0.00039826341378787044
     },
     {
       "symbol": "ALGO/USDT",
@@ -137,11 +137,11 @@
       "confidence_claude": null,
       "fill_price": 0.13304,
       "fill_amount": 7518.395809373793,
-      "current_price": 0.13296,
+      "current_price": 0.13316,
       "created_at": "2026-09-29T11:38:51.600594+00:00",
       "filled_at": "2026-09-29T11:38:51.602093+00:00",
       "timestamp": "2026-09-29T11:38:51.602093+00:00",
-      "unrealized_pnl_pct": -0.0006013229104028619
+      "unrealized_pnl_pct": 0.0009019843656043971
     },
     {
       "symbol": "ETH/USDT",
@@ -159,11 +159,11 @@
       "confidence_claude": null,
       "fill_price": 2721.95,
       "fill_amount": 0.3670873832368547,
-      "current_price": 2731.83,
+      "current_price": 2730.04,
       "created_at": "2026-09-29T11:33:12.620564+00:00",
       "filled_at": "2026-09-29T11:33:12.621817+00:00",
       "timestamp": "2026-09-29T11:33:12.621817+00:00",
-      "unrealized_pnl_pct": 0.0036297507301750985
+      "unrealized_pnl_pct": 0.00297213394808874
     },
     {
       "symbol": "AVAX/USDT",
@@ -181,15 +181,21 @@
       "confidence_claude": null,
       "fill_price": 11.565,
       "fill_amount": 86.38132295719845,
-      "current_price": 11.895,
+      "current_price": 11.955,
       "created_at": "2026-09-29T11:10:39.554509+00:00",
       "filled_at": "2026-09-29T11:10:39.555340+00:00",
       "timestamp": "2026-09-29T11:10:39.555340+00:00",
-      "unrealized_pnl_pct": 0.028534370946822315
+      "unrealized_pnl_pct": 0.033722438391699146
     }
   ],
   "pending": [],
   "signal_history": [
+    {
+      "timestamp": "2026-09-29T12:07:23.241147+00:00",
+      "symbol": "XTZ/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
     {
       "timestamp": "2026-09-29T12:01:40.347010+00:00",
       "symbol": "XTZ/USDT",
@@ -1354,9 +1360,9 @@
         {
           "time": 1790683200,
           "open": 11.845,
-          "high": 11.895,
+          "high": 12.0,
           "low": 11.845,
-          "close": 11.895
+          "close": 11.941
         }
       ]
     },
@@ -2408,9 +2414,9 @@
         {
           "time": 1790683200,
           "open": 2731.38,
-          "high": 2731.83,
-          "low": 2730.88,
-          "close": 2731.83
+          "high": 2732.34,
+          "low": 2729.71,
+          "close": 2730.04
         }
       ]
     },
@@ -3461,10 +3467,10 @@
         },
         {
           "time": 1790683200,
-          "open": 0.13296,
-          "high": 0.13296,
-          "low": 0.13296,
-          "close": 0.13296
+          "open": 0.13297,
+          "high": 0.13316,
+          "low": 0.13294,
+          "close": 0.13316
         }
       ]
     },
@@ -4516,9 +4522,9 @@
         {
           "time": 1790683200,
           "open": 0.2536,
-          "high": 0.254336,
-          "low": 0.253532,
-          "close": 0.254336
+          "high": 0.254452,
+          "low": 0.253406,
+          "close": 0.253445
         }
       ]
     },
@@ -5571,8 +5577,8 @@
           "time": 1790683200,
           "open": 1.2233,
           "high": 1.2239,
-          "low": 1.22,
-          "close": 1.22
+          "low": 1.2151,
+          "close": 1.2151
         }
       ]
     }
