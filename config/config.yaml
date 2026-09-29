@@ -91,6 +91,16 @@ signal_engine:
     - "PULLBACK"
     - "REVERSAL"
 
+# Pipeline stage 2b — higher-timeframe (daily) trend confirmation gate (see
+# src/htf_filter.py). Standard top-down multi-timeframe practice: the daily
+# chart sets directional bias, market.timeframe (1h) only times entries
+# within that bias. A bullish signal whose daily trend isn't also confirmed
+# bullish (daily fast EMA > slow EMA, using indicators.fast_ema/slow_ema) is
+# blocked from ever becoming a trade plan -- this never originates or
+# resizes a trade, only vetoes one. Set enabled: false to disable entirely.
+htf_filter:
+  enabled: true
+
 # Pipeline stage 3 — "creates the trade plan with entry, target, stop loss, and invalidation."
 trade_planner:
   entry_buffer_atr_mult: 0.1     # how wide the entry zone is, in ATRs, around the pattern's level
