@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Continuous live loop for a real always-on host (a VPS, not CI): runs a bot
 cycle, regenerates the dashboard's web/data.json, commits+pushes it to git,
-and pings an optional external heartbeat monitor (HEALTHCHECK_PING_URL),
+prunes old log rows once a day (config.yaml logging.retention_days), and
+pings an optional external heartbeat monitor (HEALTHCHECK_PING_URL),
 forever, on config.yaml's loop.poll_interval_seconds.
 
 `python -m src.bot` (no --once) / scripts/run_paper.py already loop bot
@@ -28,6 +29,7 @@ import logging
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -35,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.bot import build_components, run_cycle
 from src.config import load_config
 from src.heartbeat import send_heartbeat_ping
+from src.log_retention import run_log_retention
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("run_live")
@@ -65,6 +68,7 @@ def main() -> None:
 
     exchange, risk_engine, portfolio, broker, store, audit = build_components(cfg)
     interval = cfg.loop.get("poll_interval_seconds", 300)
+    last_retention_run_date = None
 
     while True:
         try:
@@ -76,6 +80,12 @@ def main() -> None:
         except Exception:
             logger.exception("dashboard export/push failed -- will retry next interval")
         send_heartbeat_ping(cfg.healthcheck_ping_url)
+
+        today = datetime.now(timezone.utc).date()
+        if today != last_retention_run_date:
+            run_log_retention(cfg)
+            last_retention_run_date = today
+
         time.sleep(interval)
 
 
