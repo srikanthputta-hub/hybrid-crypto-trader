@@ -4,19 +4,20 @@ from unittest.mock import patch
 
 import pytest
 
-from src.bot import _maybe_notify, _send_heartbeat, build_components
+from src.bot import _fmt_price, _maybe_notify, build_components
 from src.config import Config
 from src.portfolio import Portfolio
 
 CONFIGURED = SimpleNamespace(telegram_bot_token="token", telegram_chat_id="12345")
 UNCONFIGURED = SimpleNamespace(telegram_bot_token=None, telegram_chat_id=None)
 
-HEARTBEAT_CONFIGURED = SimpleNamespace(
-    telegram_bot_token="token", telegram_chat_id="12345", mode="paper", risk={"starting_cash_usd": 10000}
-)
-HEARTBEAT_UNCONFIGURED = SimpleNamespace(
-    telegram_bot_token=None, telegram_chat_id=None, mode="paper", risk={"starting_cash_usd": 10000}
-)
+
+def test_fmt_price_scales_decimals_to_stay_readable():
+    # A fixed 2-decimal format would render a sub-cent coin like SHIB as
+    # "$0.00" -- useless. Precision should scale up as price shrinks.
+    assert _fmt_price(50000.0) == "$50,000.00"
+    assert _fmt_price(0.1234) == "$0.1234"
+    assert _fmt_price(0.00001234) == "$0.000012"
 
 
 def test_noop_when_telegram_not_configured():
@@ -110,47 +111,6 @@ def test_discard_sends_nothing():
     with patch("src.bot.notifier.send_telegram_message") as mock_send:
         _maybe_notify(CONFIGURED, event)
     mock_send.assert_not_called()
-
-
-def test_heartbeat_noop_when_telegram_not_configured():
-    portfolio = Portfolio(cash=10000)
-    with patch("src.bot.notifier.send_telegram_message") as mock_send:
-        _send_heartbeat(HEARTBEAT_UNCONFIGURED, {"BTC/USDT": 50000.0}, portfolio, 10000.0)
-    mock_send.assert_not_called()
-
-
-def test_heartbeat_noop_when_no_prices():
-    portfolio = Portfolio(cash=10000)
-    with patch("src.bot.notifier.send_telegram_message") as mock_send:
-        _send_heartbeat(HEARTBEAT_CONFIGURED, {}, portfolio, 10000.0)
-    mock_send.assert_not_called()
-
-
-def test_heartbeat_sends_prices_and_equity():
-    portfolio = Portfolio(cash=9000)
-    prices = {"BTC/USDT": 50000.0, "ETH/USDT": 3000.0}
-    with patch("src.bot.notifier.send_telegram_message") as mock_send:
-        _send_heartbeat(HEARTBEAT_CONFIGURED, prices, portfolio, 10500.0)
-    mock_send.assert_called_once()
-    text = mock_send.call_args[0][2]
-    assert "Heartbeat" in text
-    assert "BTC/USDT" in text and "50,000.00" in text
-    assert "ETH/USDT" in text and "3,000.00" in text
-    assert "9,000.00" in text  # cash
-    assert "+5.00%" in text  # pnl_pct vs starting_cash_usd=10000
-
-
-def test_heartbeat_formats_sub_dollar_prices_readably():
-    # A fixed 2-decimal format would render this as "$0.00" -- useless for a
-    # sub-cent coin. _fmt_price should keep it readable instead.
-    portfolio = Portfolio(cash=10000)
-    prices = {"SHIB/USDT": 0.00001234}
-    with patch("src.bot.notifier.send_telegram_message") as mock_send:
-        _send_heartbeat(HEARTBEAT_CONFIGURED, prices, portfolio, 10000.0)
-    mock_send.assert_called_once()
-    text = mock_send.call_args[0][2]
-    assert "SHIB/USDT: $0.00\n" not in text
-    assert "SHIB/USDT: $0.000012" in text
 
 
 def _minimal_raw_config() -> dict:
