@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T17:11:26.322096+00:00",
+  "generated_at": "2026-09-29T17:17:06.035206+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T17:11:25.703321+00:00",
+      "last_active": "2026-09-29T17:17:04.919247+00:00",
       "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T17:11:25.701370+00:00",
+      "last_active": "2026-09-29T17:17:04.914001+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 5.869e-06,
       "fill_amount": 0.33471905934218005,
-      "current_price": 5.729e-06,
+      "current_price": 5.724e-06,
       "created_at": "2026-09-29T12:24:30.975016+00:00",
       "filled_at": "2026-09-29T12:24:30.976940+00:00",
       "timestamp": "2026-09-29T12:24:30.976940+00:00",
-      "unrealized_pnl_pct": -0.02385414891804402
+      "unrealized_pnl_pct": -0.024706082807974154
     },
     {
       "symbol": "DOT/USDT",
@@ -115,11 +115,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.1748,
+      "current_price": 1.1701,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": -0.03554716361546662
+      "unrealized_pnl_pct": -0.03940563172153357
     }
   ],
   "pending": [],
@@ -1223,8 +1223,8 @@
           "time": 1790701200,
           "open": 1.1737,
           "high": 1.1758,
-          "low": 1.1708,
-          "close": 1.1748
+          "low": 1.1694,
+          "close": 1.1694
         }
       ]
     },
@@ -2275,10 +2275,10 @@
         },
         {
           "time": 1790701200,
-          "open": 5.73e-06,
-          "high": 5.73e-06,
-          "low": 5.73e-06,
-          "close": 5.73e-06
+          "open": 5.72e-06,
+          "high": 5.72e-06,
+          "low": 5.72e-06,
+          "close": 5.72e-06
         }
       ]
     }
