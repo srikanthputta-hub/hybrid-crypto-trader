@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T15:28:43.536449+00:00",
+  "generated_at": "2026-09-29T15:34:27.219386+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 8899.63,
-    "equity": 9875.5,
-    "pnl_pct": -0.0124
+    "equity": 9879.2,
+    "pnl_pct": -0.0121
   },
   "roles": [
     {
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T15:28:42.895529+00:00",
+      "last_active": "2026-09-29T15:34:26.590481+00:00",
       "detail": "Coordinating 2 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T15:28:42.893390+00:00",
+      "last_active": "2026-09-29T15:34:26.588377+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 1.552,
       "fill_amount": 1.8233369903125753,
-      "current_price": 1.5115,
+      "current_price": 1.51977,
       "created_at": "2026-09-29T12:47:35.667971+00:00",
       "filled_at": "2026-09-29T12:47:35.670558+00:00",
       "timestamp": "2026-09-29T12:47:35.670558+00:00",
-      "unrealized_pnl_pct": -0.026095360824742255
+      "unrealized_pnl_pct": -0.020766752577319574
     },
     {
       "symbol": "SHIB/USDT",
@@ -159,11 +159,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.1846,
+      "current_price": 1.1864,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": -0.027501847138986835
+      "unrealized_pnl_pct": -0.02602413594942949
     },
     {
       "symbol": "ALGO/USDT",
@@ -181,11 +181,11 @@
       "confidence_claude": null,
       "fill_price": 0.13304,
       "fill_amount": 7518.395809373793,
-      "current_price": 0.12905,
+      "current_price": 0.12954,
       "created_at": "2026-09-29T11:38:51.600594+00:00",
       "filled_at": "2026-09-29T11:38:51.602093+00:00",
       "timestamp": "2026-09-29T11:38:51.602093+00:00",
-      "unrealized_pnl_pct": -0.02999098015634391
+      "unrealized_pnl_pct": -0.0263078773301263
     }
   ],
   "pending": [],
@@ -276,24 +276,6 @@
     },
     {
       "timestamp": "2026-09-29T12:41:49.445068+00:00",
-      "symbol": "XRP/USDT",
-      "kind": "rejected",
-      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
-    },
-    {
-      "timestamp": "2026-09-29T12:36:03.343465+00:00",
-      "symbol": "DOGE/USDT",
-      "kind": "rejected",
-      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
-    },
-    {
-      "timestamp": "2026-09-29T12:36:03.341025+00:00",
-      "symbol": "SOL/USDT",
-      "kind": "rejected",
-      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
-    },
-    {
-      "timestamp": "2026-09-29T12:36:03.338707+00:00",
       "symbol": "XRP/USDT",
       "kind": "rejected",
       "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
@@ -1350,7 +1332,7 @@
           "open": 0.13256,
           "high": 0.13283,
           "low": 0.12802,
-          "close": 0.12905
+          "close": 0.12954
         }
       ]
     },
@@ -2404,7 +2386,7 @@
           "open": 1.2112,
           "high": 1.2124,
           "low": 1.1846,
-          "close": 1.1846
+          "close": 1.1864
         }
       ]
     },
@@ -5566,7 +5548,7 @@
           "open": 1.54487,
           "high": 1.54503,
           "low": 1.50869,
-          "close": 1.5117
+          "close": 1.5195
         }
       ]
     }
