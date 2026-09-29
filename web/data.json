@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T11:55:58.204351+00:00",
+  "generated_at": "2026-09-29T12:01:40.980305+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 6006.74,
-    "equity": 10016.12,
-    "pnl_pct": 0.0016
+    "equity": 10029.86,
+    "pnl_pct": 0.003
   },
   "roles": [
     {
@@ -32,15 +32,15 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T11:55:57.573267+00:00",
-      "detail": "Coordinating 4 active role(s) this cycle"
+      "last_active": "2026-09-29T12:01:40.349203+00:00",
+      "detail": "Coordinating 3 active role(s) this cycle"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T11:55:57.573267+00:00",
+      "last_active": "2026-09-29T12:01:40.349203+00:00",
       "detail": "SHIB/USDT: checked, nothing worth trading"
     },
     {
@@ -48,15 +48,15 @@
       "label": "Trade Strategist",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T11:55:57.570904+00:00",
-      "detail": "XTZ/USDT: buy between $0.3159 and $0.3263, stop-loss $0.3135"
+      "last_active": "2026-09-29T12:01:40.347010+00:00",
+      "detail": "XTZ/USDT: buy between $0.3251 and $0.3256, stop-loss $0.3229"
     },
     {
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T11:55:57.570904+00:00",
+      "last_active": "2026-09-29T12:01:40.347010+00:00",
       "detail": "XTZ/USDT: blocked \u2014 no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero)"
     },
     {
@@ -71,7 +71,7 @@
       "id": "execution_trader",
       "label": "Execution Trader",
       "model_tier": "opus",
-      "status": "working",
+      "status": "idle",
       "last_active": "2026-09-29T11:44:32.211928+00:00",
       "detail": "DOT/USDT: bought at $1.22"
     }
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.2322,
+      "current_price": 1.22,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": 0.011575404318200477
+      "unrealized_pnl_pct": 0.0015598062556440462
     },
     {
       "symbol": "ADA/USDT",
@@ -115,11 +115,11 @@
       "confidence_claude": null,
       "fill_price": 0.253601,
       "fill_amount": 3903.1148869013437,
-      "current_price": 0.253801,
+      "current_price": 0.254196,
       "created_at": "2026-09-29T11:44:32.199831+00:00",
       "filled_at": "2026-09-29T11:44:32.201465+00:00",
       "timestamp": "2026-09-29T11:44:32.201465+00:00",
-      "unrealized_pnl_pct": 0.0007886404233420924
+      "unrealized_pnl_pct": 0.0023462052594428124
     },
     {
       "symbol": "ALGO/USDT",
@@ -137,11 +137,11 @@
       "confidence_claude": null,
       "fill_price": 0.13304,
       "fill_amount": 7518.395809373793,
-      "current_price": 0.13324,
+      "current_price": 0.13296,
       "created_at": "2026-09-29T11:38:51.600594+00:00",
       "filled_at": "2026-09-29T11:38:51.602093+00:00",
       "timestamp": "2026-09-29T11:38:51.602093+00:00",
-      "unrealized_pnl_pct": 0.001503307276007259
+      "unrealized_pnl_pct": -0.0006013229104028619
     },
     {
       "symbol": "ETH/USDT",
@@ -159,11 +159,11 @@
       "confidence_claude": null,
       "fill_price": 2721.95,
       "fill_amount": 0.3670873832368547,
-      "current_price": 2733.77,
+      "current_price": 2731.83,
       "created_at": "2026-09-29T11:33:12.620564+00:00",
       "filled_at": "2026-09-29T11:33:12.621817+00:00",
       "timestamp": "2026-09-29T11:33:12.621817+00:00",
-      "unrealized_pnl_pct": 0.004342475063832975
+      "unrealized_pnl_pct": 0.0036297507301750985
     },
     {
       "symbol": "AVAX/USDT",
@@ -181,15 +181,21 @@
       "confidence_claude": null,
       "fill_price": 11.565,
       "fill_amount": 86.38132295719845,
-      "current_price": 11.721,
+      "current_price": 11.895,
       "created_at": "2026-09-29T11:10:39.554509+00:00",
       "filled_at": "2026-09-29T11:10:39.555340+00:00",
       "timestamp": "2026-09-29T11:10:39.555340+00:00",
-      "unrealized_pnl_pct": 0.013488975356679688
+      "unrealized_pnl_pct": 0.028534370946822315
     }
   ],
   "pending": [],
   "signal_history": [
+    {
+      "timestamp": "2026-09-29T12:01:40.347010+00:00",
+      "symbol": "XTZ/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
     {
       "timestamp": "2026-09-29T11:55:57.570904+00:00",
       "symbol": "XTZ/USDT",
@@ -302,13 +308,6 @@
   "charts": {
     "AVAX/USDT": {
       "candles": [
-        {
-          "time": 1790143200,
-          "open": 11.2,
-          "high": 11.237,
-          "low": 11.158,
-          "close": 11.158
-        },
         {
           "time": 1790146800,
           "open": 11.146,
@@ -1348,21 +1347,21 @@
         {
           "time": 1790679600,
           "open": 11.531,
-          "high": 11.758,
+          "high": 11.941,
           "low": 11.509,
-          "close": 11.726
+          "close": 11.854
+        },
+        {
+          "time": 1790683200,
+          "open": 11.845,
+          "high": 11.895,
+          "low": 11.845,
+          "close": 11.895
         }
       ]
     },
     "ETH/USDT": {
       "candles": [
-        {
-          "time": 1790143200,
-          "open": 2756.8,
-          "high": 2761.78,
-          "low": 2752.85,
-          "close": 2754.92
-        },
         {
           "time": 1790146800,
           "open": 2753.99,
@@ -2404,19 +2403,19 @@
           "open": 2715.83,
           "high": 2738.13,
           "low": 2715.01,
-          "close": 2734.05
+          "close": 2732.32
+        },
+        {
+          "time": 1790683200,
+          "open": 2731.38,
+          "high": 2731.83,
+          "low": 2730.88,
+          "close": 2731.83
         }
       ]
     },
     "ALGO/USDT": {
       "candles": [
-        {
-          "time": 1790143200,
-          "open": 0.11173,
-          "high": 0.11305,
-          "low": 0.11173,
-          "close": 0.11276
-        },
         {
           "time": 1790146800,
           "open": 0.11237,
@@ -3458,19 +3457,19 @@
           "open": 0.13207,
           "high": 0.13327,
           "low": 0.13207,
-          "close": 0.1329
+          "close": 0.13296
+        },
+        {
+          "time": 1790683200,
+          "open": 0.13296,
+          "high": 0.13296,
+          "low": 0.13296,
+          "close": 0.13296
         }
       ]
     },
     "ADA/USDT": {
       "candles": [
-        {
-          "time": 1790143200,
-          "open": 0.256135,
-          "high": 0.259987,
-          "low": 0.256024,
-          "close": 0.259078
-        },
         {
           "time": 1790146800,
           "open": 0.258702,
@@ -4512,19 +4511,19 @@
           "open": 0.251544,
           "high": 0.254597,
           "low": 0.250756,
-          "close": 0.253801
+          "close": 0.253963
+        },
+        {
+          "time": 1790683200,
+          "open": 0.2536,
+          "high": 0.254336,
+          "low": 0.253532,
+          "close": 0.254336
         }
       ]
     },
     "DOT/USDT": {
       "candles": [
-        {
-          "time": 1790143200,
-          "open": 1.1907,
-          "high": 1.1947,
-          "low": 1.1888,
-          "close": 1.1922
-        },
         {
           "time": 1790146800,
           "open": 1.1891,
@@ -5566,7 +5565,14 @@
           "open": 1.2094,
           "high": 1.2351,
           "low": 1.2053,
-          "close": 1.2322
+          "close": 1.224
+        },
+        {
+          "time": 1790683200,
+          "open": 1.2233,
+          "high": 1.2239,
+          "low": 1.22,
+          "close": 1.22
         }
       ]
     }
