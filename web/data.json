@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T17:00:08.146266+00:00",
+  "generated_at": "2026-09-29T17:05:47.237406+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -32,15 +32,15 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T17:00:07.512426+00:00",
-      "detail": "Coordinating 2 active role(s) this cycle"
+      "last_active": "2026-09-29T17:05:46.625723+00:00",
+      "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T17:00:07.509797+00:00",
+      "last_active": "2026-09-29T17:05:46.623805+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
@@ -71,7 +71,7 @@
       "id": "execution_trader",
       "label": "Execution Trader",
       "model_tier": "opus",
-      "status": "working",
+      "status": "idle",
       "last_active": "2026-09-29T16:48:49.078400+00:00",
       "detail": "XRP/USDT: sold \u2014 stop-loss hit at $1.49"
     }
@@ -115,11 +115,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.1758,
+      "current_price": 1.1738,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": -0.03472621295460143
+      "unrealized_pnl_pct": -0.036368114276332
     }
   ],
   "pending": [],
@@ -1221,9 +1221,9 @@
         },
         {
           "time": 1790701200,
-          "open": 1.1758,
+          "open": 1.1737,
           "high": 1.1758,
-          "low": 1.1758,
+          "low": 1.1708,
           "close": 1.1758
         }
       ]
