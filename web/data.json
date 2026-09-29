@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T11:21:57.696428+00:00",
+  "generated_at": "2026-09-29T11:27:35.452776+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 9000.0,
-    "equity": 9999.86,
-    "pnl_pct": -0.0
+    "equity": 9997.96,
+    "pnl_pct": -0.0002
   },
   "roles": [
     {
@@ -32,22 +32,22 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T11:21:57.094253+00:00",
-      "detail": "Coordinating 4 active role(s) this cycle"
+      "last_active": "2026-09-29T11:27:34.841112+00:00",
+      "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T11:21:57.094253+00:00",
+      "last_active": "2026-09-29T11:27:34.841112+00:00",
       "detail": "SHIB/USDT: checked, nothing worth trading"
     },
     {
       "id": "trade_strategist",
       "label": "Trade Strategist",
       "model_tier": "sonnet",
-      "status": "working",
+      "status": "idle",
       "last_active": "2026-09-29T11:10:39.552198+00:00",
       "detail": "AVAX/USDT: buy between $11.54 and $11.59, stop-loss $11.26"
     },
@@ -55,7 +55,7 @@
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
-      "status": "working",
+      "status": "idle",
       "last_active": "2026-09-29T11:10:39.552198+00:00",
       "detail": "AVAX/USDT: OK to trade \u2014 ok"
     },
@@ -71,7 +71,7 @@
       "id": "execution_trader",
       "label": "Execution Trader",
       "model_tier": "opus",
-      "status": "working",
+      "status": "idle",
       "last_active": "2026-09-29T11:10:39.552198+00:00",
       "detail": "AVAX/USDT: bought at $11.56"
     }
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 11.565,
       "fill_amount": 86.38132295719845,
-      "current_price": 11.575,
+      "current_price": 11.553,
       "created_at": "2026-09-29T11:10:39.554509+00:00",
       "filled_at": "2026-09-29T11:10:39.555340+00:00",
       "timestamp": "2026-09-29T11:10:39.555340+00:00",
-      "unrealized_pnl_pct": 0.0008646779074794455
+      "unrealized_pnl_pct": -0.0010376134889752424
     }
   ],
   "pending": [],
@@ -1166,7 +1166,7 @@
           "open": 11.531,
           "high": 11.583,
           "low": 11.509,
-          "close": 11.57
+          "close": 11.553
         }
       ]
     }
