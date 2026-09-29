@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T15:34:27.219386+00:00",
+  "generated_at": "2026-09-29T15:40:11.077235+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 8899.63,
-    "equity": 9879.2,
-    "pnl_pct": -0.0121
+    "equity": 9877.62,
+    "pnl_pct": -0.0122
   },
   "roles": [
     {
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T15:34:26.590481+00:00",
+      "last_active": "2026-09-29T15:40:10.437421+00:00",
       "detail": "Coordinating 2 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T15:34:26.588377+00:00",
+      "last_active": "2026-09-29T15:40:10.435318+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 1.552,
       "fill_amount": 1.8233369903125753,
-      "current_price": 1.51977,
+      "current_price": 1.52046,
       "created_at": "2026-09-29T12:47:35.667971+00:00",
       "filled_at": "2026-09-29T12:47:35.670558+00:00",
       "timestamp": "2026-09-29T12:47:35.670558+00:00",
-      "unrealized_pnl_pct": -0.020766752577319574
+      "unrealized_pnl_pct": -0.020322164948453687
     },
     {
       "symbol": "SHIB/USDT",
@@ -181,11 +181,11 @@
       "confidence_claude": null,
       "fill_price": 0.13304,
       "fill_amount": 7518.395809373793,
-      "current_price": 0.12954,
+      "current_price": 0.12933,
       "created_at": "2026-09-29T11:38:51.600594+00:00",
       "filled_at": "2026-09-29T11:38:51.602093+00:00",
       "timestamp": "2026-09-29T11:38:51.602093+00:00",
-      "unrealized_pnl_pct": -0.0263078773301263
+      "unrealized_pnl_pct": -0.02788634996993379
     }
   ],
   "pending": [],
@@ -261,24 +261,6 @@
       "symbol": "XRP/USDT",
       "kind": "filled",
       "summary": "Bought at $1.55"
-    },
-    {
-      "timestamp": "2026-09-29T12:41:49.449647+00:00",
-      "symbol": "DOGE/USDT",
-      "kind": "rejected",
-      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
-    },
-    {
-      "timestamp": "2026-09-29T12:41:49.447400+00:00",
-      "symbol": "SOL/USDT",
-      "kind": "rejected",
-      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
-    },
-    {
-      "timestamp": "2026-09-29T12:41:49.445068+00:00",
-      "symbol": "XRP/USDT",
-      "kind": "rejected",
-      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
     }
   ],
   "charts": {
@@ -1332,7 +1314,7 @@
           "open": 0.13256,
           "high": 0.13283,
           "low": 0.12802,
-          "close": 0.12954
+          "close": 0.12933
         }
       ]
     },
@@ -5548,7 +5530,7 @@
           "open": 1.54487,
           "high": 1.54503,
           "low": 1.50869,
-          "close": 1.5195
+          "close": 1.52046
         }
       ]
     }
