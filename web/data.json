@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T12:30:17.830587+00:00",
+  "generated_at": "2026-09-29T12:36:03.987197+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,7 +23,7 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 6004.77,
-    "equity": 10012.78,
+    "equity": 10013.3,
     "pnl_pct": 0.0013
   },
   "roles": [
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T12:30:17.202237+00:00",
+      "last_active": "2026-09-29T12:36:03.354113+00:00",
       "detail": "Coordinating 4 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T12:30:17.200236+00:00",
+      "last_active": "2026-09-29T12:36:03.352072+00:00",
       "detail": "BCH/USDT: checked, nothing worth trading"
     },
     {
@@ -48,16 +48,16 @@
       "label": "Trade Strategist",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T12:24:30.972681+00:00",
-      "detail": "SHIB/USDT: buy between $0.000006 and $0.000006, stop-loss $0.000006"
+      "last_active": "2026-09-29T12:36:03.343465+00:00",
+      "detail": "DOGE/USDT: buy between $0.0948 and $0.0964, stop-loss $0.0938"
     },
     {
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T12:24:30.972681+00:00",
-      "detail": "SHIB/USDT: OK to trade \u2014 ok"
+      "last_active": "2026-09-29T12:36:03.343465+00:00",
+      "detail": "DOGE/USDT: blocked \u2014 no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero)"
     },
     {
       "id": "compliance_reviewer",
@@ -115,11 +115,11 @@
       "confidence_claude": null,
       "fill_price": 0.3243,
       "fill_amount": 0.006057558575544687,
-      "current_price": 0.3243,
+      "current_price": 0.32468,
       "created_at": "2026-09-29T12:24:30.968596+00:00",
       "filled_at": "2026-09-29T12:24:30.970710+00:00",
       "timestamp": "2026-09-29T12:24:30.970710+00:00",
-      "unrealized_pnl_pct": 0.0
+      "unrealized_pnl_pct": 0.001171754548257931
     },
     {
       "symbol": "ATOM/USDT",
@@ -159,11 +159,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.2164,
+      "current_price": 1.2183,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": -0.001395616123471008
+      "unrealized_pnl_pct": 0.00016419013217303831
     },
     {
       "symbol": "ADA/USDT",
@@ -181,11 +181,11 @@
       "confidence_claude": null,
       "fill_price": 0.253601,
       "fill_amount": 3903.1148869013437,
-      "current_price": 0.252126,
+      "current_price": 0.253718,
       "created_at": "2026-09-29T11:44:32.199831+00:00",
       "filled_at": "2026-09-29T11:44:32.201465+00:00",
       "timestamp": "2026-09-29T11:44:32.201465+00:00",
-      "unrealized_pnl_pct": -0.005816223122148588
+      "unrealized_pnl_pct": 0.000461354647655089
     },
     {
       "symbol": "ALGO/USDT",
@@ -203,11 +203,11 @@
       "confidence_claude": null,
       "fill_price": 0.13304,
       "fill_amount": 7518.395809373793,
-      "current_price": 0.1328,
+      "current_price": 0.1321,
       "created_at": "2026-09-29T11:38:51.600594+00:00",
       "filled_at": "2026-09-29T11:38:51.602093+00:00",
       "timestamp": "2026-09-29T11:38:51.602093+00:00",
-      "unrealized_pnl_pct": -0.0018039687312085856
+      "unrealized_pnl_pct": -0.007065544197233888
     },
     {
       "symbol": "ETH/USDT",
@@ -225,11 +225,11 @@
       "confidence_claude": null,
       "fill_price": 2721.95,
       "fill_amount": 0.3670873832368547,
-      "current_price": 2737.2,
+      "current_price": 2739.08,
       "created_at": "2026-09-29T11:33:12.620564+00:00",
       "filled_at": "2026-09-29T11:33:12.621817+00:00",
       "timestamp": "2026-09-29T11:33:12.621817+00:00",
-      "unrealized_pnl_pct": 0.0056026010764341745
+      "unrealized_pnl_pct": 0.006293282389463477
     },
     {
       "symbol": "AVAX/USDT",
@@ -247,15 +247,33 @@
       "confidence_claude": null,
       "fill_price": 11.565,
       "fill_amount": 86.38132295719845,
-      "current_price": 11.782,
+      "current_price": 11.769,
       "created_at": "2026-09-29T11:10:39.554509+00:00",
       "filled_at": "2026-09-29T11:10:39.555340+00:00",
       "timestamp": "2026-09-29T11:10:39.555340+00:00",
-      "unrealized_pnl_pct": 0.018763510592304414
+      "unrealized_pnl_pct": 0.01763942931258112
     }
   ],
   "pending": [],
   "signal_history": [
+    {
+      "timestamp": "2026-09-29T12:36:03.343465+00:00",
+      "symbol": "DOGE/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-09-29T12:36:03.341025+00:00",
+      "symbol": "SOL/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-09-29T12:36:03.338707+00:00",
+      "symbol": "XRP/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
     {
       "timestamp": "2026-09-29T12:24:30.972681+00:00",
       "symbol": "SHIB/USDT",
@@ -355,24 +373,6 @@
     {
       "timestamp": "2026-09-29T11:55:57.558146+00:00",
       "symbol": "DOGE/USDT",
-      "kind": "rejected",
-      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
-    },
-    {
-      "timestamp": "2026-09-29T11:55:57.553631+00:00",
-      "symbol": "XRP/USDT",
-      "kind": "rejected",
-      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
-    },
-    {
-      "timestamp": "2026-09-29T11:55:57.551011+00:00",
-      "symbol": "BTC/USDT",
-      "kind": "rejected",
-      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
-    },
-    {
-      "timestamp": "2026-09-29T11:50:14.982148+00:00",
-      "symbol": "XTZ/USDT",
       "kind": "rejected",
       "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
     }
@@ -1428,7 +1428,7 @@
           "open": 11.845,
           "high": 12.0,
           "low": 11.764,
-          "close": 11.782
+          "close": 11.769
         }
       ]
     },
@@ -2482,7 +2482,7 @@
           "open": 2731.38,
           "high": 2748.34,
           "low": 2729.71,
-          "close": 2737.2
+          "close": 2738.72
         }
       ]
     },
@@ -3536,7 +3536,7 @@
           "open": 0.13297,
           "high": 0.13316,
           "low": 0.13205,
-          "close": 0.1328
+          "close": 0.1321
         }
       ]
     },
@@ -4590,7 +4590,7 @@
           "open": 0.2536,
           "high": 0.254452,
           "low": 0.25171,
-          "close": 0.252329
+          "close": 0.253303
         }
       ]
     },
@@ -5644,7 +5644,7 @@
           "open": 1.2233,
           "high": 1.2239,
           "low": 1.2139,
-          "close": 1.2164
+          "close": 1.2183
         }
       ]
     },
@@ -7750,9 +7750,9 @@
         {
           "time": 1790683200,
           "open": 0.3243,
-          "high": 0.3243,
+          "high": 0.32468,
           "low": 0.3243,
-          "close": 0.3243
+          "close": 0.32468
         }
       ]
     },
