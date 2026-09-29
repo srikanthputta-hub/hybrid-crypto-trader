@@ -424,6 +424,12 @@ header.topbar {
 .pnl-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 .feed-list { display: flex; flex-direction: column; gap: 8px; max-height: 640px; overflow-y: auto; }
+/* Same fix as .pnl-modal-backdrop[hidden] above: the `display: flex` rule
+   otherwise overrides the browser's built-in `[hidden] { display: none }`,
+   so the Active/History toggle's `.hidden = true` stopped actually hiding
+   the other list -- both rendered stacked together regardless of which tab
+   was selected. */
+.feed-list[hidden] { display: none; }
 .feed-row {
   background: var(--bg-card);
   border: 1px solid var(--border);
