@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T15:57:45.481782+00:00",
+  "generated_at": "2026-09-29T16:03:26.761106+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,7 +23,7 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 9867.43,
-    "equity": 9871.16,
+    "equity": 9871.17,
     "pnl_pct": -0.0129
   },
   "roles": [
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T15:57:44.853220+00:00",
+      "last_active": "2026-09-29T16:03:26.129698+00:00",
       "detail": "Coordinating 2 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T15:57:44.850981+00:00",
+      "last_active": "2026-09-29T16:03:26.127671+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 1.552,
       "fill_amount": 1.8233369903125753,
-      "current_price": 1.51642,
+      "current_price": 1.52153,
       "created_at": "2026-09-29T12:47:35.667971+00:00",
       "filled_at": "2026-09-29T12:47:35.670558+00:00",
       "timestamp": "2026-09-29T12:47:35.670558+00:00",
-      "unrealized_pnl_pct": -0.022925257731958727
+      "unrealized_pnl_pct": -0.019632731958762886
     },
     {
       "symbol": "SHIB/USDT",
@@ -137,11 +137,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.1834,
+      "current_price": 1.1898,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": -0.028486987932025247
+      "unrealized_pnl_pct": -0.023232903702487474
     }
   ],
   "pending": [],
@@ -198,13 +198,6 @@
   "charts": {
     "DOT/USDT": {
       "candles": [
-        {
-          "time": 1790157600,
-          "open": 1.1675,
-          "high": 1.1691,
-          "low": 1.1579,
-          "close": 1.1652
-        },
         {
           "time": 1790161200,
           "open": 1.1658,
@@ -1245,20 +1238,20 @@
           "time": 1790694000,
           "open": 1.2112,
           "high": 1.2124,
-          "low": 1.1812,
-          "close": 1.1834
+          "low": 1.1799,
+          "close": 1.1828
+        },
+        {
+          "time": 1790697600,
+          "open": 1.1877,
+          "high": 1.1898,
+          "low": 1.1865,
+          "close": 1.1898
         }
       ]
     },
     "SHIB/USDT": {
       "candles": [
-        {
-          "time": 1790157600,
-          "open": 6.06e-06,
-          "high": 6.06e-06,
-          "low": 6.06e-06,
-          "close": 6.06e-06
-        },
         {
           "time": 1790161200,
           "open": 6.06e-06,
@@ -2301,18 +2294,18 @@
           "high": 5.85e-06,
           "low": 5.75e-06,
           "close": 5.82e-06
+        },
+        {
+          "time": 1790697600,
+          "open": 5.82e-06,
+          "high": 5.82e-06,
+          "low": 5.82e-06,
+          "close": 5.82e-06
         }
       ]
     },
     "XRP/USDT": {
       "candles": [
-        {
-          "time": 1790157600,
-          "open": 1.59491,
-          "high": 1.59878,
-          "low": 1.57701,
-          "close": 1.59409
-        },
         {
           "time": 1790161200,
           "open": 1.59465,
@@ -3354,7 +3347,14 @@
           "open": 1.54487,
           "high": 1.54503,
           "low": 1.50869,
-          "close": 1.51556
+          "close": 1.51658
+        },
+        {
+          "time": 1790697600,
+          "open": 1.51798,
+          "high": 1.52153,
+          "low": 1.51798,
+          "close": 1.52153
         }
       ]
     }
