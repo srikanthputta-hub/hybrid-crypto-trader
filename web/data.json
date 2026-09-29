@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T16:37:29.137204+00:00",
+  "generated_at": "2026-09-29T16:43:09.414507+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,7 +23,7 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 9867.43,
-    "equity": 9871.15,
+    "equity": 9871.1,
     "pnl_pct": -0.0129
   },
   "roles": [
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T16:37:28.515819+00:00",
+      "last_active": "2026-09-29T16:43:08.800227+00:00",
       "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T16:37:28.513688+00:00",
+      "last_active": "2026-09-29T16:43:08.798078+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 1.552,
       "fill_amount": 1.8233369903125753,
-      "current_price": 1.51297,
+      "current_price": 1.48877,
       "created_at": "2026-09-29T12:47:35.667971+00:00",
       "filled_at": "2026-09-29T12:47:35.670558+00:00",
       "timestamp": "2026-09-29T12:47:35.670558+00:00",
-      "unrealized_pnl_pct": -0.025148195876288738
+      "unrealized_pnl_pct": -0.040740979381443373
     },
     {
       "symbol": "SHIB/USDT",
@@ -115,11 +115,11 @@
       "confidence_claude": null,
       "fill_price": 5.869e-06,
       "fill_amount": 0.33471905934218005,
-      "current_price": 5.765e-06,
+      "current_price": 5.739e-06,
       "created_at": "2026-09-29T12:24:30.975016+00:00",
       "filled_at": "2026-09-29T12:24:30.976940+00:00",
       "timestamp": "2026-09-29T12:24:30.976940+00:00",
-      "unrealized_pnl_pct": -0.017720224910546974
+      "unrealized_pnl_pct": -0.022150281138183753
     },
     {
       "symbol": "DOT/USDT",
@@ -137,11 +137,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.1808,
+      "current_price": 1.1749,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": -0.030621459650274928
+      "unrealized_pnl_pct": -0.035465068549380106
     }
   ],
   "pending": [],
@@ -1239,8 +1239,8 @@
           "time": 1790697600,
           "open": 1.1877,
           "high": 1.1908,
-          "low": 1.1798,
-          "close": 1.1808
+          "low": 1.1749,
+          "close": 1.1749
         }
       ]
     },
@@ -2292,9 +2292,9 @@
         {
           "time": 1790697600,
           "open": 5.78e-06,
-          "high": 5.79e-06,
-          "low": 5.76e-06,
-          "close": 5.76e-06
+          "high": 5.8e-06,
+          "low": 5.74e-06,
+          "close": 5.74e-06
         }
       ]
     },
@@ -3347,8 +3347,8 @@
           "time": 1790697600,
           "open": 1.51798,
           "high": 1.52409,
-          "low": 1.50604,
-          "close": 1.51297
+          "low": 1.48626,
+          "close": 1.48656
         }
       ]
     }
