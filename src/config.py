@@ -73,6 +73,10 @@ class Config:
         return self.raw.get("advisor", {"enabled": False})
 
     @property
+    def htf_filter(self) -> dict[str, Any]:
+        return self.raw.get("htf_filter", {"enabled": True})
+
+    @property
     def loop(self) -> dict[str, Any]:
         return self.raw.get("loop", {"poll_interval_seconds": 300})
 

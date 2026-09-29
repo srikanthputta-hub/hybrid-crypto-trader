@@ -18,7 +18,7 @@ import logging
 import time
 from pathlib import Path
 
-from src import claude_advisor, monitor, notifier, scanner, signal_engine, trade_planner
+from src import claude_advisor, htf_filter, monitor, notifier, scanner, signal_engine, trade_planner
 from src.audit import AuditLog
 from src.broker_paper import PaperBroker
 from src.config import Config, load_config
@@ -260,6 +260,22 @@ def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfol
                 event["note"] = "bearish signal logged only; exits are governed by the open plan's stop/target"
                 _record(event)
                 continue
+
+            # Pipeline stage 2b — higher-timeframe (daily) trend confirmation gate
+            # (see src/htf_filter.py): top-down multi-timeframe practice, the
+            # daily trend sets bias, this 1h signal only times entries within it.
+            # Never originates a trade, only blocks one -- same "can only say no"
+            # shape as the risk engine and the Claude advisor below.
+            if cfg.htf_filter.get("enabled", True):
+                daily_confirmed = htf_filter.daily_trend_confirmed(
+                    exchange, symbol, indicators_cfg["fast_ema"], indicators_cfg["slow_ema"]
+                )
+                event["daily_trend_confirmed"] = daily_confirmed
+                if not daily_confirmed:
+                    event["action"] = "none"
+                    event["note"] = "blocked: daily trend not confirmed bullish (higher-timeframe filter)"
+                    _record(event)
+                    continue
 
             atr = float(enriched["atr"].iloc[-1])
             plan = trade_planner.build_plan(signal, symbol, price, atr, **cfg.trade_planner)
