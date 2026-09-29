@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import load_config
 from src.exchange import ExchangeClient
+from src.pnl import build_pnl_report
 from src.portfolio import reconstruct_cash
 from src.trade_plan_store import TradePlanStore
 
@@ -309,7 +310,9 @@ def main() -> None:
         history_path=PROJECT_ROOT / log_cfg.get("trade_plan_history_path", "logs/trade_plans_history.jsonl"),
     )
     audit_events = _read_audit_tail(PROJECT_ROOT / log_cfg.get("audit_log_path", "logs/audit_log.jsonl"))
-    cash = reconstruct_cash(PROJECT_ROOT / log_cfg.get("trade_log_path", "logs/trades.csv"), cfg.risk["starting_cash_usd"])
+    trade_log_path = PROJECT_ROOT / log_cfg.get("trade_log_path", "logs/trades.csv")
+    cash = reconstruct_cash(trade_log_path, cfg.risk["starting_cash_usd"])
+    pnl_report = build_pnl_report(trade_log_path, now)
 
     records = store.all_current()
 
@@ -377,6 +380,7 @@ def main() -> None:
         "pending": pending,
         "signal_history": _signal_history(audit_events),
         "charts": charts,
+        "pnl": pnl_report,
     }
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
