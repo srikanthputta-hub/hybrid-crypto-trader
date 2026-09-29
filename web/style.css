@@ -166,6 +166,7 @@ header.topbar {
   .agents-col.collapsed .agent-cards,
   .agents-col.collapsed .agents-legend,
   .feed-col.collapsed .signals-toggle,
+  .feed-col.collapsed .history-period-toggle,
   .feed-col.collapsed .feed-list {
     display: none;
   }
@@ -397,6 +398,7 @@ header.topbar {
 /* --- Live Signals Feed: a scrollable list of compact cards instead of a
    wide table, since this panel lives in a narrow sidebar column. --- */
 .signals-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
+.history-period-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
 .toggle-btn {
   background: var(--bg-card);
   color: var(--muted);
@@ -430,6 +432,19 @@ header.topbar {
    the other list -- both rendered stacked together regardless of which tab
    was selected. */
 .feed-list[hidden] { display: none; }
+/* Time-bucket header inserted between groups of history rows (see
+   web/app.js's renderHistoryFeed) -- "Today"/"Yesterday"/hour/week labels
+   depending on the selected Hourly/Daily/Weekly granularity. */
+.feed-section-header {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding-top: 4px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.feed-section-header:first-child { margin-top: 0; padding-top: 0; border-top: none; }
 .feed-row {
   background: var(--bg-card);
   border: 1px solid var(--border);

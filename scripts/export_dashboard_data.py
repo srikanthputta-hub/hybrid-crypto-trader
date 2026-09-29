@@ -52,7 +52,13 @@ ROLE_MARKERS = [
 RECENCY_WINDOW = timedelta(minutes=15)
 
 
-def _read_audit_tail(path: Path, max_lines: int = 500) -> list[dict[str, Any]]:
+def _read_audit_tail(path: Path, max_lines: int = 200_000) -> list[dict[str, Any]]:
+    """`max_lines` is a safety ceiling against an unexpectedly huge audit log,
+    not a normal limit -- it needs to comfortably cover HISTORY_MAX_AGE's
+    worth of lines (audit_log.jsonl gets one line per symbol per cycle, so at
+    a 5-minute poll interval and 16 symbols that's ~4,600 lines/day; 200,000
+    covers 2 weeks with plenty of headroom before src.log_retention's own
+    30-day prune ever gets a chance to trim it)."""
     if not path.exists():
         return []
     lines = path.read_text().strip().splitlines()
@@ -188,17 +194,37 @@ def _role_statuses(events: list[dict[str, Any]], now: datetime, advisor_enabled:
     return roles
 
 
-def _signal_history(events: list[dict[str, Any]], max_items: int = 20) -> list[dict[str, Any]]:
+HISTORY_MAX_AGE = timedelta(days=14)
+HISTORY_MAX_ITEMS = 3000  # safety ceiling, not a normal limit -- see HISTORY_MAX_AGE
+
+
+def _signal_history(
+    events: list[dict[str, Any]], now: datetime, max_age: timedelta = HISTORY_MAX_AGE, max_items: int = HISTORY_MAX_ITEMS
+) -> list[dict[str, Any]]:
     """A curated, human-readable timeline of the notable things that have
     happened recently -- signals planned, fills, closes, risk rejections,
     advisor vetoes -- as opposed to every single scanner tick. Powers the
-    dashboard's "Signal History" view."""
+    dashboard's "Signal History" view, which groups this by hour/day/week
+    client-side (see web/app.js's renderHistoryFeed) -- up to `max_age` old,
+    not a fixed item count, since a fixed count would only ever cover a few
+    hours at this bot's cycle frequency."""
     history: list[dict[str, Any]] = []
+    cutoff = now - max_age
     for event in reversed(events):
         symbol = event.get("symbol")
         ts = event.get("timestamp")
         if not symbol or not ts:
             continue
+        try:
+            event_dt = datetime.fromisoformat(ts)
+        except ValueError:
+            continue
+        if event_dt.tzinfo is None:
+            event_dt = event_dt.replace(tzinfo=timezone.utc)
+        if event_dt < cutoff:
+            # events is chronological, so everything from here on is even
+            # older -- safe to stop scanning entirely, not just skip this one.
+            break
 
         if event.get("action") == "planned" and "plan" in event:
             plan = event["plan"]
@@ -388,7 +414,7 @@ def main() -> None:
         "roles": _role_statuses(audit_events, now, cfg.advisor.get("enabled", False)),
         "positions": positions,
         "pending": pending,
-        "signal_history": _signal_history(audit_events),
+        "signal_history": _signal_history(audit_events, now),
         "charts": charts,
         "pnl": pnl_report,
     }
