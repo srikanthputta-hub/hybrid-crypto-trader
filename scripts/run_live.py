@@ -43,6 +43,24 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("run_live")
 
 
+def _push_with_pull_retry() -> None:
+    """Push the just-made commit, self-healing if the remote has moved ahead
+    (e.g. a PR merged on GitHub since this loop's own last push). A plain
+    push in that situation always fails outright -- this process never pulls
+    on its own otherwise -- which used to mean every cycle logged the same
+    push error until someone SSHed in to manually `git pull`+`push`. One
+    retry after a pull covers that case; a real conflict (extremely unlikely,
+    since nothing else ever touches web/data.json) still surfaces as an
+    exception for the caller's existing "will retry next interval" handling.
+    """
+    push = subprocess.run(["git", "push"], cwd=PROJECT_ROOT)
+    if push.returncode == 0:
+        return
+    logger.warning("git push rejected (remote likely moved ahead) -- pulling and retrying once")
+    subprocess.run(["git", "pull", "--no-rebase", "--no-edit"], check=True, cwd=PROJECT_ROOT)
+    subprocess.run(["git", "push"], check=True, cwd=PROJECT_ROOT)
+
+
 def _export_and_push() -> None:
     subprocess.run(
         [sys.executable, str(PROJECT_ROOT / "scripts" / "export_dashboard_data.py")],
@@ -54,7 +72,7 @@ def _export_and_push() -> None:
     if unchanged:
         return
     subprocess.run(["git", "commit", "-m", "chore: refresh dashboard data"], check=True, cwd=PROJECT_ROOT)
-    subprocess.run(["git", "push"], check=True, cwd=PROJECT_ROOT)
+    _push_with_pull_retry()
 
 
 def main() -> None:
