@@ -144,3 +144,10 @@ logging:
   trade_log_path: "logs/trades.csv"
   trade_plan_current_path: "logs/trade_plans_current.json"
   trade_plan_history_path: "logs/trade_plans_history.jsonl"
+  # Only used by scripts/run_live.py (the 24/7 VM loop), once a day: rows
+  # older than this many days are pruned from audit_log_path and
+  # trade_plan_history_path, so a long-running host's disk doesn't fill up
+  # (see deploy/README.md). trade_log_path (trades.csv) is never pruned --
+  # that's the actual financial record. Set to 0 or a negative number to
+  # disable pruning entirely (keep full history).
+  retention_days: 30

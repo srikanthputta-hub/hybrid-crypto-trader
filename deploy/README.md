@@ -81,6 +81,37 @@ sudo systemctl status hybrid-crypto-trader   # should show "active (running)"
 journalctl -u hybrid-crypto-trader -f        # tail live logs
 ```
 
+## Heartbeat monitor (dead-man's-switch for the VM/process itself)
+
+The bot's own Telegram alerts (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`) can only
+fire from inside a running process -- they can't tell you if the VM crashes,
+loses power, or the `hybrid-crypto-trader` process itself dies. An external
+heartbeat monitor closes that gap: `scripts/run_live.py` pings a URL once per
+loop iteration (regardless of whether that cycle traded anything), and the
+monitoring service alerts you the moment those pings stop arriving.
+
+1. Sign up free at [healthchecks.io](https://healthchecks.io) (no card
+   required).
+2. Create a new check, e.g. named `hybrid-crypto-trader-heartbeat`.
+3. Set its schedule to a **Simple** period matching roughly 2x your
+   `poll_interval_seconds` (e.g. 10 minutes for the default 300s/5min loop) --
+   this tolerates one slow/failed cycle without a false alarm, but still
+   catches a genuinely dead process within two missed cycles.
+4. Copy the check's **ping URL** (`https://hc-ping.com/<uuid>`).
+5. On the VM, add it to `.env`:
+   ```bash
+   nano .env
+   # HEALTHCHECK_PING_URL=https://hc-ping.com/<uuid>
+   ```
+   then `sudo systemctl restart hybrid-crypto-trader`.
+6. In healthchecks.io's check settings, add an **Integration** for however you
+   want to be alerted -- email is on by default; Telegram, Slack, etc. are
+   also available under Integrations if you'd rather be paged there instead
+   (or in addition).
+
+Leave `HEALTHCHECK_PING_URL` blank to disable -- `send_heartbeat_ping()` is a
+no-op with no URL set, same fail-safe pattern as the Telegram notifier.
+
 ## Before you flip this on: disable GitHub Actions' own schedule
 
 `.github/workflows/refresh-dashboard.yml`'s `schedule:` trigger (and, if

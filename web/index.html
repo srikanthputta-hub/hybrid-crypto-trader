@@ -86,9 +86,12 @@
     <section class="card signals-card">
       <div class="signals-header">
         <h3>Signals</h3>
-        <div class="signals-toggle" id="signals-toggle">
-          <button type="button" class="toggle-btn active" data-view="active">Active</button>
-          <button type="button" class="toggle-btn" data-view="history">History</button>
+        <div class="signals-header-actions">
+          <div class="signals-toggle" id="signals-toggle">
+            <button type="button" class="toggle-btn active" data-view="active">Active</button>
+            <button type="button" class="toggle-btn" data-view="history">History</button>
+          </div>
+          <button type="button" class="pnl-btn" id="pnl-btn">P/L</button>
         </div>
       </div>
       <table id="table-signals-active"><thead>
@@ -99,6 +102,21 @@
       </thead><tbody></tbody></table>
     </section>
   </main>
+
+  <div id="pnl-modal-backdrop" class="pnl-modal-backdrop" hidden>
+    <div class="pnl-modal">
+      <button id="pnl-modal-close" class="pnl-modal-close" aria-label="Close">×</button>
+      <div class="pnl-modal-title">Profit / Loss <span class="muted">— realized, like a broker statement</span></div>
+      <div id="pnl-summary" class="pnl-summary"></div>
+      <div class="pnl-period-toggle" id="pnl-period-toggle">
+        <button type="button" class="toggle-btn active" data-period="hourly">Hourly</button>
+        <button type="button" class="toggle-btn" data-period="daily">Daily</button>
+        <button type="button" class="toggle-btn" data-period="weekly">Weekly</button>
+      </div>
+      <div id="pnl-chart-container" class="pnl-chart-container"></div>
+      <div id="pnl-empty" class="muted pnl-empty" hidden>No closed trades yet — realized P/L will show up here once a position closes (stop-loss or take-profit).</div>
+    </div>
+  </div>
 
   <footer class="muted footer">
     Static dashboard — data refreshes only when <code>web/data.json</code> is

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T17:28:23.324517+00:00",
+  "generated_at": "2026-09-29T17:33:40.571884+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T17:28:22.710263+00:00",
+      "last_active": "2026-09-29T17:33:39.954515+00:00",
       "detail": "Coordinating 2 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T17:28:22.708335+00:00",
+      "last_active": "2026-09-29T17:33:39.952561+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
