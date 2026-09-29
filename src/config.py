@@ -109,6 +109,10 @@ class Config:
     def live_trading_confirmed(self) -> bool:
         return os.environ.get("LIVE_TRADING_CONFIRM") == "YES-I-UNDERSTAND-THE-RISK"
 
+    @property
+    def healthcheck_ping_url(self) -> str | None:
+        return os.environ.get("HEALTHCHECK_PING_URL") or None
+
     def kill_switch_active(self) -> bool:
         path = PROJECT_ROOT / self.risk.get("kill_switch_file", "KILL_SWITCH")
         return path.exists()
