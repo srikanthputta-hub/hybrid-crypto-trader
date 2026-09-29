@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T16:20:27.960356+00:00",
+  "generated_at": "2026-09-29T16:26:08.511780+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T16:20:27.339369+00:00",
+      "last_active": "2026-09-29T16:26:07.883565+00:00",
       "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T16:20:27.337193+00:00",
+      "last_active": "2026-09-29T16:26:07.881470+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 1.552,
       "fill_amount": 1.8233369903125753,
-      "current_price": 1.51714,
+      "current_price": 1.51682,
       "created_at": "2026-09-29T12:47:35.667971+00:00",
       "filled_at": "2026-09-29T12:47:35.670558+00:00",
       "timestamp": "2026-09-29T12:47:35.670558+00:00",
-      "unrealized_pnl_pct": -0.022461340206185638
+      "unrealized_pnl_pct": -0.02266752577319587
     },
     {
       "symbol": "SHIB/USDT",
@@ -115,11 +115,11 @@
       "confidence_claude": null,
       "fill_price": 5.869e-06,
       "fill_amount": 0.33471905934218005,
-      "current_price": 5.791e-06,
+      "current_price": 5.772e-06,
       "created_at": "2026-09-29T12:24:30.975016+00:00",
       "filled_at": "2026-09-29T12:24:30.976940+00:00",
       "timestamp": "2026-09-29T12:24:30.976940+00:00",
-      "unrealized_pnl_pct": -0.013290168682910193
+      "unrealized_pnl_pct": -0.01652751746464476
     },
     {
       "symbol": "DOT/USDT",
@@ -137,11 +137,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.1848,
+      "current_price": 1.1869,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": -0.027337657006813797
+      "unrealized_pnl_pct": -0.02561366061899671
     }
   ],
   "pending": [],
@@ -1245,8 +1245,8 @@
           "time": 1790697600,
           "open": 1.1877,
           "high": 1.1908,
-          "low": 1.1848,
-          "close": 1.1848
+          "low": 1.1838,
+          "close": 1.1869
         }
       ]
     },
@@ -2299,8 +2299,8 @@
           "time": 1790697600,
           "open": 5.78e-06,
           "high": 5.79e-06,
-          "low": 5.78e-06,
-          "close": 5.79e-06
+          "low": 5.77e-06,
+          "close": 5.77e-06
         }
       ]
     },
@@ -3354,7 +3354,7 @@
           "open": 1.51798,
           "high": 1.52409,
           "low": 1.51665,
-          "close": 1.51714
+          "close": 1.51682
         }
       ]
     }
