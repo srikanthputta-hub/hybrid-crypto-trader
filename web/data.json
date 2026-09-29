@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T12:13:06.450392+00:00",
+  "generated_at": "2026-09-29T12:18:49.079752+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 6006.74,
-    "equity": 10021.83,
-    "pnl_pct": 0.0022
+    "equity": 10034.23,
+    "pnl_pct": 0.0034
   },
   "roles": [
     {
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T12:13:05.823350+00:00",
+      "last_active": "2026-09-29T12:18:48.436722+00:00",
       "detail": "Coordinating 3 active role(s) this cycle"
     },
     {
@@ -40,24 +40,24 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T12:13:05.823350+00:00",
-      "detail": "SHIB/USDT: checked, nothing worth trading"
+      "last_active": "2026-09-29T12:18:48.436722+00:00",
+      "detail": "SHIB/USDT: found a PULLBACK setup (bullish)"
     },
     {
       "id": "trade_strategist",
       "label": "Trade Strategist",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T12:13:05.821094+00:00",
-      "detail": "XTZ/USDT: buy between $0.3241 and $0.3245, stop-loss $0.3218"
+      "last_active": "2026-09-29T12:18:48.436722+00:00",
+      "detail": "SHIB/USDT: buy between $0.000006 and $0.000006, stop-loss $0.000006"
     },
     {
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T12:13:05.821094+00:00",
-      "detail": "XTZ/USDT: blocked \u2014 no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero)"
+      "last_active": "2026-09-29T12:18:48.436722+00:00",
+      "detail": "SHIB/USDT: blocked \u2014 no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero)"
     },
     {
       "id": "compliance_reviewer",
@@ -115,11 +115,11 @@
       "confidence_claude": null,
       "fill_price": 0.253601,
       "fill_amount": 3903.1148869013437,
-      "current_price": 0.252967,
+      "current_price": 0.253195,
       "created_at": "2026-09-29T11:44:32.199831+00:00",
       "filled_at": "2026-09-29T11:44:32.201465+00:00",
       "timestamp": "2026-09-29T11:44:32.201465+00:00",
-      "unrealized_pnl_pct": -0.0024999901419948006
+      "unrealized_pnl_pct": -0.0016009400593846926
     },
     {
       "symbol": "ALGO/USDT",
@@ -159,11 +159,11 @@
       "confidence_claude": null,
       "fill_price": 2721.95,
       "fill_amount": 0.3670873832368547,
-      "current_price": 2729.93,
+      "current_price": 2743.62,
       "created_at": "2026-09-29T11:33:12.620564+00:00",
       "filled_at": "2026-09-29T11:33:12.621817+00:00",
       "timestamp": "2026-09-29T11:33:12.621817+00:00",
-      "unrealized_pnl_pct": 0.0029317217436029388
+      "unrealized_pnl_pct": 0.007961204283693703
     },
     {
       "symbol": "AVAX/USDT",
@@ -181,15 +181,51 @@
       "confidence_claude": null,
       "fill_price": 11.565,
       "fill_amount": 86.38132295719845,
-      "current_price": 11.857,
+      "current_price": 11.932,
       "created_at": "2026-09-29T11:10:39.554509+00:00",
       "filled_at": "2026-09-29T11:10:39.555340+00:00",
       "timestamp": "2026-09-29T11:10:39.555340+00:00",
-      "unrealized_pnl_pct": 0.025248594898400332
+      "unrealized_pnl_pct": 0.0317336792044964
     }
   ],
   "pending": [],
   "signal_history": [
+    {
+      "timestamp": "2026-09-29T12:18:48.436722+00:00",
+      "symbol": "SHIB/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-09-29T12:18:48.434586+00:00",
+      "symbol": "XTZ/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-09-29T12:18:48.430098+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-09-29T12:18:48.421586+00:00",
+      "symbol": "DOGE/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-09-29T12:18:48.419282+00:00",
+      "symbol": "SOL/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-09-29T12:18:48.416893+00:00",
+      "symbol": "XRP/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
     {
       "timestamp": "2026-09-29T12:13:05.821094+00:00",
       "symbol": "XTZ/USDT",
@@ -279,42 +315,6 @@
       "symbol": "ADA/USDT",
       "kind": "filled",
       "summary": "Bought at $0.2536"
-    },
-    {
-      "timestamp": "2026-09-29T11:38:51.598254+00:00",
-      "symbol": "ALGO/USDT",
-      "kind": "signal",
-      "summary": "Buy between $0.1325 and $0.1334 \u2014 stop-loss $0.1288 (sell here to cap the loss)"
-    },
-    {
-      "timestamp": "2026-09-29T11:38:51.598254+00:00",
-      "symbol": "ALGO/USDT",
-      "kind": "filled",
-      "summary": "Bought at $0.1330"
-    },
-    {
-      "timestamp": "2026-09-29T11:33:12.618306+00:00",
-      "symbol": "ETH/USDT",
-      "kind": "signal",
-      "summary": "Buy between $2,697.90 and $2,723.72 \u2014 stop-loss $2,680.16 (sell here to cap the loss)"
-    },
-    {
-      "timestamp": "2026-09-29T11:33:12.618306+00:00",
-      "symbol": "ETH/USDT",
-      "kind": "filled",
-      "summary": "Bought at $2,721.95"
-    },
-    {
-      "timestamp": "2026-09-29T11:10:39.552198+00:00",
-      "symbol": "AVAX/USDT",
-      "kind": "signal",
-      "summary": "Buy between $11.54 and $11.59 \u2014 stop-loss $11.26 (sell here to cap the loss)"
-    },
-    {
-      "timestamp": "2026-09-29T11:10:39.552198+00:00",
-      "symbol": "AVAX/USDT",
-      "kind": "filled",
-      "summary": "Bought at $11.56"
     }
   ],
   "charts": {
@@ -1368,7 +1368,7 @@
           "open": 11.845,
           "high": 12.0,
           "low": 11.845,
-          "close": 11.859
+          "close": 11.92
         }
       ]
     },
@@ -2420,9 +2420,9 @@
         {
           "time": 1790683200,
           "open": 2731.38,
-          "high": 2732.34,
+          "high": 2748.34,
           "low": 2729.71,
-          "close": 2729.93
+          "close": 2742.62
         }
       ]
     },
@@ -4529,8 +4529,8 @@
           "time": 1790683200,
           "open": 0.2536,
           "high": 0.254452,
-          "low": 0.252872,
-          "close": 0.252872
+          "low": 0.252715,
+          "close": 0.253195
         }
       ]
     },
