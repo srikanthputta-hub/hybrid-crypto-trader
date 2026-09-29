@@ -328,7 +328,7 @@ function renderPnlSummary(summary) {
     </div>`;
   el.innerHTML = [
     stat("Total P/L", fmtMoney(summary.total_realized_pnl), pnlClass(summary.total_realized_pnl)),
-    stat("Trades", summary.total_trades),
+    stat("Trades", summary.total_trades ?? 0),
     stat("Win Rate", summary.win_rate != null ? `${(summary.win_rate * 100).toFixed(0)}%` : "—"),
     stat("Avg Win", fmtMoney(summary.avg_win), "positive"),
     stat("Avg Loss", fmtMoney(summary.avg_loss), "negative"),
