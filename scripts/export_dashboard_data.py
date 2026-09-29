@@ -267,6 +267,16 @@ def _signal_history(events: list[dict[str, Any]], max_items: int = 20) -> list[d
                 }
             )
 
+        if event.get("daily_trend_confirmed") is False:
+            history.append(
+                {
+                    "timestamp": ts,
+                    "symbol": symbol,
+                    "kind": "rejected",
+                    "summary": "Skipped — daily trend not confirmed bullish (higher-timeframe filter)",
+                }
+            )
+
         if len(history) >= max_items:
             break
     return history

@@ -18,96 +18,99 @@
     </div>
   </header>
 
-  <main>
-    <section class="office" id="office">
-      <div class="office-header">
-        <h2>The Desk</h2>
-        <span id="office-status" class="muted">—</span>
+  <main class="layout" id="main-layout">
+    <aside class="col agents-col card" id="agents-col">
+      <div class="panel-header">
+        <h2>AI Trading Agents</h2>
+        <span id="agents-count" class="muted">—</span>
+        <button type="button" class="collapse-toggle" id="agents-collapse-toggle" title="Collapse" aria-label="Collapse AI Trading Agents panel" aria-expanded="true">◀</button>
       </div>
-      <div class="office-ring-wrap">
-        <svg id="office-links" class="office-links" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
-        <div class="office-screen" id="office-screen">
-          <div class="office-screen-inner">
-            <div class="office-screen-role" id="office-screen-role">STATUS</div>
-            <div id="office-screen-content"></div>
+      <div id="agent-cards" class="agent-cards"><!-- role cards injected here --></div>
+      <div class="agents-legend muted">
+        <span class="legend-item"><i class="dot tier-haiku"></i>Haiku</span>
+        <span class="legend-item"><i class="dot tier-sonnet"></i>Sonnet</span>
+        <span class="legend-item"><i class="dot tier-opus"></i>Opus</span>
+      </div>
+    </aside>
+
+    <section class="col center-col">
+      <div class="card overview-card">
+        <div class="panel-header">
+          <h2>Portfolio Overview</h2>
+          <span id="overview-status" class="status-pill">—</span>
+        </div>
+        <div class="overview-grid">
+          <div class="gauge-wrap">
+            <div id="win-gauge" class="gauge">
+              <div class="gauge-value" id="win-gauge-value">—</div>
+            </div>
+            <div class="gauge-label muted">Win Rate</div>
+          </div>
+          <div id="overview-stats" class="stat-grid"><!-- stat tiles injected here --></div>
+        </div>
+        <div class="exposure-section">
+          <div class="exposure-title muted">Current Exposure</div>
+          <div id="exposure-bars" class="exposure-bars"><!-- injected here --></div>
+        </div>
+      </div>
+
+      <div class="card live-market-section">
+        <div class="chart-header">
+          <h2 id="chart-title">Live Market <span class="muted">— real-time, via TradingView</span></h2>
+          <div class="symbol-dropdown" id="symbol-dropdown">
+            <button type="button" class="symbol-dropdown-btn" id="symbol-dropdown-btn">
+              <span class="signal-dot" id="symbol-dropdown-dot"></span>
+              <span id="symbol-dropdown-label">—</span>
+              <span class="symbol-dropdown-caret">▾</span>
+            </button>
+            <div class="symbol-dropdown-list" id="symbol-dropdown-list" hidden></div>
           </div>
         </div>
-        <div id="roles" class="office-ring"><!-- role desks injected here --></div>
-        <div id="role-drawer" class="role-drawer" hidden>
-          <button id="role-drawer-close" class="role-drawer-close" aria-label="Close">×</button>
-          <div class="role-drawer-title">
-            <span id="role-drawer-crown" class="role-drawer-crown" hidden>&#128081;</span>
-            <span id="role-drawer-label"></span>
-          </div>
-          <div id="role-drawer-status" class="role-drawer-status"></div>
-          <div id="role-drawer-detail" class="role-drawer-detail"></div>
-          <div id="role-drawer-owns" class="role-drawer-owns"></div>
+        <div id="chart-confidence" class="confidence-row"></div>
+        <div id="tv-widget-container" class="tv-widget-container"></div>
+        <div id="chart-container" class="tv-widget-container" style="display:none;"></div>
+        <div id="chart-empty" class="muted" style="display:none; padding:24px;"></div>
+        <div class="signal-dot-legend muted">
+          <span class="legend-item"><i class="signal-dot open"></i>open position</span>
+          <span class="legend-item"><i class="signal-dot pending"></i>pending signal</span>
+          <span class="legend-item"><i class="signal-dot"></i>watching, no signal</span>
         </div>
-      </div>
-      <div class="office-legend muted">
-        <span class="legend-item"><i class="dot tier-haiku"></i>H=Haiku</span>
-        <span class="legend-item"><i class="dot tier-sonnet"></i>S=Sonnet</span>
-        <span class="legend-item"><i class="dot tier-opus"></i>O=Opus</span>
-        <span class="legend-item"><i class="status-dot working"></i>working</span>
-        <span class="legend-item"><i class="status-dot"></i>idle</span>
-        <span>click any desk to inspect</span>
       </div>
     </section>
 
-    <section class="card live-market-section">
-      <div class="chart-header">
-        <h2 id="chart-title">Live Market <span class="muted">— real-time, via TradingView</span></h2>
-        <div class="symbol-dropdown" id="symbol-dropdown">
-          <button type="button" class="symbol-dropdown-btn" id="symbol-dropdown-btn">
-            <span class="signal-dot" id="symbol-dropdown-dot"></span>
-            <span id="symbol-dropdown-label">—</span>
-            <span class="symbol-dropdown-caret">▾</span>
-          </button>
-          <div class="symbol-dropdown-list" id="symbol-dropdown-list" hidden></div>
-        </div>
+    <aside class="col feed-col card" id="feed-col">
+      <div class="panel-header">
+        <h2>Live Signals Feed</h2>
+        <button type="button" class="pnl-btn" id="pnl-btn">P/L</button>
+        <button type="button" class="collapse-toggle" id="feed-collapse-toggle" title="Collapse" aria-label="Collapse Live Signals Feed panel" aria-expanded="true">▶</button>
       </div>
-      <div id="chart-confidence" class="confidence-row"></div>
-      <div id="tv-widget-container" class="tv-widget-container"></div>
-      <div id="chart-container" class="tv-widget-container" style="display:none;"></div>
-      <div id="chart-empty" class="muted" style="display:none; padding:24px;"></div>
-      <div class="signal-dot-legend muted">
-        <span class="legend-item"><i class="signal-dot open"></i>open position</span>
-        <span class="legend-item"><i class="signal-dot pending"></i>pending signal</span>
-        <span class="legend-item"><i class="signal-dot"></i>watching, no signal</span>
+      <div class="signals-toggle" id="signals-toggle">
+        <button type="button" class="toggle-btn active" data-view="active">Active</button>
+        <button type="button" class="toggle-btn" data-view="history">History</button>
       </div>
-      <div class="muted" style="margin-top:8px;">
-        Pick a symbol above, or click a row in the Signals panel's Active tab below. A symbol with no
-        active signal streams live from TradingView; a symbol with an active signal switches to an
-        annotated chart showing its entry/stop/target/invalidation levels (TradingView's free widget
-        can't draw custom price lines, so this is a separate chart just for that case).
-      </div>
-    </section>
-
-    <section class="card signals-card">
-      <div class="signals-header">
-        <h3>Signals</h3>
-        <div class="signals-header-actions">
-          <div class="signals-toggle" id="signals-toggle">
-            <button type="button" class="toggle-btn active" data-view="active">Active</button>
-            <button type="button" class="toggle-btn" data-view="history">History</button>
-          </div>
-          <button type="button" class="pnl-btn" id="pnl-btn">P/L</button>
-        </div>
-      </div>
-      <table id="table-signals-active"><thead>
-        <tr><th>When</th><th>Symbol</th><th>Status</th><th>Pattern</th><th>Entry / Fill</th><th>Stop</th><th>Target</th><th>Confidence</th></tr>
-      </thead><tbody></tbody></table>
-      <table id="table-signals-history" hidden><thead>
-        <tr><th>When</th><th>Symbol</th><th>Event</th><th>Details</th></tr>
-      </thead><tbody></tbody></table>
-    </section>
+      <div id="feed-active" class="feed-list"></div>
+      <div id="feed-history" class="feed-list" hidden></div>
+    </aside>
   </main>
+
+  <div id="role-modal-backdrop" class="role-modal-backdrop" hidden>
+    <div class="role-modal">
+      <button id="role-modal-close" class="role-modal-close" aria-label="Close">×</button>
+      <div class="role-modal-title">
+        <span id="role-modal-crown" class="role-modal-crown" hidden>&#128081;</span>
+        <span id="role-modal-label"></span>
+      </div>
+      <div id="role-modal-status" class="role-modal-status"></div>
+      <div id="role-modal-detail" class="role-modal-detail"></div>
+      <div id="role-modal-owns" class="role-modal-owns"></div>
+    </div>
+  </div>
 
   <div id="pnl-modal-backdrop" class="pnl-modal-backdrop" hidden>
     <div class="pnl-modal">
       <button id="pnl-modal-close" class="pnl-modal-close" aria-label="Close">×</button>
       <div class="pnl-modal-title">Profit / Loss <span class="muted">— realized, like a broker statement</span></div>
-      <div id="pnl-summary" class="pnl-summary"></div>
+      <div id="pnl-summary" class="stat-grid"></div>
       <div class="pnl-period-toggle" id="pnl-period-toggle">
         <button type="button" class="toggle-btn active" data-period="hourly">Hourly</button>
         <button type="button" class="toggle-btn" data-period="daily">Daily</button>

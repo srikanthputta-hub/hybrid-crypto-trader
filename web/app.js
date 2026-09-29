@@ -1,11 +1,12 @@
 // Static dashboard renderer. Reads ./data.json (produced by
-// scripts/export_dashboard_data.py) and renders the office view, the live
+// scripts/export_dashboard_data.py) and renders the agent cards, the
+// portfolio overview (win-rate gauge, stat tiles, exposure bars), the live
 // market chart (a live TradingView widget by default, switching to an
 // annotated lightweight-charts view -- with the selected signal's plan
 // levels drawn on it -- when that symbol has an active signal, since
-// TradingView's free widget can't draw custom price lines), and the data
-// tables. No build step, no framework — this is meant to be dropped
-// straight onto Cloudflare Pages.
+// TradingView's free widget can't draw custom price lines), and the signals
+// feed. No build step, no framework — this is meant to be dropped straight
+// onto Cloudflare Pages.
 
 const fmtPrice = (n) => (n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: 6 }));
 const escapeHtml = (s) =>
@@ -21,8 +22,14 @@ const stars = (n) => {
   const full = Math.round(n);
   return `${"★".repeat(full)}${"☆".repeat(5 - full)} (${Number(n).toFixed(1)})`;
 };
+const fmtMoney = (n) => {
+  if (n == null) return "—";
+  const sign = n < 0 ? "-" : "";
+  return `${sign}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+const pnlClass = (n) => (n == null ? "" : n > 0 ? "positive" : n < 0 ? "negative" : "");
 
-// What each desk owns — static, mirrors the roster in CLAUDE.md / README.
+// What each role owns — static, mirrors the roster in CLAUDE.md / README.
 const ROLE_OWNS = {
   boss: "Whole repo. Reads each request, routes it to the owning role below, sizes complexity, and picks the model tier — Opus always for anything touching risk_engine.py or broker_live.py.",
   market_analyst: "src/scanner.py, src/signal_engine.py, src/indicators.py — the 5 pattern detectors, indicator math, and confluence filtering.",
@@ -35,183 +42,69 @@ const ROLE_OWNS = {
 const STATUS_LABEL = { working: "working", disabled: "disabled" };
 const statusLabel = (status) => STATUS_LABEL[status] || "idle";
 
-function renderRoles(roles) {
-  const container = document.getElementById("roles");
+// --- AI Trading Agents: one compact card per pipeline role -----------------
+
+function renderAgentCards(roles) {
+  const container = document.getElementById("agent-cards");
   container.innerHTML = "";
 
   const workingCount = roles.filter((r) => r.status === "working").length;
-  document.getElementById("office-status").textContent = `${workingCount}/${roles.length} working`;
+  document.getElementById("agents-count").textContent = `${workingCount}/${roles.length} working`;
 
-  // An elliptical stage around the center console, boss anchored front-and-
-  // center at the bottom (i=0 lands at angle = +90°, i.e. straight down) and
-  // the rest fanning out clockwise around the rest of the ellipse.
-  const radiusXPct = 45;
-  const radiusYPct = 41;
-  const positions = roles.map((role, i) => {
-    const angle = (2 * Math.PI * i) / roles.length + Math.PI / 2;
-    const x = 50 + radiusXPct * Math.cos(angle);
-    const y = 50 + radiusYPct * Math.sin(angle);
-    // Desks further "forward" (toward the bottom, nearer the viewer) render
-    // a little larger and above desks further "back" -- a cheap pseudo-depth
-    // cue for what's otherwise a flat layout.
-    const depth = (y - (50 - radiusYPct)) / (2 * radiusYPct); // 0 = back, 1 = front
-    const scale = 0.82 + 0.32 * depth;
-    return { role, x, y, scale, z: Math.round(depth * 100) };
-  });
+  roles.forEach((role) => {
+    const isBoss = role.id === "boss";
+    const isWorking = role.status === "working";
+    const tierClass = `tier-${role.model_tier}`;
+    const tierLetter = (role.model_tier || "?")[0].toUpperCase();
 
-  positions.forEach((pos) => {
-    container.appendChild(
-      buildDesk(pos.role, { x: `${pos.x}%`, y: `${pos.y}%`, scale: pos.scale, z: pos.z }, pos.role.id === "boss")
-    );
-  });
-
-  renderOfficeLinks(positions);
-
-  updateOfficeScreen(roles);
-}
-
-function buildDesk(role, pos, isBoss) {
-  const tierClass = `tier-${role.model_tier}`;
-  const tierLetter = (role.model_tier || "?")[0].toUpperCase();
-  const isWorking = role.status === "working";
-  const desk = document.createElement("div");
-  desk.className =
-    "desk" +
-    (isBoss ? " desk-boss" : "") +
-    (role.status === "disabled" ? " desk-disabled" : "") +
-    (isWorking ? " is-working" : "");
-  desk.style.setProperty("--x", pos.x);
-  desk.style.setProperty("--y", pos.y);
-  desk.style.setProperty("--scale", pos.scale);
-  desk.style.zIndex = pos.z; // boss is always frontmost (depth 1), so this alone puts it on top
-  desk.dataset.roleId = role.id;
-  desk.innerHTML = `
-    <div class="desk-figure">
-      <span class="desk-antenna"><span class="desk-light"></span></span>
-      <span class="desk-head ${tierClass}"></span>
-      <span class="desk-body ${tierClass}"></span>
-    </div>
-    <div class="desk-plate">${isBoss ? '<span class="desk-crown">&#128081;</span>' : ""}${escapeHtml(role.label)}</div>
-    <div class="desk-pillbar">
-      <span class="pill pill-tier ${tierClass}">${tierLetter}</span>
-      <span class="pill pill-status">
+    const card = document.createElement("div");
+    card.className =
+      "agent-card" +
+      (isBoss ? " is-boss" : "") +
+      (isWorking ? " is-working" : "") +
+      (role.status === "disabled" ? " is-disabled" : "");
+    card.dataset.roleId = role.id;
+    card.innerHTML = `
+      <div class="agent-card-top">
+        <span class="agent-card-name">${isBoss ? '<span class="agent-card-crown">&#128081;</span>' : ""}${escapeHtml(role.label)}</span>
         <span class="status-dot ${isWorking ? "working" : ""}"></span>
-        ${statusLabel(role.status)}
-      </span>
-    </div>
-  `;
-  desk.addEventListener("click", () => showRoleDrawer(role, isBoss));
-  return desk;
+      </div>
+      <div class="agent-card-detail">${escapeHtml(role.detail || "Idle — waiting for the next cycle")}</div>
+      <div class="agent-card-meta">
+        <span class="pill pill-tier ${tierClass}">${tierLetter}</span>
+        <span class="pill pill-status">${statusLabel(role.status)}</span>
+      </div>
+    `;
+    card.addEventListener("click", () => showRoleModal(role, isBoss));
+    container.appendChild(card);
+  });
 }
 
-// Console position, in the same 0-100 coordinate space as desk positions --
-// must match .office-screen's `left`/`top` in style.css.
-const CONSOLE_X = 50;
-const CONSOLE_Y = 46;
+function showRoleModal(role, isBoss) {
+  document.querySelectorAll(".agent-card").forEach((c) => c.classList.toggle("selected", c.dataset.roleId === role.id));
 
-// A glowing line from every currently-working desk to the console, so it's
-// visually obvious who's actively reporting in right now. Both desks and the
-// console are opaque boxes, so a line drawn between their exact centers
-// mostly disappears underneath them -- only the short gap between their
-// edges is ever actually visible. edgePoint() finds where a line toward
-// (cx, cy) crosses a given box's own edge, so the line starts/ends right at
-// that box's border (a couple units past it, so it visibly overlaps the
-// border) instead of wasting length hidden under either box.
-function edgePoint(fromX, fromY, towardX, towardY, halfW, halfH) {
-  const vx = towardX - fromX;
-  const vy = towardY - fromY;
-  if (vx === 0 && vy === 0) return { x: fromX, y: fromY };
-  const t = Math.min(vx !== 0 ? halfW / Math.abs(vx) : Infinity, vy !== 0 ? halfH / Math.abs(vy) : Infinity);
-  return { x: fromX + vx * Math.min(1, t * 1.15), y: fromY + vy * Math.min(1, t * 1.15) };
-}
-
-// Half-width/height of a rendered box, converted into the same 0-100 space
-// as desk/console positions. Measured live off the actual DOM rather than
-// hardcoded, since desk boxes are a fixed pixel size while the ring itself
-// is fluid -- their size relative to the ring shifts across breakpoints
-// (and the boss desk / depth-based scale() both change a desk's size too),
-// so a hardcoded percentage can't stay right at every viewport width.
-function halfSizePct(el, wrapRect) {
-  const r = el.getBoundingClientRect();
-  return { w: (50 * r.width) / wrapRect.width, h: (50 * r.height) / wrapRect.height };
-}
-
-function renderOfficeLinks(positions) {
-  const svg = document.getElementById("office-links");
-  svg.innerHTML = "";
-  const wrapRect = document.querySelector(".office-ring-wrap").getBoundingClientRect();
-  const consoleHalf = halfSizePct(document.getElementById("office-screen"), wrapRect);
-
-  positions
-    .filter((pos) => pos.role.status === "working")
-    .forEach((pos) => {
-      const deskEl = document.querySelector(`.desk[data-role-id="${pos.role.id}"]`);
-      const deskHalf = deskEl ? halfSizePct(deskEl, wrapRect) : { w: 8, h: 8 };
-      const start = edgePoint(pos.x, pos.y, CONSOLE_X, CONSOLE_Y, deskHalf.w, deskHalf.h);
-      const end = edgePoint(CONSOLE_X, CONSOLE_Y, pos.x, pos.y, consoleHalf.w, consoleHalf.h);
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", start.x);
-      line.setAttribute("y1", start.y);
-      line.setAttribute("x2", end.x);
-      line.setAttribute("y2", end.y);
-      line.setAttribute("class", "office-link" + (pos.role.id === "boss" ? " office-link-boss" : ""));
-      svg.appendChild(line);
-    });
-}
-
-function showRoleDrawer(role, isBoss) {
-  document.querySelectorAll(".desk").forEach((d) => d.classList.toggle("selected", d.dataset.roleId === role.id));
-
-  document.getElementById("role-drawer-crown").hidden = !isBoss;
-  document.getElementById("role-drawer-label").textContent = role.label;
-  document.getElementById("role-drawer-status").innerHTML = `
+  document.getElementById("role-modal-crown").hidden = !isBoss;
+  document.getElementById("role-modal-label").textContent = role.label;
+  document.getElementById("role-modal-status").innerHTML = `
     <span class="status-dot ${role.status === "working" ? "working" : ""}"></span>
     ${statusLabel(role.status)}
     · ${role.last_active ? "last active " + fmtTime(role.last_active) : "no activity yet"}
     · ${role.model_tier.toUpperCase()} tier
   `;
-  document.getElementById("role-drawer-detail").textContent = role.detail || "";
-  document.getElementById("role-drawer-owns").textContent = ROLE_OWNS[role.id] || "";
-
-  const drawer = document.getElementById("role-drawer");
-  drawer.hidden = false;
+  document.getElementById("role-modal-detail").textContent = role.detail || "";
+  document.getElementById("role-modal-owns").textContent = ROLE_OWNS[role.id] || "";
+  document.getElementById("role-modal-backdrop").hidden = false;
 }
 
-// --- center screen: a short live feed of every role working this cycle
-// (label + one-line detail), capped so it never overflows the console; falls
-// back to the boss's own status (or a quiet default) when nothing's active. ---
-const SCREEN_FEED_MAX = 3;
-
-function updateOfficeScreen(roles) {
-  const screenEl = document.getElementById("office-screen");
-  const content = document.getElementById("office-screen-content");
-
-  const working = roles.filter((r) => r.status === "working" && r.detail);
-
-  if (working.length) {
-    screenEl.classList.add("active");
-    const shown = working.slice(0, SCREEN_FEED_MAX);
-    const lines = shown
-      .map(
-        (r) =>
-          `<div class="office-screen-line${r.id === "boss" ? " feed-boss" : ""}"><span class="feed-role">${escapeHtml(r.label)}</span>${escapeHtml(r.detail)}</div>`
-      )
-      .join("");
-    const more = working.length > shown.length ? `<div class="office-screen-line feed-more">+${working.length - shown.length} more working</div>` : "";
-    content.innerHTML = `<div class="office-screen-feed">${lines}${more}</div>`;
-  } else {
-    const boss = roles.find((r) => r.id === "boss");
-    screenEl.classList.remove("active");
-    content.innerHTML = `<div class="office-screen-text">${escapeHtml((boss && boss.detail) || "All quiet — waiting for the next cycle.")}</div>`;
-  }
+function hideRoleModal() {
+  document.getElementById("role-modal-backdrop").hidden = true;
+  document.querySelectorAll(".agent-card").forEach((c) => c.classList.remove("selected"));
 }
 
-function hideRoleDrawer() {
-  document.getElementById("role-drawer").hidden = true;
-  document.querySelectorAll(".desk").forEach((d) => d.classList.remove("selected"));
-}
-
-document.getElementById("role-drawer-close").addEventListener("click", hideRoleDrawer);
+document.getElementById("role-modal-close").addEventListener("click", hideRoleModal);
+document.getElementById("role-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "role-modal-backdrop") hideRoleModal();
+});
 
 function renderSummary(data) {
   const modeBadge = document.getElementById("mode-badge");
@@ -221,59 +114,121 @@ function renderSummary(data) {
   document.getElementById("generated-at").textContent = `snapshot: ${fmtTime(data.generated_at)}`;
 }
 
-function renderTable(tableId, rows, columns, emptyMessage, onRowClick) {
-  const tbody = document.querySelector(`#${tableId} tbody`);
-  tbody.innerHTML = "";
+// --- Portfolio Overview: win-rate gauge + stat tiles + exposure bars -------
+
+function renderOverview(data) {
+  const portfolio = data.portfolio || {};
+  const pnlSummary = (data.pnl && data.pnl.summary) || {};
+  const roles = data.roles || [];
+
+  const workingCount = roles.filter((r) => r.status === "working").length;
+  const statusEl = document.getElementById("overview-status");
+  statusEl.textContent = workingCount ? `${workingCount} active` : "idle";
+  statusEl.classList.toggle("idle", workingCount === 0);
+
+  // Win rate is a natural 0-100% gauge subject -- unlike P/L itself (unbounded,
+  // would need an arbitrary scale to draw as an arc), it maps directly onto one.
+  const winRate = pnlSummary.win_rate;
+  const pct = winRate != null ? Math.round(winRate * 100) : 0;
+  document.getElementById("win-gauge").style.setProperty("--pct", pct);
+  document.getElementById("win-gauge-value").textContent = winRate != null ? `${pct}%` : "—";
+
+  const stat = (label, value, cls) => `
+    <div class="stat-tile">
+      <div class="stat-label">${label}</div>
+      <div class="stat-value ${cls || ""}">${value}</div>
+    </div>`;
+  const pnlPct = portfolio.pnl_pct;
+  document.getElementById("overview-stats").innerHTML = [
+    stat("Equity", portfolio.equity != null ? fmtMoney(portfolio.equity) : "—"),
+    stat("Cash", portfolio.cash != null ? fmtMoney(portfolio.cash) : "—"),
+    stat("P/L", pnlPct != null ? `${(pnlPct * 100).toFixed(2)}%` : "—", pnlClass(pnlPct)),
+    stat("Realized P/L", fmtMoney(pnlSummary.total_realized_pnl), pnlClass(pnlSummary.total_realized_pnl)),
+  ].join("");
+
+  renderExposureBars(data.positions || [], portfolio.equity);
+}
+
+function renderExposureBars(positions, equity) {
+  const container = document.getElementById("exposure-bars");
+  if (!positions.length || !equity) {
+    container.innerHTML = '<div class="exposure-empty">No open positions right now.</div>';
+    return;
+  }
+  const rows = positions
+    .map((p) => {
+      const value = (p.current_price || p.fill_price || 0) * (p.fill_amount || 0);
+      const pct = equity ? (value / equity) * 100 : 0;
+      return { symbol: p.symbol, pct, cls: pnlClass(p.unrealized_pnl_pct) };
+    })
+    .sort((a, b) => b.pct - a.pct);
+  container.innerHTML = rows
+    .map(
+      (r) => `
+      <div class="exposure-row">
+        <span class="exposure-symbol">${escapeHtml(r.symbol)}</span>
+        <span class="exposure-bar-track"><span class="exposure-bar-fill ${r.cls}" style="width:${Math.min(100, r.pct).toFixed(1)}%"></span></span>
+        <span class="exposure-pct">${r.pct.toFixed(1)}%</span>
+      </div>`
+    )
+    .join("");
+}
+
+// --- Live Signals Feed: compact card rows instead of a wide table (this
+// panel lives in a narrow sidebar column) -----------------------------------
+
+function renderFeedList(containerId, rows, emptyMessage, rowRenderer, onRowClick) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
   if (!rows.length) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="${columns.length}">${emptyMessage}</td></tr>`;
+    container.innerHTML = `<div class="feed-empty">${emptyMessage}</div>`;
     return;
   }
   for (const row of rows) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = columns.map((col) => `<td>${col(row)}</td>`).join("");
-    if (row.symbol) tr.dataset.symbol = row.symbol;
-    if (onRowClick) {
-      tr.classList.add("row-clickable");
-      tr.addEventListener("click", () => onRowClick(row));
-    }
-    tbody.appendChild(tr);
+    const div = document.createElement("div");
+    div.className = "feed-row" + (onRowClick ? " row-clickable" : "");
+    if (row.symbol) div.dataset.symbol = row.symbol;
+    div.innerHTML = rowRenderer(row);
+    if (onRowClick) div.addEventListener("click", () => onRowClick(row));
+    container.appendChild(div);
   }
 }
 
-function renderActiveSignals(positions, pending, onSelect) {
+function renderActiveFeed(positions, pending, onSelect) {
   const rows = [
     ...positions.map((r) => ({ ...r, statusLabel: "OPEN" })),
     ...pending.map((r) => ({ ...r, statusLabel: "PENDING" })),
   ].sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || "")); // newest first
 
-  renderTable(
-    "table-signals-active",
+  renderFeedList(
+    "feed-active",
     rows,
-    [
-      (r) => fmtTime(r.timestamp),
-      (r) => r.symbol,
-      (r) => `<span class="status-badge status-${r.statusLabel.toLowerCase()}">${r.statusLabel}</span>`,
-      (r) => r.pattern ?? "—",
-      (r) =>
-        r.statusLabel === "OPEN"
-          ? fmtPrice(r.fill_price)
-          : r.entry_zone
-          ? `${fmtPrice(r.entry_zone[0])} – ${fmtPrice(r.entry_zone[1])}`
-          : "—",
-      (r) => fmtPrice(r.stop_loss),
-      (r) => fmtPrice(r.take_profit),
-      (r) => stars(r.confidence_rule_based),
-    ],
     "No active signals right now — the bot is still watching.",
+    (r) => `
+      <div class="feed-row-top">
+        <span class="feed-row-symbol">${escapeHtml(r.symbol)}</span>
+        <span class="status-badge status-${r.statusLabel.toLowerCase()}">${r.statusLabel}</span>
+      </div>
+      <div class="feed-row-time">${fmtTime(r.timestamp)} · ${escapeHtml(r.pattern ?? "—")}</div>
+      <div class="feed-row-detail">
+        ${
+          r.statusLabel === "OPEN"
+            ? `Fill ${fmtPrice(r.fill_price)}`
+            : r.entry_zone
+            ? `Entry ${fmtPrice(r.entry_zone[0])}–${fmtPrice(r.entry_zone[1])}`
+            : "—"
+        }
+        · Stop ${fmtPrice(r.stop_loss)} · Target ${fmtPrice(r.take_profit)}<br>${stars(r.confidence_rule_based)}
+      </div>
+    `,
     onSelect ? (row) => onSelect(row.symbol) : null
   );
-  markActiveSignalRow(currentSymbol);
+  markActiveFeedRow(currentSymbol);
 }
 
-function markActiveSignalRow(symbol) {
-  const rows = document.querySelectorAll("#table-signals-active tbody tr");
-  rows.forEach((tr) => {
-    tr.classList.toggle("row-selected", !!symbol && tr.dataset.symbol === symbol);
+function markActiveFeedRow(symbol) {
+  document.querySelectorAll("#feed-active .feed-row").forEach((el) => {
+    el.classList.toggle("row-selected", !!symbol && el.dataset.symbol === symbol);
   });
 }
 
@@ -286,49 +241,103 @@ const HISTORY_KIND_LABEL = {
   vetoed: "Skipped",
 };
 
-function renderSignalHistory(history) {
-  renderTable(
-    "table-signals-history",
+function renderHistoryFeed(history) {
+  renderFeedList(
+    "feed-history",
     history,
-    [
-      (r) => fmtTime(r.timestamp),
-      (r) => r.symbol,
-      (r) => `<span class="kind-badge kind-${r.kind}">${HISTORY_KIND_LABEL[r.kind] || r.kind}</span>`,
-      (r) => r.summary,
-    ],
-    "No signal history recorded yet."
+    "No signal history recorded yet.",
+    (r) => `
+      <div class="feed-row-top">
+        <span class="feed-row-symbol">${escapeHtml(r.symbol)}</span>
+        <span class="kind-badge kind-${r.kind}">${HISTORY_KIND_LABEL[r.kind] || r.kind}</span>
+      </div>
+      <div class="feed-row-time">${fmtTime(r.timestamp)}</div>
+      <div class="feed-row-detail">${escapeHtml(r.summary)}</div>
+    `,
+    null
   );
 }
 
-// --- P/L modal: realized P/L, broker-statement style. Opened from the
-// Signals panel's P/L button. Reads data.pnl (built by src.pnl.build_pnl_report
-// / scripts/export_dashboard_data.py) -- already bucketed hourly/daily/weekly
-// server-side, this just renders whichever bucket set is currently selected. ---
+// --- Sidebar collapse: either the agents (left) or feed (right) rail can be
+// tucked away to a thin strip so the center chart/overview column can claim
+// the space. State is remembered per-browser (not shared, not synced to
+// data.json) via localStorage, purely a per-viewer UI convenience. ---
+
+function initCollapsibleSidebars() {
+  const layout = document.getElementById("main-layout");
+  const sides = [
+    { key: "agents-col-collapsed", col: "agents-col", btn: "agents-collapse-toggle", layoutClass: "agents-collapsed", collapsedIcon: "▶", expandedIcon: "◀" },
+    { key: "feed-col-collapsed", col: "feed-col", btn: "feed-collapse-toggle", layoutClass: "feed-collapsed", collapsedIcon: "◀", expandedIcon: "▶" },
+  ];
+
+  for (const side of sides) {
+    const colEl = document.getElementById(side.col);
+    const btnEl = document.getElementById(side.btn);
+    let collapsed = false;
+    try {
+      collapsed = localStorage.getItem(side.key) === "1";
+    } catch {
+      // Private-window/blocked-storage: fall back to the default (expanded).
+    }
+
+    const apply = () => {
+      colEl.classList.toggle("collapsed", collapsed);
+      layout.classList.toggle(side.layoutClass, collapsed);
+      btnEl.textContent = collapsed ? side.collapsedIcon : side.expandedIcon;
+      btnEl.title = collapsed ? "Expand" : "Collapse";
+      btnEl.setAttribute("aria-expanded", String(!collapsed));
+    };
+    apply();
+
+    btnEl.addEventListener("click", () => {
+      collapsed = !collapsed;
+      apply();
+      try {
+        localStorage.setItem(side.key, collapsed ? "1" : "0");
+      } catch {
+        // Ignore -- collapse still works for this page view, just won't persist.
+      }
+      // The center chart resizes with its column; give the CSS transition a
+      // moment to finish before recomputing chart widths off clientWidth.
+      setTimeout(() => {
+        if (lwcInstance) lwcInstance.applyOptions({ width: document.getElementById("chart-container").clientWidth });
+        if (pnlChartInstance) pnlChartInstance.applyOptions({ width: document.getElementById("pnl-chart-container").clientWidth });
+      }, 220);
+    });
+  }
+}
+
+function initSignalsToggle() {
+  const buttons = document.querySelectorAll("#signals-toggle .toggle-btn");
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      buttons.forEach((b) => b.classList.toggle("active", b === btn));
+      const view = btn.dataset.view;
+      document.getElementById("feed-active").hidden = view !== "active";
+      document.getElementById("feed-history").hidden = view !== "history";
+    });
+  });
+}
+
+// --- P/L modal: realized P/L, broker-statement style. Opened from the feed
+// panel's P/L button. Reads data.pnl (built by src.pnl.build_pnl_report /
+// scripts/export_dashboard_data.py) -- already bucketed hourly/daily/weekly
+// server-side, this just renders whichever bucket set is currently selected. --
+
 let pnlData = null;
 let pnlChartInstance = null;
 let pnlCurrentPeriod = "hourly";
 
-function fmtMoney(n) {
-  if (n == null) return "—";
-  const sign = n < 0 ? "-" : "";
-  return `${sign}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function pnlClass(n) {
-  if (n == null) return "";
-  return n > 0 ? "positive" : n < 0 ? "negative" : "";
-}
-
 function renderPnlSummary(summary) {
   const el = document.getElementById("pnl-summary");
   const stat = (label, value, cls) => `
-    <div class="pnl-stat">
-      <div class="pnl-stat-label">${label}</div>
-      <div class="pnl-stat-value ${cls || ""}">${value}</div>
+    <div class="stat-tile">
+      <div class="stat-label">${label}</div>
+      <div class="stat-value ${cls || ""}">${value}</div>
     </div>`;
   el.innerHTML = [
     stat("Total P/L", fmtMoney(summary.total_realized_pnl), pnlClass(summary.total_realized_pnl)),
-    stat("Trades", summary.total_trades),
+    stat("Trades", summary.total_trades ?? 0),
     stat("Win Rate", summary.win_rate != null ? `${(summary.win_rate * 100).toFixed(0)}%` : "—"),
     stat("Avg Win", fmtMoney(summary.avg_win), "positive"),
     stat("Avg Loss", fmtMoney(summary.avg_loss), "negative"),
@@ -431,23 +440,11 @@ window.addEventListener("resize", () => {
   pnlChartInstance.applyOptions({ width: container.clientWidth });
 });
 
-function initSignalsToggle() {
-  const buttons = document.querySelectorAll("#signals-toggle .toggle-btn");
-  buttons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      buttons.forEach((b) => b.classList.toggle("active", b === btn));
-      const view = btn.dataset.view;
-      document.getElementById("table-signals-active").hidden = view !== "active";
-      document.getElementById("table-signals-history").hidden = view !== "history";
-    });
-  });
-}
-
 // --- Live Market: one TradingView chart that follows whichever symbol is
-// picked from the dropdown or clicked in the Signals panel's Active tab. If
-// that symbol has an active plan, its entry/stop/target/invalidation levels
-// are drawn as order lines directly on the TradingView chart (via its widget
-// API) instead of a separate candle chart. ---
+// picked from the dropdown or clicked in the feed's Active view. If that
+// symbol has an active plan, its entry/stop/target/invalidation levels are
+// drawn on an annotated chart instead, since TradingView's free widget can't
+// draw custom price lines. ---
 
 // Exchange id (ccxt) -> TradingView exchange prefix. Falls back to an
 // uppercased exchange id for anything not listed, which is correct for most
@@ -599,7 +596,7 @@ function selectSymbol(symbol) {
   document.getElementById("symbol-dropdown-dot").className = `signal-dot ${status === "none" ? "" : status}`;
   document.querySelectorAll(".symbol-dropdown-item").forEach((el) => el.classList.toggle("selected", el.dataset.symbol === symbol));
   document.getElementById("symbol-dropdown-list").hidden = true;
-  markActiveSignalRow(symbol);
+  markActiveFeedRow(symbol);
 
   const plan = plansBySymbol[symbol] || null;
   const candles = candlesBySymbol[symbol]?.candles;
@@ -677,13 +674,15 @@ async function main() {
     return;
   }
   renderSummary(data);
-  renderRoles(data.roles);
+  renderAgentCards(data.roles || []);
+  renderOverview(data);
   initLiveMarket(data);
-  renderActiveSignals(data.positions, data.pending, selectSymbol);
-  renderSignalHistory(data.signal_history || []);
+  renderActiveFeed(data.positions || [], data.pending || [], selectSymbol);
+  renderHistoryFeed(data.signal_history || []);
   initPnl(data.pnl);
 }
 
 initSignalsToggle();
+initCollapsibleSidebars();
 
 main();
