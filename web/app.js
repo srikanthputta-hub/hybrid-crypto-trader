@@ -252,21 +252,83 @@ const HISTORY_KIND_LABEL = {
   vetoed: "Skipped",
 };
 
-function renderHistoryFeed(history) {
-  renderFeedList(
-    "feed-history",
-    history,
-    "No signal history recorded yet.",
-    (r) => `
+// History covers up to 2 weeks (see scripts/export_dashboard_data.py's
+// HISTORY_MAX_AGE) -- grouped into Hourly/Daily/Weekly buckets so that span
+// is actually navigable instead of one long undifferentiated scroll. The
+// list itself is already newest-first from the server, so a single pass
+// inserting a header whenever the bucket changes is enough; no re-sorting.
+function _historyBucketKey(date, period) {
+  if (period === "hourly") {
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
+  }
+  if (period === "weekly") {
+    // Sunday-start week.
+    const weekStart = new Date(date.getFullYear(), date.getMonth(), date.getDate() - date.getDay());
+    return `${weekStart.getFullYear()}-${weekStart.getMonth()}-${weekStart.getDate()}`;
+  }
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`; // daily
+}
+
+function _historyBucketLabel(date, period) {
+  if (period === "hourly") {
+    return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric" });
+  }
+  if (period === "weekly") {
+    const weekStart = new Date(date.getFullYear(), date.getMonth(), date.getDate() - date.getDay());
+    return `Week of ${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  }
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86400000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function renderHistoryFeed(history, period) {
+  const container = document.getElementById("feed-history");
+  container.innerHTML = "";
+  if (!history.length) {
+    container.innerHTML = '<div class="feed-empty">No signal history recorded yet.</div>';
+    return;
+  }
+
+  let lastBucketKey = null;
+  for (const r of history) {
+    const date = new Date(r.timestamp);
+    const bucketKey = _historyBucketKey(date, period);
+    if (bucketKey !== lastBucketKey) {
+      const header = document.createElement("div");
+      header.className = "feed-section-header";
+      header.textContent = _historyBucketLabel(date, period);
+      container.appendChild(header);
+      lastBucketKey = bucketKey;
+    }
+    const row = document.createElement("div");
+    row.className = "feed-row";
+    row.innerHTML = `
       <div class="feed-row-top">
         <span class="feed-row-symbol">${escapeHtml(r.symbol)}</span>
         <span class="kind-badge kind-${r.kind}">${HISTORY_KIND_LABEL[r.kind] || r.kind}</span>
       </div>
       <div class="feed-row-time">${fmtTime(r.timestamp)}</div>
       <div class="feed-row-detail">${escapeHtml(r.summary)}</div>
-    `,
-    null
-  );
+    `;
+    container.appendChild(row);
+  }
+}
+
+let lastHistoryData = [];
+let historyPeriod = "daily";
+
+function initHistoryPeriodToggle() {
+  const buttons = document.querySelectorAll("#history-period-toggle .toggle-btn");
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      buttons.forEach((b) => b.classList.toggle("active", b === btn));
+      historyPeriod = btn.dataset.period;
+      renderHistoryFeed(lastHistoryData, historyPeriod);
+    });
+  });
 }
 
 // --- Sidebar collapse: either the agents (left) or feed (right) rail can be
@@ -326,6 +388,7 @@ function initSignalsToggle() {
       const view = btn.dataset.view;
       document.getElementById("feed-active").hidden = view !== "active";
       document.getElementById("feed-history").hidden = view !== "history";
+      document.getElementById("history-period-toggle").hidden = view !== "history";
     });
   });
 }
@@ -415,9 +478,21 @@ function renderPnlPeriod(period) {
   renderPnlChart(pnlData[period] || []);
 }
 
-function initPnl(pnl) {
+// Split from initPnl() so the live-refresh poll can update the P/L numbers
+// on every cycle (updatePnlData) without re-attaching the period-toggle click
+// listeners each time (initPnl, called once) -- doing that in one function
+// would stack a duplicate listener on every poll, firing the click handler
+// multiple times after enough refreshes.
+function updatePnlData(pnl) {
   pnlData = pnl || { summary: {}, hourly: [], daily: [], weekly: [] };
   renderPnlSummary(pnlData.summary || {});
+  // Keep the chart current too if the modal happens to be open during a refresh.
+  const backdrop = document.getElementById("pnl-modal-backdrop");
+  if (backdrop && !backdrop.hidden) renderPnlPeriod(pnlCurrentPeriod);
+}
+
+function initPnl(pnl) {
+  updatePnlData(pnl);
 
   const buttons = document.querySelectorAll("#pnl-period-toggle .toggle-btn");
   buttons.forEach((btn) => {
@@ -674,11 +749,77 @@ function initLiveMarket(data) {
   selectSymbol(activeSymbols.length ? activeSymbols[0].symbol : symbols[0]);
 }
 
+// Live-refresh counterpart to initLiveMarket -- updates plan/candle data and
+// the currently-viewed chart's annotations without rebuilding the symbol
+// dropdown (which would also close it if a viewer had it open) or reloading
+// the TradingView widget for a symbol that's already showing it live (that
+// widget streams on its own; reconstructing the iframe every poll would just
+// be a jarring flicker for no benefit). Only actually swaps chart type when
+// the underlying data calls for it -- a new signal appearing, or an existing
+// one closing.
+function refreshLiveMarketData(data) {
+  const positions = data.positions || [];
+  const pending = data.pending || [];
+  plansBySymbol = {};
+  for (const p of pending) plansBySymbol[p.symbol] = { ...p, statusLabel: "PENDING" };
+  for (const p of positions) plansBySymbol[p.symbol] = { ...p, statusLabel: "OPEN" };
+  candlesBySymbol = data.charts || {};
+
+  document.querySelectorAll(".symbol-dropdown-item").forEach((item) => {
+    const symbol = item.dataset.symbol;
+    const status = symbolSignalStatus(symbol);
+    const dot = item.querySelector(".signal-dot");
+    if (dot) dot.className = `signal-dot ${status === "none" ? "" : status}`;
+    const existingTag = item.querySelector(".signal-tag");
+    if (status !== "none") {
+      if (existingTag) existingTag.textContent = status;
+      else item.insertAdjacentHTML("beforeend", `<span class="signal-tag">${status}</span>`);
+    } else if (existingTag) {
+      existingTag.remove();
+    }
+  });
+
+  if (!currentSymbol) return;
+  const status = symbolSignalStatus(currentSymbol);
+  document.getElementById("symbol-dropdown-dot").className = `signal-dot ${status === "none" ? "" : status}`;
+
+  const plan = plansBySymbol[currentSymbol] || null;
+  const candles = candlesBySymbol[currentSymbol]?.candles;
+  renderPlanInfo(plan);
+
+  const titleEl = document.getElementById("chart-title");
+  const tvContainer = document.getElementById("tv-widget-container");
+  const showingAnnotated = document.getElementById("chart-container").style.display !== "none";
+
+  if (plan && candles) {
+    // Redraw in place -- a lightweight-charts instance, not an iframe, so
+    // this is cheap and keeps the entry/stop/target lines current.
+    titleEl.innerHTML = `${currentSymbol} — ${plan.pattern ?? "signal"} <span class="muted">— annotated chart</span>`;
+    tvContainer.style.display = "none";
+    renderAnnotatedChart(currentSymbol, candles, plan);
+  } else if (showingAnnotated) {
+    // The plan driving the annotated view just closed -- fall back to the
+    // live TradingView widget for this symbol.
+    titleEl.innerHTML = 'Live Market <span class="muted">— real-time, via TradingView</span>';
+    document.getElementById("chart-container").style.display = "none";
+    document.getElementById("chart-empty").style.display = "none";
+    tvContainer.style.display = "block";
+    renderTradingViewWidget(currentSymbol);
+  }
+  // else: already showing the live TradingView widget for this symbol -- leave it alone.
+
+  markActiveFeedRow(currentSymbol);
+}
+
+async function fetchDashboardData() {
+  const res = await fetch("data.json", { cache: "no-store" });
+  return res.json();
+}
+
 async function main() {
   let data;
   try {
-    const res = await fetch("data.json", { cache: "no-store" });
-    data = await res.json();
+    data = await fetchDashboardData();
   } catch (err) {
     document.getElementById("generated-at").textContent = "couldn't load data.json";
     console.error(err);
@@ -689,11 +830,48 @@ async function main() {
   renderOverview(data);
   initLiveMarket(data);
   renderActiveFeed(data.positions || [], data.pending || [], selectSymbol);
-  renderHistoryFeed(data.signal_history || []);
+  lastHistoryData = data.signal_history || [];
+  renderHistoryFeed(lastHistoryData, historyPeriod);
   initPnl(data.pnl);
+
+  setInterval(refreshDashboard, LIVE_REFRESH_INTERVAL_MS);
+}
+
+// Auto-refresh: re-fetches data.json and re-renders the data-driven panels
+// (Portfolio Overview, agent cards, signals feed, P/L, the current chart's
+// annotations) on an interval, so the dashboard stays current without a
+// manual page reload. This is bounded by how often web/data.json itself
+// actually changes -- once per bot cycle (poll_interval_seconds, 5 minutes
+// by default) -- polling faster than that just re-renders the same numbers,
+// which is harmless but pointless; 30s is frequent enough to feel live
+// without hammering the endpoint. The TradingView widget for a symbol that's
+// already showing it live is deliberately left untouched (see
+// refreshLiveMarketData) since it streams on its own.
+const LIVE_REFRESH_INTERVAL_MS = 30_000;
+let refreshInFlight = false;
+
+async function refreshDashboard() {
+  if (refreshInFlight) return; // a slow fetch shouldn't overlap with the next interval's tick
+  refreshInFlight = true;
+  try {
+    const data = await fetchDashboardData();
+    renderSummary(data);
+    renderAgentCards(data.roles || []);
+    renderOverview(data);
+    refreshLiveMarketData(data);
+    renderActiveFeed(data.positions || [], data.pending || [], selectSymbol);
+    lastHistoryData = data.signal_history || [];
+    renderHistoryFeed(lastHistoryData, historyPeriod);
+    updatePnlData(data.pnl);
+  } catch (err) {
+    console.error("live refresh failed, will retry next interval:", err);
+  } finally {
+    refreshInFlight = false;
+  }
 }
 
 initSignalsToggle();
+initHistoryPeriodToggle();
 initCollapsibleSidebars();
 
 main();
