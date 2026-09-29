@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T16:09:07.247937+00:00",
+  "generated_at": "2026-09-29T16:14:47.589549+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -32,15 +32,15 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T16:09:06.634092+00:00",
-      "detail": "Coordinating 2 active role(s) this cycle"
+      "last_active": "2026-09-29T16:14:46.971796+00:00",
+      "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T16:09:06.632149+00:00",
+      "last_active": "2026-09-29T16:14:46.969645+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
@@ -71,7 +71,7 @@
       "id": "execution_trader",
       "label": "Execution Trader",
       "model_tier": "opus",
-      "status": "working",
+      "status": "idle",
       "last_active": "2026-09-29T15:57:44.700770+00:00",
       "detail": "ATOM/USDT: sold \u2014 stop-loss hit at $1.73"
     }
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 1.552,
       "fill_amount": 1.8233369903125753,
-      "current_price": 1.5201,
+      "current_price": 1.52047,
       "created_at": "2026-09-29T12:47:35.667971+00:00",
       "filled_at": "2026-09-29T12:47:35.670558+00:00",
       "timestamp": "2026-09-29T12:47:35.670558+00:00",
-      "unrealized_pnl_pct": -0.02055412371134023
+      "unrealized_pnl_pct": -0.020315721649484572
     },
     {
       "symbol": "SHIB/USDT",
@@ -115,11 +115,11 @@
       "confidence_claude": null,
       "fill_price": 5.869e-06,
       "fill_amount": 0.33471905934218005,
-      "current_price": 5.823e-06,
+      "current_price": 5.782e-06,
       "created_at": "2026-09-29T12:24:30.975016+00:00",
       "filled_at": "2026-09-29T12:24:30.976940+00:00",
       "timestamp": "2026-09-29T12:24:30.976940+00:00",
-      "unrealized_pnl_pct": -0.007837791787357313
+      "unrealized_pnl_pct": -0.014823649684784493
     },
     {
       "symbol": "DOT/USDT",
@@ -137,11 +137,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.188,
+      "current_price": 1.1887,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": -0.024710614892045003
+      "unrealized_pnl_pct": -0.024135949429439186
     }
   ],
   "pending": [],
@@ -1244,9 +1244,9 @@
         {
           "time": 1790697600,
           "open": 1.1877,
-          "high": 1.1898,
+          "high": 1.1908,
           "low": 1.1858,
-          "close": 1.188
+          "close": 1.1887
         }
       ]
     },
@@ -2297,10 +2297,10 @@
         },
         {
           "time": 1790697600,
-          "open": 5.82e-06,
-          "high": 5.82e-06,
-          "low": 5.82e-06,
-          "close": 5.82e-06
+          "open": 5.78e-06,
+          "high": 5.78e-06,
+          "low": 5.78e-06,
+          "close": 5.78e-06
         }
       ]
     },
@@ -3352,9 +3352,9 @@
         {
           "time": 1790697600,
           "open": 1.51798,
-          "high": 1.52221,
+          "high": 1.52409,
           "low": 1.51798,
-          "close": 1.52019
+          "close": 1.52047
         }
       ]
     }
