@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T16:48:49.918566+00:00",
+  "generated_at": "2026-09-29T16:54:29.022783+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T16:48:49.241019+00:00",
+      "last_active": "2026-09-29T16:54:28.386818+00:00",
       "detail": "Coordinating 2 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T16:48:49.233721+00:00",
+      "last_active": "2026-09-29T16:54:28.384781+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
@@ -115,11 +115,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.1746,
+      "current_price": 1.1699,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": -0.03571135374763966
+      "unrealized_pnl_pct": -0.03956982185370661
     }
   ],
   "pending": [],
@@ -1224,7 +1224,7 @@
           "open": 1.1877,
           "high": 1.1908,
           "low": 1.1694,
-          "close": 1.1719
+          "close": 1.17
         }
       ]
     },
