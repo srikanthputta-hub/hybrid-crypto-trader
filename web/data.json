@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-29T16:54:29.022783+00:00",
+  "generated_at": "2026-09-29T17:00:08.146266+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-09-29T16:54:28.386818+00:00",
+      "last_active": "2026-09-29T17:00:07.512426+00:00",
       "detail": "Coordinating 2 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-09-29T16:54:28.384781+00:00",
+      "last_active": "2026-09-29T17:00:07.509797+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
@@ -115,11 +115,11 @@
       "confidence_claude": null,
       "fill_price": 1.2181,
       "fill_amount": 0.8126047438084681,
-      "current_price": 1.1699,
+      "current_price": 1.1758,
       "created_at": "2026-09-29T11:44:32.214186+00:00",
       "filled_at": "2026-09-29T11:44:32.216613+00:00",
       "timestamp": "2026-09-29T11:44:32.216613+00:00",
-      "unrealized_pnl_pct": -0.03956982185370661
+      "unrealized_pnl_pct": -0.03472621295460143
     }
   ],
   "pending": [],
@@ -176,13 +176,6 @@
   "charts": {
     "DOT/USDT": {
       "candles": [
-        {
-          "time": 1790161200,
-          "open": 1.1658,
-          "high": 1.1662,
-          "low": 1.1519,
-          "close": 1.1577
-        },
         {
           "time": 1790164800,
           "open": 1.1514,
@@ -1224,19 +1217,19 @@
           "open": 1.1877,
           "high": 1.1908,
           "low": 1.1694,
-          "close": 1.17
+          "close": 1.1758
+        },
+        {
+          "time": 1790701200,
+          "open": 1.1758,
+          "high": 1.1758,
+          "low": 1.1758,
+          "close": 1.1758
         }
       ]
     },
     "SHIB/USDT": {
       "candles": [
-        {
-          "time": 1790161200,
-          "open": 6.06e-06,
-          "high": 6.06e-06,
-          "low": 5.97e-06,
-          "close": 5.98e-06
-        },
         {
           "time": 1790164800,
           "open": 6e-06,
@@ -2277,6 +2270,13 @@
           "time": 1790697600,
           "open": 5.78e-06,
           "high": 5.8e-06,
+          "low": 5.73e-06,
+          "close": 5.73e-06
+        },
+        {
+          "time": 1790701200,
+          "open": 5.73e-06,
+          "high": 5.73e-06,
           "low": 5.73e-06,
           "close": 5.73e-06
         }
