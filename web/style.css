@@ -505,6 +505,86 @@ tr.row-clickable:hover { background: rgba(56,189,248,0.06); }
 tr.row-selected { background: rgba(56,189,248,0.1); box-shadow: inset 2px 0 0 var(--accent); }
 .empty-row td { color: var(--muted); font-style: italic; white-space: normal; }
 
+/* --- Signals header: P/L button + the toggle now share a row --- */
+.signals-header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pnl-btn {
+  background: var(--bg-card);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pnl-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* --- P/L modal: a broker-style realized P/L statement, opened from the
+   Signals panel's P/L button. Full-viewport overlay (unlike the role-drawer,
+   which is positioned relative to the office section only) since this is a
+   dashboard-wide view, not scoped to one panel. --- */
+.pnl-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 9, 18, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 80;
+  padding: 16px;
+}
+/* `display: flex` above otherwise overrides the browser's built-in
+   `[hidden] { display: none }` rule, since an author stylesheet rule always
+   wins over that UA default -- without this, JS setting `.hidden = true`
+   would stop being visually hidden but still sit there intercepting clicks. */
+.pnl-modal-backdrop[hidden] { display: none; }
+.pnl-modal {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 20px 22px;
+  box-shadow: 0 0 32px rgba(56,189,248,0.2);
+}
+.pnl-modal-close {
+  position: absolute; top: 12px; right: 14px;
+  background: none; border: none; color: var(--muted);
+  font-size: 20px; line-height: 1; cursor: pointer;
+}
+.pnl-modal-close:hover { color: var(--text); }
+.pnl-modal-title { font-weight: 700; font-size: 15px; margin-bottom: 14px; padding-right: 20px; }
+
+.pnl-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.pnl-stat {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.pnl-stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.pnl-stat-value { font-size: 15px; font-weight: 700; margin-top: 2px; }
+.pnl-stat-value.positive { color: var(--green); }
+.pnl-stat-value.negative { color: var(--red); }
+
+.pnl-period-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
+.pnl-chart-container { width: 100%; height: 220px; }
+.pnl-empty { padding: 24px 0; text-align: center; }
+
+@media (max-width: 640px) {
+  .pnl-modal { max-width: none; padding: 16px; }
+  .pnl-chart-container { height: 180px; }
+}
+
 .footer { text-align: center; padding: 24px; }
 
 @media (max-width: 640px) {
