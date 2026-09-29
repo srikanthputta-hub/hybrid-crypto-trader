@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Continuous live loop for a real always-on host (a VPS, not CI): runs a bot
-cycle, regenerates the dashboard's web/data.json, and commits+pushes it to
-git, forever, on config.yaml's loop.poll_interval_seconds.
+cycle, regenerates the dashboard's web/data.json, commits+pushes it to git,
+and pings an optional external heartbeat monitor (HEALTHCHECK_PING_URL),
+forever, on config.yaml's loop.poll_interval_seconds.
 
 `python -m src.bot` (no --once) / scripts/run_paper.py already loop bot
 cycles forever, but neither touches web/data.json or git -- that's fine when
@@ -33,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.bot import build_components, run_cycle
 from src.config import load_config
+from src.heartbeat import send_heartbeat_ping
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("run_live")
@@ -73,6 +75,7 @@ def main() -> None:
             _export_and_push()
         except Exception:
             logger.exception("dashboard export/push failed -- will retry next interval")
+        send_heartbeat_ping(cfg.healthcheck_ping_url)
         time.sleep(interval)
 
 
