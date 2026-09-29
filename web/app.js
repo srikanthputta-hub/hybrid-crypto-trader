@@ -8,7 +8,18 @@
 // feed. No build step, no framework — this is meant to be dropped straight
 // onto Cloudflare Pages.
 
-const fmtPrice = (n) => (n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: 6 }));
+const fmtPrice = (n) => {
+  if (n == null) return "—";
+  if (n === 0) return "0";
+  const abs = Math.abs(n);
+  // A fixed decimal-place cap rounds sub-cent assets (SHIB-level prices,
+  // ~0.000006) into indistinguishable values -- fill/stop/target can differ
+  // only in the 7th-9th decimal place. Significant-digit formatting keeps
+  // that distinction regardless of magnitude; $1+ assets keep the previous
+  // fixed-decimal look, which already reads fine at that scale.
+  if (abs >= 1) return Number(n).toLocaleString(undefined, { maximumFractionDigits: 6 });
+  return Number(n).toLocaleString(undefined, { minimumSignificantDigits: 4, maximumSignificantDigits: 4 });
+};
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtTime = (iso) => {
