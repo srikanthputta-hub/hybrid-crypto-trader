@@ -300,6 +300,137 @@ function renderSignalHistory(history) {
   );
 }
 
+// --- P/L modal: realized P/L, broker-statement style. Opened from the
+// Signals panel's P/L button. Reads data.pnl (built by src.pnl.build_pnl_report
+// / scripts/export_dashboard_data.py) -- already bucketed hourly/daily/weekly
+// server-side, this just renders whichever bucket set is currently selected. ---
+let pnlData = null;
+let pnlChartInstance = null;
+let pnlCurrentPeriod = "hourly";
+
+function fmtMoney(n) {
+  if (n == null) return "—";
+  const sign = n < 0 ? "-" : "";
+  return `${sign}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function pnlClass(n) {
+  if (n == null) return "";
+  return n > 0 ? "positive" : n < 0 ? "negative" : "";
+}
+
+function renderPnlSummary(summary) {
+  const el = document.getElementById("pnl-summary");
+  const stat = (label, value, cls) => `
+    <div class="pnl-stat">
+      <div class="pnl-stat-label">${label}</div>
+      <div class="pnl-stat-value ${cls || ""}">${value}</div>
+    </div>`;
+  el.innerHTML = [
+    stat("Total P/L", fmtMoney(summary.total_realized_pnl), pnlClass(summary.total_realized_pnl)),
+    stat("Trades", summary.total_trades),
+    stat("Win Rate", summary.win_rate != null ? `${(summary.win_rate * 100).toFixed(0)}%` : "—"),
+    stat("Avg Win", fmtMoney(summary.avg_win), "positive"),
+    stat("Avg Loss", fmtMoney(summary.avg_loss), "negative"),
+    stat("Best Trade", fmtMoney(summary.best_trade), "positive"),
+  ].join("");
+}
+
+function renderPnlChart(buckets) {
+  const container = document.getElementById("pnl-chart-container");
+  const emptyEl = document.getElementById("pnl-empty");
+
+  if (pnlChartInstance) {
+    pnlChartInstance.remove();
+    pnlChartInstance = null;
+  }
+  container.innerHTML = "";
+
+  const hasAnyTrades = buckets.some((b) => b.trades > 0);
+  if (!hasAnyTrades) {
+    container.style.display = "none";
+    emptyEl.hidden = false;
+    emptyEl.textContent = "No closed trades yet — realized P/L will show up here once a position closes (stop-loss or take-profit).";
+    return;
+  }
+  if (typeof LightweightCharts === "undefined") {
+    container.style.display = "none";
+    emptyEl.hidden = false;
+    emptyEl.textContent = "Chart library failed to load — try again once it's available.";
+    return;
+  }
+  container.style.display = "block";
+  emptyEl.hidden = true;
+
+  const chart = LightweightCharts.createChart(container, {
+    layout: { background: { color: "transparent" }, textColor: "#e6edf7" },
+    grid: { vertLines: { color: "#22314e" }, horzLines: { color: "#22314e" } },
+    timeScale: {
+      borderColor: "#22314e",
+      // Bucket index doubles as a categorical "time" -- these aren't real
+      // trading timestamps, so the axis is relabeled with each bucket's own
+      // hourly/daily/weekly label instead of whatever date lightweight-charts
+      // would otherwise derive from the raw index.
+      tickMarkFormatter: (time) => (buckets[time] ? buckets[time].label : ""),
+    },
+    rightPriceScale: { borderColor: "#22314e" },
+    width: container.clientWidth,
+    height: 220,
+  });
+  const series = chart.addHistogramSeries({ priceFormat: { type: "price", precision: 2, minMove: 0.01 } });
+  series.setData(
+    buckets.map((b, i) => ({
+      time: i,
+      value: b.pnl,
+      color: b.pnl >= 0 ? "#22c55e" : "#ef4444",
+    }))
+  );
+  chart.timeScale().fitContent();
+  pnlChartInstance = chart;
+}
+
+function renderPnlPeriod(period) {
+  pnlCurrentPeriod = period;
+  if (!pnlData) return;
+  renderPnlChart(pnlData[period] || []);
+}
+
+function initPnl(pnl) {
+  pnlData = pnl || { summary: {}, hourly: [], daily: [], weekly: [] };
+  renderPnlSummary(pnlData.summary || {});
+
+  const buttons = document.querySelectorAll("#pnl-period-toggle .toggle-btn");
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      buttons.forEach((b) => b.classList.toggle("active", b === btn));
+      renderPnlPeriod(btn.dataset.period);
+    });
+  });
+}
+
+function showPnlModal() {
+  document.getElementById("pnl-modal-backdrop").hidden = false;
+  // (Re)render on open, not just on load, so the chart sizes correctly --
+  // a chart built while its container was display:none would measure 0 width.
+  renderPnlPeriod(pnlCurrentPeriod);
+}
+
+function hidePnlModal() {
+  document.getElementById("pnl-modal-backdrop").hidden = true;
+}
+
+document.getElementById("pnl-btn").addEventListener("click", showPnlModal);
+document.getElementById("pnl-modal-close").addEventListener("click", hidePnlModal);
+document.getElementById("pnl-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "pnl-modal-backdrop") hidePnlModal();
+});
+
+window.addEventListener("resize", () => {
+  if (!pnlChartInstance) return;
+  const container = document.getElementById("pnl-chart-container");
+  pnlChartInstance.applyOptions({ width: container.clientWidth });
+});
+
 function initSignalsToggle() {
   const buttons = document.querySelectorAll("#signals-toggle .toggle-btn");
   buttons.forEach((btn) => {
@@ -550,6 +681,7 @@ async function main() {
   initLiveMarket(data);
   renderActiveSignals(data.positions, data.pending, selectSymbol);
   renderSignalHistory(data.signal_history || []);
+  initPnl(data.pnl);
 }
 
 initSignalsToggle();
