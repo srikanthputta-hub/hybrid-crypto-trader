@@ -21,10 +21,19 @@ name: Refresh dashboard data
 # the repo's 10GB cap) — if that happens, the bot silently starts over from
 # starting_cash_usd with no open positions, which is a state reset, not a
 # failure, and (since this hits Binance testnet) never a real-money issue.
+#
+# `schedule:` is disabled as of 2026-09-29: scripts/run_live.py now runs
+# continuously as a systemd service on an always-on Oracle Cloud VM (see
+# deploy/README.md), cycling the paper-mode bot and pushing web/data.json
+# after every cycle with near-zero gaps. Running this workflow's own
+# schedule at the same time would mean two independent processes racing to
+# push web/data.json (this one against Binance testnet in live mode, the VM
+# against the paper portfolio) — kept disabled to avoid that. workflow_dispatch
+# still works for an occasional manual on-demand run/dress-rehearsal.
 
 on:
-  schedule:
-    - cron: "*/5 * * * *" # every 5 minutes — the shortest interval GitHub Actions reliably honors on a hosted runner; adjust freely, exact timing still isn't guaranteed
+  # schedule:
+  #   - cron: "*/5 * * * *" # disabled 2026-09-29 -- see note above; re-enable only if the VM is ever retired
   workflow_dispatch: {} # manual "Run workflow" button for on-demand refresh
 
 permissions:
