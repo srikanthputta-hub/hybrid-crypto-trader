@@ -13,10 +13,26 @@ fire the moment a signal is found, not on the next scheduled tick.
 2. Compute -> Instances -> Create Instance:
    - Image: Canonical Ubuntu 22.04
    - Shape: "Ampere (Arm)" -> `VM.Standard.A1.Flex` -> 1 OCPU / 6 GB memory
-     (comfortably inside the Always Free 4 OCPU / 24 GB aggregate limit)
-   - Networking: default VCN, "Assign a public IPv4 address" checked
-   - SSH keys: let it generate a pair for you (download the private key) or
-     paste your own public key
+     (comfortably inside the Always Free 4 OCPU / 24 GB aggregate limit).
+     Ampere capacity is often exhausted in a given availability domain --
+     if creation fails with an out-of-capacity error, try the other two
+     ADs before falling back to `VM.Standard.E2.1.Micro` (always available,
+     but only 1 GB RAM -- fine for this bot, just tighter).
+   - Networking: default VCN, "Assign a public IPv4 address" checked. **On
+     a brand-new tenancy with no existing VCN**, the instance wizard's
+     inline "Create new virtual cloud network" option has a known bug where
+     it creates a subnet the wizard itself then refuses to recognize as
+     public, permanently greying out the public-IP toggle. If that happens,
+     create the network first instead: Networking -> Virtual cloud networks
+     -> Start VCN Wizard -> "Create VCN with Internet Connectivity" (this
+     builds a real public subnet + internet gateway in one step), then go
+     back to Create Instance and select that VCN's public subnet directly.
+   - SSH keys: let it generate a pair for you and click "Download private
+     key" -- **verify the file actually landed in your Downloads folder
+     before moving on**; if it didn't, don't try to recover it, just
+     terminate and recreate the instance using a key pair you generate
+     yourself (`ssh-keygen`) and paste the public half in instead, which
+     removes any ambiguity about whether the download succeeded.
 3. Note the instance's public IP once it's running.
 
 ## First-time setup (run these yourself, over SSH -- nothing here should be
@@ -25,12 +41,14 @@ fire the moment a signal is found, not on the next scheduled tick.
 ```bash
 ssh -i /path/to/your-private-key.pem ubuntu@<PUBLIC_IP>
 
-sudo apt update && sudo apt install -y python3.11 python3.11-venv python3-pip git
+sudo apt update && sudo apt install -y python3 python3-venv python3-pip git
+# Ubuntu 22.04 ships Python 3.10 by default, which this codebase runs fine
+# on -- no need for deadsnakes/python3.11 specifically.
 
 git clone https://github.com/srikanthputta-hub/hybrid-crypto-trader.git
 cd hybrid-crypto-trader
 
-python3.11 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
