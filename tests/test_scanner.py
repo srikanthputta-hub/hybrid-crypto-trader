@@ -52,19 +52,114 @@ def test_breakout_bullish_detected_on_volume_confirmed_break():
     assert hits[0].details["level"] < 110.0
 
 
-def test_pullback_bullish_detected_after_dip_and_bounce():
+def _bullish_pullback_ohlcv(current_volume: float = 130.0):
+    """Uptrend, a 3-bar dip toward ema_fast, then TWO consecutive bullish bounce
+    bars: `prev` closes above its own prior bar's high (the dip's last bar) and
+    above its own open, and `current` extends that by closing above `prev`'s
+    high and above its own open. Represents what a genuine, now-qualifying
+    pullback entry looks like under the two-bar-confirmation rule."""
     closes = [100 + 0.3 * i for i in range(35)]  # steady uptrend establishes ema_fast > ema_slow
-    closes += [closes[-1] - 1.0, closes[-1] - 2.0, closes[-1] - 2.5]  # dip back toward ema_fast
+    closes += [closes[-1] - 1.0, closes[-1] - 2.0, closes[-1] - 2.5]  # 3-bar dip back toward ema_fast
+    opens = list(closes)
+    highs = [c * 1.002 for c in closes]
+    lows = [c * 0.998 for c in closes]
+
+    d3_close, d3_high = closes[-1], highs[-1]
+
+    b1_open = d3_close
+    b1_close = d3_high + 1.0  # bar 1 (becomes `prev`): confirms above d3's high and its own open
+    b1_high = b1_close + 0.1
+    b1_low = min(b1_open, d3_close) - 0.1
+
+    b2_open = b1_close - 0.2
+    b2_close = b1_high + 1.0  # bar 2 (becomes `current`): extends above b1's high and its own open
+    b2_high = b2_close + 0.1
+    b2_low = min(b2_open, b1_close) - 0.1
+
+    closes += [b1_close, b2_close]
+    opens += [b1_open, b2_open]
+    highs += [b1_high, b2_high]
+    lows += [b1_low, b2_low]
+    volumes = [100.0] * 39 + [current_volume]
+    return closes, opens, highs, lows, volumes
+
+
+def _bearish_pullback_ohlcv(current_volume: float = 130.0):
+    """Mirror of _bullish_pullback_ohlcv: downtrend, a 3-bar rally toward
+    ema_fast, then two consecutive bearish rejection bars."""
+    closes = [100 - 0.3 * i for i in range(35)]  # steady downtrend establishes ema_fast < ema_slow
+    closes += [closes[-1] + 1.0, closes[-1] + 2.0, closes[-1] + 2.5]  # 3-bar rally back toward ema_fast
+    opens = list(closes)
+    highs = [c * 1.002 for c in closes]
+    lows = [c * 0.998 for c in closes]
+
+    d3_close, d3_low = closes[-1], lows[-1]
+
+    b1_open = d3_close
+    b1_close = d3_low - 1.0  # bar 1 (becomes `prev`): confirms below d3's low and its own open
+    b1_low = b1_close - 0.1
+    b1_high = max(b1_open, d3_close) + 0.1
+
+    b2_open = b1_close + 0.2
+    b2_close = b1_low - 1.0  # bar 2 (becomes `current`): extends below b1's low and its own open
+    b2_low = b2_close - 0.1
+    b2_high = max(b2_open, b1_close) + 0.1
+
+    closes += [b1_close, b2_close]
+    opens += [b1_open, b2_open]
+    highs += [b1_high, b2_high]
+    lows += [b1_low, b2_low]
+    volumes = [100.0] * 39 + [current_volume]
+    return closes, opens, highs, lows, volumes
+
+
+def test_pullback_bullish_detected_after_dip_and_two_bar_bounce():
+    closes, opens, highs, lows, volumes = _bullish_pullback_ohlcv(current_volume=130.0)
+    df = _enrich(_make_df(closes, volumes=volumes, opens=opens, highs=highs, lows=lows))
+    hits = _patterns(scan(df, {}), "PULLBACK", "bullish")
+    assert len(hits) == 1
+
+
+def test_pullback_bearish_detected_after_rally_and_two_bar_rejection():
+    closes, opens, highs, lows, volumes = _bearish_pullback_ohlcv(current_volume=130.0)
+    df = _enrich(_make_df(closes, volumes=volumes, opens=opens, highs=highs, lows=lows))
+    hits = _patterns(scan(df, {}), "PULLBACK", "bearish")
+    assert len(hits) == 1
+
+
+def test_pullback_bullish_single_bar_whipsaw_no_longer_detected():
+    """The old single-bar-spike shape (dip for 3 bars, then one sharp bounce
+    candle with no confirming bar before it) must NOT produce a PULLBACK
+    candidate anymore — this is exactly the low-conviction entry the two-bar
+    confirmation rule exists to filter out."""
+    closes = [100 + 0.3 * i for i in range(35)]
+    closes += [closes[-1] - 1.0, closes[-1] - 2.0, closes[-1] - 2.5]
     opens = list(closes)
     bounce_open = closes[-1]
-    bounce_close = closes[-1] + 2.0  # sharp bullish bounce candle
+    bounce_close = closes[-1] + 2.0  # single sharp bullish bounce candle, no prior confirming bar
     closes.append(bounce_close)
     opens.append(bounce_open)
     highs = [c * 1.002 for c in closes[:-1]] + [bounce_close + 0.1]
     lows = [c * 0.998 for c in closes[:-1]] + [bounce_open - 0.1]
     df = _enrich(_make_df(closes, opens=opens, highs=highs, lows=lows))
     hits = _patterns(scan(df, {}), "PULLBACK", "bullish")
-    assert len(hits) == 1
+    assert len(hits) == 0
+
+
+def test_pullback_bullish_two_bar_bounce_with_below_average_volume_not_detected():
+    """Same genuinely two-bar-confirmed bounce shape, but current's volume is
+    below the recent lookback window's average — must NOT produce a candidate."""
+    closes, opens, highs, lows, volumes = _bullish_pullback_ohlcv(current_volume=50.0)
+    df = _enrich(_make_df(closes, volumes=volumes, opens=opens, highs=highs, lows=lows))
+    hits = _patterns(scan(df, {}), "PULLBACK", "bullish")
+    assert len(hits) == 0
+
+
+def test_pullback_bearish_two_bar_bounce_with_below_average_volume_not_detected():
+    closes, opens, highs, lows, volumes = _bearish_pullback_ohlcv(current_volume=50.0)
+    df = _enrich(_make_df(closes, volumes=volumes, opens=opens, highs=highs, lows=lows))
+    hits = _patterns(scan(df, {}), "PULLBACK", "bearish")
+    assert len(hits) == 0
 
 
 def test_momentum_bullish_detected_on_sharp_recent_move():
