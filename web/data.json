@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-01T14:20:13.724178+00:00",
+  "generated_at": "2026-10-01T14:26:04.834795+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 5863.59,
-    "equity": 9736.5,
-    "pnl_pct": -0.0263
+    "equity": 9734.52,
+    "pnl_pct": -0.0265
   },
   "roles": [
     {
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-10-01T14:20:13.075523+00:00",
+      "last_active": "2026-10-01T14:26:04.187299+00:00",
       "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-10-01T14:20:13.073215+00:00",
+      "last_active": "2026-10-01T14:26:04.185006+00:00",
       "detail": "BCH/USDT: checked, nothing worth trading"
     },
     {
@@ -93,11 +93,11 @@
       "confidence_claude": null,
       "fill_price": 67.52298,
       "fill_amount": 0.5840314246735531,
-      "current_price": 67.13231,
+      "current_price": 67.18982,
       "created_at": "2026-10-01T10:54:34.856087+00:00",
       "filled_at": "2026-10-01T10:54:34.858826+00:00",
       "timestamp": "2026-10-01T10:54:34.858826+00:00",
-      "unrealized_pnl_pct": -0.0057857339827122566
+      "unrealized_pnl_pct": -0.004934023942663765
     },
     {
       "symbol": "XTZ/USDT",
@@ -137,11 +137,11 @@
       "confidence_claude": null,
       "fill_price": 0.12994,
       "fill_amount": 7362.225260168712,
-      "current_price": 0.12515,
+      "current_price": 0.12529,
       "created_at": "2026-10-01T03:41:56.467496+00:00",
       "filled_at": "2026-10-01T03:41:56.469824+00:00",
       "timestamp": "2026-10-01T03:41:56.469824+00:00",
-      "unrealized_pnl_pct": -0.036863167615822603
+      "unrealized_pnl_pct": -0.035785747267969736
     },
     {
       "symbol": "ETH/USDT",
@@ -159,11 +159,11 @@
       "confidence_claude": null,
       "fill_price": 2690.49,
       "fill_amount": 0.0016409339257507079,
-      "current_price": 2694.84,
+      "current_price": 2695.42,
       "created_at": "2026-10-01T01:57:48.700114+00:00",
       "filled_at": "2026-10-01T01:57:48.702467+00:00",
       "timestamp": "2026-10-01T01:57:48.702467+00:00",
-      "unrealized_pnl_pct": 0.0016168058606426206
+      "unrealized_pnl_pct": 0.0018323799753949249
     },
     {
       "symbol": "ADA/USDT",
@@ -181,11 +181,11 @@
       "confidence_claude": null,
       "fill_price": 0.248726,
       "fill_amount": 3812.83142008804,
-      "current_price": 0.246176,
+      "current_price": 0.246344,
       "created_at": "2026-09-30T23:04:53.346025+00:00",
       "filled_at": "2026-09-30T23:04:53.348509+00:00",
       "timestamp": "2026-09-30T23:04:53.348509+00:00",
-      "unrealized_pnl_pct": -0.010252245442776375
+      "unrealized_pnl_pct": -0.009576803390075807
     },
     {
       "symbol": "BTC/USDT",
@@ -203,11 +203,11 @@
       "confidence_claude": null,
       "fill_price": 83957.3,
       "fill_amount": 1.317259876316015e-06,
-      "current_price": 83997.2,
+      "current_price": 84052.8,
       "created_at": "2026-09-30T11:42:27.032276+00:00",
       "filled_at": "2026-09-30T11:42:27.034567+00:00",
       "timestamp": "2026-09-30T11:42:27.034567+00:00",
-      "unrealized_pnl_pct": 0.0004752415811370087
+      "unrealized_pnl_pct": 0.0011374829824208259
     },
     {
       "symbol": "DOGE/USDT",
@@ -225,11 +225,11 @@
       "confidence_claude": null,
       "fill_price": 0.09547,
       "fill_amount": 150.41714020196355,
-      "current_price": 0.09441,
+      "current_price": 0.09442,
       "created_at": "2026-09-30T11:25:11.285116+00:00",
       "filled_at": "2026-09-30T11:25:11.287399+00:00",
       "timestamp": "2026-09-30T11:25:11.287399+00:00",
-      "unrealized_pnl_pct": -0.011102964281973451
+      "unrealized_pnl_pct": -0.010998219335916994
     },
     {
       "symbol": "BNB/USDT",
@@ -269,11 +269,11 @@
       "confidence_claude": null,
       "fill_price": 1.205,
       "fill_amount": 819.3220523848321,
-      "current_price": 1.1866,
+      "current_price": 1.1821,
       "created_at": "2026-09-29T20:28:21.346980+00:00",
       "filled_at": "2026-09-29T20:28:21.348674+00:00",
       "timestamp": "2026-09-29T20:28:21.348674+00:00",
-      "unrealized_pnl_pct": -0.015269709543568441
+      "unrealized_pnl_pct": -0.01900414937759348
     },
     {
       "symbol": "SHIB/USDT",
@@ -11906,145 +11906,145 @@
     "hourly": [
       {
         "label": "15:00",
-        "start": "2026-09-30T14:20:13.724178+00:00",
-        "pnl": -30.5,
-        "trades": 1
+        "start": "2026-09-30T14:26:04.834795+00:00",
+        "pnl": 0,
+        "trades": 0
       },
       {
         "label": "16:00",
-        "start": "2026-09-30T15:20:13.724178+00:00",
+        "start": "2026-09-30T15:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "17:00",
-        "start": "2026-09-30T16:20:13.724178+00:00",
+        "start": "2026-09-30T16:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "18:00",
-        "start": "2026-09-30T17:20:13.724178+00:00",
+        "start": "2026-09-30T17:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "19:00",
-        "start": "2026-09-30T18:20:13.724178+00:00",
-        "pnl": -0.03,
-        "trades": 1
+        "start": "2026-09-30T18:26:04.834795+00:00",
+        "pnl": -16.2,
+        "trades": 3
       },
       {
         "label": "20:00",
-        "start": "2026-09-30T19:20:13.724178+00:00",
-        "pnl": -16.17,
-        "trades": 2
+        "start": "2026-09-30T19:26:04.834795+00:00",
+        "pnl": 0,
+        "trades": 0
       },
       {
         "label": "21:00",
-        "start": "2026-09-30T20:20:13.724178+00:00",
+        "start": "2026-09-30T20:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "22:00",
-        "start": "2026-09-30T21:20:13.724178+00:00",
+        "start": "2026-09-30T21:26:04.834795+00:00",
         "pnl": -33.36,
         "trades": 1
       },
       {
         "label": "23:00",
-        "start": "2026-09-30T22:20:13.724178+00:00",
+        "start": "2026-09-30T22:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "00:00",
-        "start": "2026-09-30T23:20:13.724178+00:00",
+        "start": "2026-09-30T23:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "01:00",
-        "start": "2026-10-01T00:20:13.724178+00:00",
+        "start": "2026-10-01T00:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "02:00",
-        "start": "2026-10-01T01:20:13.724178+00:00",
+        "start": "2026-10-01T01:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "03:00",
-        "start": "2026-10-01T02:20:13.724178+00:00",
+        "start": "2026-10-01T02:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "04:00",
-        "start": "2026-10-01T03:20:13.724178+00:00",
+        "start": "2026-10-01T03:26:04.834795+00:00",
         "pnl": 28.0,
         "trades": 1
       },
       {
         "label": "05:00",
-        "start": "2026-10-01T04:20:13.724178+00:00",
+        "start": "2026-10-01T04:26:04.834795+00:00",
         "pnl": -0.02,
         "trades": 1
       },
       {
         "label": "06:00",
-        "start": "2026-10-01T05:20:13.724178+00:00",
+        "start": "2026-10-01T05:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "07:00",
-        "start": "2026-10-01T06:20:13.724178+00:00",
+        "start": "2026-10-01T06:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "08:00",
-        "start": "2026-10-01T07:20:13.724178+00:00",
+        "start": "2026-10-01T07:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "09:00",
-        "start": "2026-10-01T08:20:13.724178+00:00",
+        "start": "2026-10-01T08:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "10:00",
-        "start": "2026-10-01T09:20:13.724178+00:00",
+        "start": "2026-10-01T09:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "11:00",
-        "start": "2026-10-01T10:20:13.724178+00:00",
+        "start": "2026-10-01T10:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "12:00",
-        "start": "2026-10-01T11:20:13.724178+00:00",
+        "start": "2026-10-01T11:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "13:00",
-        "start": "2026-10-01T12:20:13.724178+00:00",
+        "start": "2026-10-01T12:26:04.834795+00:00",
         "pnl": -0.03,
         "trades": 1
       },
       {
         "label": "14:00",
-        "start": "2026-10-01T13:20:13.724178+00:00",
+        "start": "2026-10-01T13:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       }
@@ -12052,255 +12052,255 @@
     "daily": [
       {
         "label": "Sep 02",
-        "start": "2026-09-01T14:20:13.724178+00:00",
+        "start": "2026-09-01T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 03",
-        "start": "2026-09-02T14:20:13.724178+00:00",
+        "start": "2026-09-02T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 04",
-        "start": "2026-09-03T14:20:13.724178+00:00",
+        "start": "2026-09-03T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 05",
-        "start": "2026-09-04T14:20:13.724178+00:00",
+        "start": "2026-09-04T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 06",
-        "start": "2026-09-05T14:20:13.724178+00:00",
+        "start": "2026-09-05T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 07",
-        "start": "2026-09-06T14:20:13.724178+00:00",
+        "start": "2026-09-06T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 08",
-        "start": "2026-09-07T14:20:13.724178+00:00",
+        "start": "2026-09-07T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 09",
-        "start": "2026-09-08T14:20:13.724178+00:00",
+        "start": "2026-09-08T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 10",
-        "start": "2026-09-09T14:20:13.724178+00:00",
+        "start": "2026-09-09T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 11",
-        "start": "2026-09-10T14:20:13.724178+00:00",
+        "start": "2026-09-10T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 12",
-        "start": "2026-09-11T14:20:13.724178+00:00",
+        "start": "2026-09-11T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 13",
-        "start": "2026-09-12T14:20:13.724178+00:00",
+        "start": "2026-09-12T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 14",
-        "start": "2026-09-13T14:20:13.724178+00:00",
+        "start": "2026-09-13T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 15",
-        "start": "2026-09-14T14:20:13.724178+00:00",
+        "start": "2026-09-14T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 16",
-        "start": "2026-09-15T14:20:13.724178+00:00",
+        "start": "2026-09-15T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 17",
-        "start": "2026-09-16T14:20:13.724178+00:00",
+        "start": "2026-09-16T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 18",
-        "start": "2026-09-17T14:20:13.724178+00:00",
+        "start": "2026-09-17T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 19",
-        "start": "2026-09-18T14:20:13.724178+00:00",
+        "start": "2026-09-18T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 20",
-        "start": "2026-09-19T14:20:13.724178+00:00",
+        "start": "2026-09-19T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 21",
-        "start": "2026-09-20T14:20:13.724178+00:00",
+        "start": "2026-09-20T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 22",
-        "start": "2026-09-21T14:20:13.724178+00:00",
+        "start": "2026-09-21T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 23",
-        "start": "2026-09-22T14:20:13.724178+00:00",
+        "start": "2026-09-22T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 24",
-        "start": "2026-09-23T14:20:13.724178+00:00",
+        "start": "2026-09-23T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 25",
-        "start": "2026-09-24T14:20:13.724178+00:00",
+        "start": "2026-09-24T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 26",
-        "start": "2026-09-25T14:20:13.724178+00:00",
+        "start": "2026-09-25T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 27",
-        "start": "2026-09-26T14:20:13.724178+00:00",
+        "start": "2026-09-26T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 28",
-        "start": "2026-09-27T14:20:13.724178+00:00",
+        "start": "2026-09-27T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 29",
-        "start": "2026-09-28T14:20:13.724178+00:00",
+        "start": "2026-09-28T14:26:04.834795+00:00",
         "pnl": -0.0,
         "trades": 1
       },
       {
         "label": "Sep 30",
-        "start": "2026-09-29T14:20:13.724178+00:00",
-        "pnl": -154.3,
-        "trades": 11
+        "start": "2026-09-29T14:26:04.834795+00:00",
+        "pnl": -184.81,
+        "trades": 12
       },
       {
         "label": "Oct 01",
-        "start": "2026-09-30T14:20:13.724178+00:00",
-        "pnl": -52.11,
-        "trades": 8
+        "start": "2026-09-30T14:26:04.834795+00:00",
+        "pnl": -21.61,
+        "trades": 7
       }
     ],
     "weekly": [
       {
         "label": "Jul 16",
-        "start": "2026-07-09T14:20:13.724178+00:00",
+        "start": "2026-07-09T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Jul 23",
-        "start": "2026-07-16T14:20:13.724178+00:00",
+        "start": "2026-07-16T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Jul 30",
-        "start": "2026-07-23T14:20:13.724178+00:00",
+        "start": "2026-07-23T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 06",
-        "start": "2026-07-30T14:20:13.724178+00:00",
+        "start": "2026-07-30T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 13",
-        "start": "2026-08-06T14:20:13.724178+00:00",
+        "start": "2026-08-06T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 20",
-        "start": "2026-08-13T14:20:13.724178+00:00",
+        "start": "2026-08-13T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 27",
-        "start": "2026-08-20T14:20:13.724178+00:00",
+        "start": "2026-08-20T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 03",
-        "start": "2026-08-27T14:20:13.724178+00:00",
+        "start": "2026-08-27T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 10",
-        "start": "2026-09-03T14:20:13.724178+00:00",
+        "start": "2026-09-03T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 17",
-        "start": "2026-09-10T14:20:13.724178+00:00",
+        "start": "2026-09-10T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 24",
-        "start": "2026-09-17T14:20:13.724178+00:00",
+        "start": "2026-09-17T14:26:04.834795+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 01",
-        "start": "2026-09-24T14:20:13.724178+00:00",
+        "start": "2026-09-24T14:26:04.834795+00:00",
         "pnl": -206.42,
         "trades": 20
       }
@@ -12332,6 +12332,486 @@
       "expected_win_rate": 0.4,
       "p_value": 0.0008,
       "verdict": "surprising"
+    }
+  },
+  "backtest": {
+    "generated_at": "2026-10-01T13:37:00Z",
+    "source_branch": "claude/strategy-pack-backtest",
+    "methodology": "Long-only spot. Next-bar-open fills; fees + slippage charged on every fill, including stop exits (gap-aware: a gap below the stop fills at the open, not the stop price). BTC daily SMA(200) regime filter gates all entries for both strategies. ATR-chandelier trailing stop. Bootstrap 95% confidence interval on average R. Time-shift placebo: 200 simulations with the real signals circular-shifted to random dates, same prices and costs \u2014 reports what percentile the real result ranks at among the shuffled copies. Fixed 70/30 in-sample/out-of-sample split by date (not tuned to the split). strategies.py and engine.py (the strategy and backtest-engine code) were used exactly as supplied, unmodified, with no parameter tuned to produce these numbers.",
+    "verdict": "No strategy passed every required gate on either dataset. Neither trend_ensemble nor tsmom is a candidate for paper trading as-is \u2014 see the gates table for each strategy below for exactly which check(s) failed.",
+    "cost_presets": {
+      "paper_today_0.10%": "This bot's current paper-trading cost assumption (0.10% per fill)",
+      "kraken_T3_maker": "Kraken Tier 3 maker fee",
+      "kraken_T3_taker": "Kraken Tier 3 taker fee (gates table uses this preset)",
+      "kraken_T1_taker": "Kraken Tier 1 (lowest-volume) taker fee \u2014 the worst-case cost assumption"
+    },
+    "datasets": [
+      {
+        "id": "kraken_720",
+        "label": "Kraken (Data A)",
+        "source": "Kraken, via ccxt",
+        "symbols": 16,
+        "timeframe": "1d",
+        "window": "2025-04-30 to 2026-10-01",
+        "bars": 520,
+        "note": "~2 years of daily bars, the bot's current exchange"
+      },
+      {
+        "id": "long",
+        "label": "Coinbase Exchange (Data B)",
+        "source": "Coinbase Exchange, via ccxt (coinbaseexchange) \u2014 Kraken's own downloadable history and Binance (geo-blocked) were tried first and were not usable; see data_sources.md on the source branch",
+        "symbols": 16,
+        "timeframe": "1d",
+        "window": "2016-02-05 to 2026-10-01",
+        "bars": 3892,
+        "note": "Long multi-year history; each coin starts at its own real Coinbase listing date (2015-2025 depending on coin \u2014 BNB only has ~1yr, for example)"
+      }
+    ],
+    "strategies": {
+      "trend_ensemble": {
+        "label": "Donchian Breakout Ensemble",
+        "description": "Votes across multiple Donchian-channel breakout lookbacks; enters when enough of them agree, sized/trailed with ATR.",
+        "results": [
+          {
+            "dataset": "kraken_720",
+            "cost_preset": "paper_today_0.10%",
+            "trades": 81,
+            "win_rate_pct": 44.4,
+            "avg_r": 0.29,
+            "avg_r_ci": [
+              0.05,
+              0.55
+            ],
+            "profit_factor": 2.6,
+            "return_pct": 18.3,
+            "max_dd_pct": -8.3,
+            "sharpe": 0.94,
+            "exposure_pct": 14.8
+          },
+          {
+            "dataset": "kraken_720",
+            "cost_preset": "kraken_T3_maker",
+            "trades": 81,
+            "win_rate_pct": 44.4,
+            "avg_r": 0.26,
+            "avg_r_ci": [
+              0.03,
+              0.52
+            ],
+            "profit_factor": 2.43,
+            "return_pct": 17.0,
+            "max_dd_pct": -8.6,
+            "sharpe": 0.88,
+            "exposure_pct": 14.8
+          },
+          {
+            "dataset": "kraken_720",
+            "cost_preset": "kraken_T3_taker",
+            "trades": 81,
+            "win_rate_pct": 42.0,
+            "avg_r": 0.24,
+            "avg_r_ci": [
+              0.01,
+              0.5
+            ],
+            "profit_factor": 2.27,
+            "return_pct": 15.7,
+            "max_dd_pct": -8.9,
+            "sharpe": 0.83,
+            "exposure_pct": 14.8
+          },
+          {
+            "dataset": "kraken_720",
+            "cost_preset": "kraken_T1_taker",
+            "trades": 81,
+            "win_rate_pct": 42.0,
+            "avg_r": 0.18,
+            "avg_r_ci": [
+              -0.05,
+              0.44
+            ],
+            "profit_factor": 1.92,
+            "return_pct": 12.6,
+            "max_dd_pct": -9.7,
+            "sharpe": 0.68,
+            "exposure_pct": 14.8
+          },
+          {
+            "dataset": "long",
+            "cost_preset": "paper_today_0.10%",
+            "trades": 683,
+            "win_rate_pct": 34.8,
+            "avg_r": 0.25,
+            "avg_r_ci": [
+              0.12,
+              0.39
+            ],
+            "profit_factor": 1.6,
+            "return_pct": 197.7,
+            "max_dd_pct": -27.5,
+            "sharpe": 0.72,
+            "exposure_pct": 13.0
+          },
+          {
+            "dataset": "long",
+            "cost_preset": "kraken_T3_maker",
+            "trades": 682,
+            "win_rate_pct": 34.2,
+            "avg_r": 0.23,
+            "avg_r_ci": [
+              0.1,
+              0.37
+            ],
+            "profit_factor": 1.54,
+            "return_pct": 174.5,
+            "max_dd_pct": -29.0,
+            "sharpe": 0.67,
+            "exposure_pct": 13.0
+          },
+          {
+            "dataset": "long",
+            "cost_preset": "kraken_T3_taker",
+            "trades": 682,
+            "win_rate_pct": 33.7,
+            "avg_r": 0.21,
+            "avg_r_ci": [
+              0.09,
+              0.35
+            ],
+            "profit_factor": 1.49,
+            "return_pct": 154.0,
+            "max_dd_pct": -30.6,
+            "sharpe": 0.62,
+            "exposure_pct": 13.0
+          },
+          {
+            "dataset": "long",
+            "cost_preset": "kraken_T1_taker",
+            "trades": 682,
+            "win_rate_pct": 32.1,
+            "avg_r": 0.17,
+            "avg_r_ci": [
+              0.05,
+              0.31
+            ],
+            "profit_factor": 1.35,
+            "return_pct": 107.3,
+            "max_dd_pct": -34.5,
+            "sharpe": 0.5,
+            "exposure_pct": 13.0
+          }
+        ],
+        "benchmarks": {
+          "kraken_720": {
+            "btc_buy_hold": {
+              "return_pct": -11.4,
+              "max_dd_pct": -53.1,
+              "sharpe": 0.0
+            },
+            "equal_weight_buy_hold": {
+              "return_pct": -28.9,
+              "max_dd_pct": -68.5,
+              "sharpe": -0.12
+            }
+          },
+          "long": {
+            "btc_buy_hold": {
+              "return_pct": 21435.6,
+              "max_dd_pct": -83.8,
+              "sharpe": 1.09
+            },
+            "equal_weight_buy_hold": {
+              "return_pct": 2736.2,
+              "max_dd_pct": -85.4,
+              "sharpe": 0.81
+            }
+          }
+        },
+        "oos_split": {
+          "kraken_720": {
+            "split_date": "2026-04-28",
+            "cost_preset": "kraken_T3_taker",
+            "first_70pct": {
+              "trades": 70,
+              "win_rate_pct": 32.9,
+              "avg_r": 0.0
+            },
+            "last_30pct": {
+              "trades": 11,
+              "win_rate_pct": 100.0,
+              "avg_r": 1.78
+            }
+          },
+          "long": {
+            "split_date": "2023-07-21",
+            "cost_preset": "kraken_T3_taker",
+            "first_70pct": {
+              "trades": 407,
+              "win_rate_pct": 37.6,
+              "avg_r": 0.19
+            },
+            "last_30pct": {
+              "trades": 275,
+              "win_rate_pct": 28.0,
+              "avg_r": 0.25
+            }
+          }
+        },
+        "placebo": {
+          "kraken_720": {
+            "sims": 200,
+            "cost_preset": "kraken_T3_taker",
+            "return_percentile": 92,
+            "avg_r_percentile": 85
+          },
+          "long": {
+            "sims": 200,
+            "cost_preset": "kraken_T3_taker",
+            "return_percentile": 97,
+            "avg_r_percentile": 98
+          }
+        },
+        "gates": {
+          "kraken_720": {
+            "min_100_trades": "FAIL",
+            "avg_r_ci_low_gt_0": "PASS",
+            "later_30pct_avg_r_gt_0": "PASS",
+            "beats_placebo_90th_pct": "FAIL",
+            "net_return_and_sharpe_gt_buy_hold": "PASS",
+            "overall": "FAIL"
+          },
+          "long": {
+            "min_100_trades": "PASS",
+            "avg_r_ci_low_gt_0": "PASS",
+            "later_30pct_avg_r_gt_0": "PASS",
+            "beats_placebo_90th_pct": "PASS",
+            "net_return_and_sharpe_gt_buy_hold": "FAIL",
+            "overall": "FAIL"
+          }
+        }
+      },
+      "tsmom": {
+        "label": "Time-Series Momentum",
+        "description": "Enters in the direction of each symbol's own recent trailing return, sized/trailed with ATR.",
+        "results": [
+          {
+            "dataset": "kraken_720",
+            "cost_preset": "paper_today_0.10%",
+            "trades": 109,
+            "win_rate_pct": 60.6,
+            "avg_r": 0.28,
+            "avg_r_ci": [
+              0.12,
+              0.46
+            ],
+            "profit_factor": 2.56,
+            "return_pct": 18.2,
+            "max_dd_pct": -8.3,
+            "sharpe": 0.92,
+            "exposure_pct": 13.8
+          },
+          {
+            "dataset": "kraken_720",
+            "cost_preset": "kraken_T3_maker",
+            "trades": 109,
+            "win_rate_pct": 60.6,
+            "avg_r": 0.26,
+            "avg_r_ci": [
+              0.1,
+              0.44
+            ],
+            "profit_factor": 2.38,
+            "return_pct": 16.6,
+            "max_dd_pct": -8.8,
+            "sharpe": 0.85,
+            "exposure_pct": 13.8
+          },
+          {
+            "dataset": "kraken_720",
+            "cost_preset": "kraken_T3_taker",
+            "trades": 109,
+            "win_rate_pct": 59.6,
+            "avg_r": 0.24,
+            "avg_r_ci": [
+              0.08,
+              0.41
+            ],
+            "profit_factor": 2.22,
+            "return_pct": 15.2,
+            "max_dd_pct": -9.2,
+            "sharpe": 0.79,
+            "exposure_pct": 13.8
+          },
+          {
+            "dataset": "kraken_720",
+            "cost_preset": "kraken_T1_taker",
+            "trades": 109,
+            "win_rate_pct": 57.8,
+            "avg_r": 0.18,
+            "avg_r_ci": [
+              0.02,
+              0.36
+            ],
+            "profit_factor": 1.85,
+            "return_pct": 11.4,
+            "max_dd_pct": -10.4,
+            "sharpe": 0.62,
+            "exposure_pct": 13.8
+          },
+          {
+            "dataset": "long",
+            "cost_preset": "paper_today_0.10%",
+            "trades": 815,
+            "win_rate_pct": 42.7,
+            "avg_r": 0.27,
+            "avg_r_ci": [
+              0.17,
+              0.39
+            ],
+            "profit_factor": 1.95,
+            "return_pct": 281.3,
+            "max_dd_pct": -24.7,
+            "sharpe": 0.89,
+            "exposure_pct": 11.6
+          },
+          {
+            "dataset": "long",
+            "cost_preset": "kraken_T3_maker",
+            "trades": 815,
+            "win_rate_pct": 41.2,
+            "avg_r": 0.25,
+            "avg_r_ci": [
+              0.15,
+              0.37
+            ],
+            "profit_factor": 1.85,
+            "return_pct": 245.5,
+            "max_dd_pct": -25.2,
+            "sharpe": 0.83,
+            "exposure_pct": 11.6
+          },
+          {
+            "dataset": "long",
+            "cost_preset": "kraken_T3_taker",
+            "trades": 815,
+            "win_rate_pct": 39.8,
+            "avg_r": 0.24,
+            "avg_r_ci": [
+              0.13,
+              0.36
+            ],
+            "profit_factor": 1.75,
+            "return_pct": 214.6,
+            "max_dd_pct": -25.7,
+            "sharpe": 0.77,
+            "exposure_pct": 11.6
+          },
+          {
+            "dataset": "long",
+            "cost_preset": "kraken_T1_taker",
+            "trades": 814,
+            "win_rate_pct": 36.7,
+            "avg_r": 0.19,
+            "avg_r_ci": [
+              0.09,
+              0.31
+            ],
+            "profit_factor": 1.53,
+            "return_pct": 145.7,
+            "max_dd_pct": -26.9,
+            "sharpe": 0.62,
+            "exposure_pct": 11.6
+          }
+        ],
+        "benchmarks": {
+          "kraken_720": {
+            "btc_buy_hold": {
+              "return_pct": -11.4,
+              "max_dd_pct": -53.1,
+              "sharpe": 0.0
+            },
+            "equal_weight_buy_hold": {
+              "return_pct": -28.9,
+              "max_dd_pct": -68.5,
+              "sharpe": -0.12
+            }
+          },
+          "long": {
+            "btc_buy_hold": {
+              "return_pct": 21435.6,
+              "max_dd_pct": -83.8,
+              "sharpe": 1.09
+            },
+            "equal_weight_buy_hold": {
+              "return_pct": 2736.2,
+              "max_dd_pct": -85.4,
+              "sharpe": 0.81
+            }
+          }
+        },
+        "oos_split": {
+          "kraken_720": {
+            "split_date": "2026-04-28",
+            "cost_preset": "kraken_T3_taker",
+            "first_70pct": {
+              "trades": 88,
+              "win_rate_pct": 54.5,
+              "avg_r": 0.09
+            },
+            "last_30pct": {
+              "trades": 21,
+              "win_rate_pct": 81.0,
+              "avg_r": 0.87
+            }
+          },
+          "long": {
+            "split_date": "2023-07-21",
+            "cost_preset": "kraken_T3_taker",
+            "first_70pct": {
+              "trades": 488,
+              "win_rate_pct": 43.0,
+              "avg_r": 0.19
+            },
+            "last_30pct": {
+              "trades": 327,
+              "win_rate_pct": 34.9,
+              "avg_r": 0.3
+            }
+          }
+        },
+        "placebo": {
+          "kraken_720": {
+            "sims": 200,
+            "cost_preset": "kraken_T3_taker",
+            "return_percentile": 96,
+            "avg_r_percentile": 88
+          },
+          "long": {
+            "sims": 200,
+            "cost_preset": "kraken_T3_taker",
+            "return_percentile": 100,
+            "avg_r_percentile": 100
+          }
+        },
+        "gates": {
+          "kraken_720": {
+            "min_100_trades": "PASS",
+            "avg_r_ci_low_gt_0": "PASS",
+            "later_30pct_avg_r_gt_0": "PASS",
+            "beats_placebo_90th_pct": "FAIL",
+            "net_return_and_sharpe_gt_buy_hold": "PASS",
+            "overall": "FAIL"
+          },
+          "long": {
+            "min_100_trades": "PASS",
+            "avg_r_ci_low_gt_0": "PASS",
+            "later_30pct_avg_r_gt_0": "PASS",
+            "beats_placebo_90th_pct": "PASS",
+            "net_return_and_sharpe_gt_buy_hold": "FAIL",
+            "overall": "FAIL"
+          }
+        }
+      }
     }
   }
 }
