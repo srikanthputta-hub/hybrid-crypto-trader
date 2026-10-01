@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 """Diagnose the live bot's recent closed trades: pattern, timing, and outcome,
-read straight from logs/trade_plan_history.jsonl (one line per plan state
-transition -- PENDING/OPEN/CLOSED -- written by src.trade_plan_store).
+read straight from logs/trade_plans_history.jsonl (one line per plan state
+transition -- PENDING/OPEN/CLOSED -- written by src.trade_plan_store; the
+exact filename comes from config.yaml's logging.trade_plan_history_path).
 
 Read-only. Doesn't touch the live bot, place orders, or modify any file.
 
 Usage (run on the VM, from the repo root):
 
-    python scripts/diagnose_recent_closes.py
-    python scripts/diagnose_recent_closes.py --history logs/trade_plan_history.jsonl
+    python3 scripts/diagnose_recent_closes.py
+    python3 scripts/diagnose_recent_closes.py --history logs/trade_plans_history.jsonl
 
-Why trade_plan_history.jsonl and not logs/audit_log.jsonl: audit_log.jsonl has
-one entry per symbol per cycle (mostly "nothing happened" or "rejected"), so
-finding the handful of actual closes means wading through thousands of lines.
-trade_plan_history.jsonl has exactly one CLOSED record per completed trade,
-already carrying the plan's pattern, confidence, and risk/reward alongside the
-fill/close prices -- the single cleanest source for "what actually happened
-on each of our closed trades."
+Why trade_plans_history.jsonl and not logs/audit_log.jsonl: audit_log.jsonl
+has one entry per symbol per cycle (mostly "nothing happened" or "rejected"),
+so finding the handful of actual closes means wading through thousands of
+lines. trade_plans_history.jsonl has exactly one CLOSED record per completed
+trade, already carrying the plan's pattern, confidence, and risk/reward
+alongside the fill/close prices -- the single cleanest source for "what
+actually happened on each of our closed trades."
 """
 from __future__ import annotations
 
@@ -80,7 +81,7 @@ def compute_r(rec: dict) -> float | None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--history", default="logs/trade_plan_history.jsonl")
+    ap.add_argument("--history", default="logs/trade_plans_history.jsonl")
     a = ap.parse_args()
 
     trades = load_closed_trades(Path(a.history))
