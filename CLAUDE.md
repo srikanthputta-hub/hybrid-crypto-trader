@@ -13,6 +13,23 @@ This mirrors the same idea as the SPEHR project's swarm-office setup (see
 `/areas/spehr.md`-style tooling if you've seen it) — a roster of specialist
 roles instead of one generalist doing everything at one fixed setting.
 
+## Trading bot rules (read `docs/crypto_bot_upgrade_playbook.md` before touching strategy code)
+
+- Never place live orders or change live config without the user's explicit approval. Default to paper/testnet.
+- No look-ahead: act only on closed candles, execute at the next bar's open. Run the tests in `research/v2_signals.py` before committing anything that touches signal/entry logic.
+- Every backtest must include fees, slippage and funding, and report out-of-sample results.
+- Do not add indicators or change parameters without a written reason and an out-of-sample test.
+- Risk limits live in plain code (a risk module), never in an LLM prompt.
+- Never read, print or commit API keys. Work on a git branch and commit before big changes.
+
+`research/v2_signals.py` is starter scaffolding for a prospective v2 trend-following
+redesign (Donchian ensemble + BTC regime filter + ATR sizing/trailing stop) per the
+playbook — not wired into the live bot (`src/`) yet, not a finished strategy, not
+proof of any edge. Its self-tests (`python research/v2_signals.py`) use this repo's
+own `src/indicators.py` (sma/atr) rather than TA-Lib, matching this codebase's
+existing "no extra TA dependency needed" convention — swap was verified numerically
+equivalent (same Wilder-smoothing ATR, same plain rolling-mean SMA) before trusting it.
+
 ## The roster
 
 | Role | Owns | Responsibilities | Default model |
