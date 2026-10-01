@@ -11,3 +11,11 @@ logs/*.csv
 venv/
 .DS_Store
 KILL_SWITCH
+
+# strategy_pack_run: local backtest working copy
+strategy_pack_run/__pycache__/
+strategy_pack_run/data/
+strategy_pack_run/data_long/
+strategy_pack_run/*.md
+!strategy_pack_run/README.md
+!strategy_pack_run/REFERENCES.md
