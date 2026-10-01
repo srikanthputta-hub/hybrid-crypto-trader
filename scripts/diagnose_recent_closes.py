@@ -123,7 +123,15 @@ def main() -> None:
 
     print()
     print("=== close-time clustering (closes within 10 min of each other) ===")
-    timestamps = sorted((rec.get("symbol"), _parse_ts(rec.get("closed_at"))) for rec in trades)
+    # Sort by TIME first, symbol only as a tiebreaker -- sorting a (symbol, time) tuple
+    # the other way around sorts alphabetically by symbol first, which groups e.g. ADA
+    # next to ALGO regardless of when they actually closed. Caught this via a real run
+    # producing a "cluster" list in exact alphabetical order -- a tell that the grouping
+    # was keying off symbol name, not real time proximity.
+    timestamps = sorted(
+        ((rec.get("symbol"), _parse_ts(rec.get("closed_at"))) for rec in trades),
+        key=lambda pair: (pair[1] is None, pair[1], pair[0]),
+    )
     timestamps = [(s, t) for s, t in timestamps if t is not None]
     cluster: list[tuple[str, datetime]] = []
     clusters_found = 0
