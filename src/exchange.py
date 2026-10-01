@@ -43,8 +43,31 @@ class ExchangeClient:
         self.exchange_id = exchange_id
 
     def fetch_ohlcv_df(self, symbol: str, timeframe: str, limit: int) -> pd.DataFrame:
-        raw = self.client.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+        """Fetch up to `limit` genuinely CLOSED candles.
+
+        ccxt's fetch_ohlcv does not guarantee the most recent bar it returns has
+        actually closed — on most exchanges it's the still-forming current candle
+        if you call mid-period. This bot polls every 5 minutes against 1h candles
+        (see config/config.yaml), so on most cycles the naive last row would still
+        be forming, not decided. src/scanner.py's pattern detectors treat
+        df.iloc[-1] as "the current, decided candle", so a forming last row lets a
+        detected signal flicker in and out of existence as that candle's close
+        price moves ("repainting") and lets the bot act on a snapshot that
+        wouldn't have been true once the candle actually closed. To avoid that, we
+        over-fetch by one bar, drop any bar whose close time (open time +
+        timeframe duration) is still in the future relative to the exchange's own
+        clock, and only return bars that have truly closed. See
+        research/v2_signals.py::fetch_closed_ohlcv for the reference
+        implementation this mirrors (same exchange-clock approach, different
+        return shape — this method keeps its existing contract: a plain
+        DataFrame with `timestamp` holding each bar's OPEN time, not an index).
+        """
+        raw = self.client.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit + 1)
         df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        tf_ms = int(self.client.parse_timeframe(timeframe) * 1000)
+        close_ms = df["timestamp"] + tf_ms
+        df = df[close_ms <= self.client.milliseconds()]
+        df = df.iloc[-limit:].reset_index(drop=True)
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
         return df
 
