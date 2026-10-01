@@ -82,6 +82,11 @@ def compute_r(rec: dict) -> float | None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--history", default="logs/trade_plans_history.jsonl")
+    ap.add_argument(
+        "--detail",
+        action="store_true",
+        help="also print filled_at/fill_price/entry_zone/stop_loss/take_profit/close_price for every trade",
+    )
     a = ap.parse_args()
 
     trades = load_closed_trades(Path(a.history))
@@ -105,6 +110,23 @@ def main() -> None:
             f"{(f'{r:+.2f}' if r is not None else '?'):<7} "
             f"{plan.get('risk_reward', '?'):<6}"
         )
+
+    if a.detail:
+        print()
+        print("=== full plan/fill/close detail (for cross-referencing against real market data) ===")
+        for rec in trades:
+            plan = rec.get("plan") or {}
+            entry_zone = plan.get("entry_zone") or [None, None]
+            print(f"\n{rec.get('symbol', '?')} -- {plan.get('pattern', '?')} -- {rec.get('close_reason', '?')}")
+            print(f"  created_at:   {rec.get('created_at')}")
+            print(f"  filled_at:    {rec.get('filled_at')}")
+            print(f"  fill_price:   {rec.get('fill_price')}")
+            print(f"  entry_zone:   [{entry_zone[0]}, {entry_zone[1]}]")
+            print(f"  stop_loss:    {plan.get('stop_loss')}")
+            print(f"  take_profit:  {plan.get('take_profit')}")
+            print(f"  invalidation: {plan.get('invalidation')}")
+            print(f"  closed_at:    {rec.get('closed_at')}")
+            print(f"  close_price:  {rec.get('close_price')}")
 
     print()
     print("=== by pattern ===")
