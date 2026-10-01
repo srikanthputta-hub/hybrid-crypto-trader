@@ -92,8 +92,9 @@ def _detect_breakout(
 def _detect_pullback(df: pd.DataFrame, bounce_lookback: int, tolerance_pct: float) -> Candidate | None:
     current = df.iloc[-1]
     prev = df.iloc[-2]
+    prev2 = df.iloc[-3]
     recent = df.iloc[-bounce_lookback - 1 : -1]
-    if len(recent) < bounce_lookback:
+    if len(recent) < bounce_lookback or recent["volume"].mean() == 0:
         return None
 
     atr_val = current["atr"] if current["atr"] > 0 else current["close"] * 0.01
@@ -103,16 +104,28 @@ def _detect_pullback(df: pd.DataFrame, bounce_lookback: int, tolerance_pct: floa
     touched_fast_ema_from_above = recent["low"].min() <= current["ema_fast"] * (1 + tolerance_pct)
     touched_fast_ema_from_below = recent["high"].max() >= current["ema_fast"] * (1 - tolerance_pct)
 
-    bullish_bounce = current["close"] > prev["high"] and current["close"] > current["open"]
-    bearish_bounce = current["close"] < prev["low"] and current["close"] < current["open"]
+    volume_ok = current["volume"] >= recent["volume"].mean()
 
-    if uptrend and touched_fast_ema_from_above and bullish_bounce:
+    # Two-bar confirmation: `prev` must already show the same directional bounce
+    # shape (relative to its own prior bar, `prev2`) before `current` confirms/
+    # extends it — a single spike candle no longer qualifies on its own.
+    prev_bullish_bounce = prev["close"] > prev2["high"] and prev["close"] > prev["open"]
+    prev_bearish_bounce = prev["close"] < prev2["low"] and prev["close"] < prev["open"]
+
+    bullish_bounce = (
+        prev_bullish_bounce and current["close"] > prev["high"] and current["close"] > current["open"]
+    )
+    bearish_bounce = (
+        prev_bearish_bounce and current["close"] < prev["low"] and current["close"] < current["open"]
+    )
+
+    if uptrend and touched_fast_ema_from_above and bullish_bounce and volume_ok:
         strength = _clip01(0.5 + (current["close"] - current["ema_fast"]) / atr_val * 0.2)
         return Candidate(
             "PULLBACK", "bullish", strength,
             {"pullback_level": float(current["ema_fast"]), "atr": float(atr_val)},
         )
-    if downtrend and touched_fast_ema_from_below and bearish_bounce:
+    if downtrend and touched_fast_ema_from_below and bearish_bounce and volume_ok:
         strength = _clip01(0.5 + (current["ema_fast"] - current["close"]) / atr_val * 0.2)
         return Candidate(
             "PULLBACK", "bearish", strength,
