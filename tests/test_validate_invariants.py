@@ -330,6 +330,41 @@ class TestRiskConfigBounds:
                 assert not result.passed
                 assert "not in [0, 1]" in result.message
 
+    @pytest.mark.parametrize(
+        ("key", "bad_value", "expected"),
+        [
+            ("max_new_entries_per_window", 0, "not an integer >= 1"),
+            ("max_new_entries_per_window", 2.5, "not an integer >= 1"),
+            ("max_new_entries_per_window", True, "not an integer >= 1"),
+            ("new_entry_window_minutes", 0, "not a finite number > 0"),
+            ("new_entry_window_minutes", -60, "not a finite number > 0"),
+            ("new_entry_window_minutes", float("inf"), "not a finite number > 0"),
+            ("new_entry_window_minutes", 1e-12, "not a finite number > 0"),  # rounds to timedelta(0)
+            ("new_entry_window_minutes", 1e15, "not a finite number > 0"),  # overflows timedelta
+        ],
+    )
+    def test_risk_bounds_fail_if_new_entry_cap_out_of_range(self, key, bad_value, expected) -> None:
+        """Broken case: global new-entry rate cap keys out of range."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_file = Path(tmpdir) / "config.yaml"
+            risk = {
+                "max_position_pct": 0.1,
+                "max_total_exposure_pct": 0.4,
+                "max_loss_per_trade_pct": 0.01,
+                "max_daily_loss_pct": 0.05,
+                "max_volatility_pct": 0.08,
+                "min_risk_reward": 1.5,
+                key: bad_value,
+            }
+            with open(config_file, "w") as f:
+                yaml.dump({"mode": "paper", "risk": risk}, f)
+
+            with patch("scripts.validate_invariants.Path") as mock_path:
+                mock_path.return_value = config_file
+                result = check_risk_config_bounds()
+                assert not result.passed, result.message
+                assert key in result.message and expected in result.message
+
 
 class TestEnvExampleLiveConfirm:
     """Test invariant 5: .env.example documents LIVE_TRADING_CONFIRM."""
