@@ -31,6 +31,12 @@ def main():
     a = ap.parse_args()
 
     ex = ccxt.kraken({"enableRateLimit": True})
+    # ccxt's requests Session defaults to trust_env=False, so it ignores
+    # HTTP(S)_PROXY entirely unless told otherwise -- harmless on a plain
+    # machine with no proxy env vars set, but required in a sandboxed/proxied
+    # environment (the ccxt 'trust_env' constructor option doesn't actually
+    # propagate here due to an init-ordering quirk, so set it directly).
+    ex.session.trust_env = True
     ex.load_markets()
     tf_ms = int(ex.parse_timeframe(a.timeframe) * 1000)
     Path(a.out).mkdir(parents=True, exist_ok=True)
