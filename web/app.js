@@ -150,11 +150,16 @@ function renderOverview(data) {
       <div class="stat-value ${cls || ""}">${value}</div>
     </div>`;
   const pnlPct = portfolio.pnl_pct;
+  // Max Drawdown is a teaser for the fuller VaR/CVaR/significance breakdown
+  // in the Risk modal (see renderRiskModal) -- same relationship the
+  // Realized P/L tile here has to the full P/L modal.
+  const maxDrawdownPct = ((data.risk || {}).drawdown || {}).max_drawdown_pct;
   document.getElementById("overview-stats").innerHTML = [
     stat("Equity", portfolio.equity != null ? fmtMoney(portfolio.equity) : "—"),
     stat("Cash", portfolio.cash != null ? fmtMoney(portfolio.cash) : "—"),
     stat("P/L", pnlPct != null ? `${(pnlPct * 100).toFixed(2)}%` : "—", pnlClass(pnlPct)),
     stat("Realized P/L", fmtMoney(pnlSummary.total_realized_pnl), pnlClass(pnlSummary.total_realized_pnl)),
+    stat("Max Drawdown", maxDrawdownPct != null ? `${(maxDrawdownPct * 100).toFixed(2)}%` : "—", maxDrawdownPct > 0 ? "negative" : ""),
   ].join("");
 
   renderExposureBars(data.positions || [], portfolio.equity);
@@ -526,6 +531,112 @@ window.addEventListener("resize", () => {
   pnlChartInstance.applyOptions({ width: container.clientWidth });
 });
 
+// --- Risk modal: statistical validation on the bot's own realized trade
+// history (src/risk_analytics.py via data.risk) -- historical VaR/CVaR,
+// realized-equity drawdown, and a Monte Carlo win-rate significance test
+// against the strategy's own configured breakeven win rate. Opened from the
+// feed panel's Risk button. Deliberately a near-duplicate of the P/L modal's
+// structure (separate CSS/HTML/JS) rather than a shared component, same as
+// role-modal vs. pnl-modal -- keeps this addition from risking either of
+// the already-tested modals. --
+
+let lastRiskData = null;
+
+const RISK_VERDICT_LABEL = {
+  surprising: "Surprising",
+  plausible: "Plausible",
+  unremarkable: "Unremarkable",
+};
+
+function renderRiskModal(risk) {
+  const emptyEl = document.getElementById("risk-empty");
+  const contentEl = document.getElementById("risk-content");
+
+  const sampleSize = risk && risk.sample_size;
+  const minTrades = (risk && risk.min_trades_for_stats) || 5;
+  if (!risk || sampleSize < minTrades) {
+    contentEl.hidden = true;
+    emptyEl.hidden = false;
+    emptyEl.textContent = `Not enough closed trades yet for meaningful statistics (${sampleSize || 0}/${minTrades} minimum) — check back once a few more positions close.`;
+    return;
+  }
+  contentEl.hidden = false;
+  emptyEl.hidden = true;
+
+  const sig = risk.significance || {};
+  const sigEl = document.getElementById("risk-significance");
+  const verdict = sig.verdict || "unremarkable";
+  sigEl.className = `risk-significance-card verdict-${verdict}`;
+  const observedPct = sig.observed_win_rate != null ? `${(sig.observed_win_rate * 100).toFixed(0)}%` : "—";
+  const expectedPct = sig.expected_win_rate != null ? `${(sig.expected_win_rate * 100).toFixed(0)}%` : "—";
+  sigEl.innerHTML = `
+    <div class="risk-significance-headline verdict-${verdict}">${RISK_VERDICT_LABEL[verdict] || verdict} — ${sig.observed_wins ?? "—"}/${sig.sample_size ?? "—"} wins (${observedPct})</div>
+    <div class="risk-significance-detail">
+      The strategy's own breakeven win rate (from its configured risk:reward floor) is ${expectedPct}.
+      A Monte Carlo test against that bar gives this exact a win count a one-sided p-value of ${sig.p_value ?? "—"} —
+      ${
+        verdict === "surprising"
+          ? "rare enough under breakeven assumptions to be worth investigating, not just a run of bad luck."
+          : verdict === "plausible"
+          ? "on the edge of what breakeven assumptions would typically produce."
+          : "well within the range a breakeven strategy produces by chance on a sample this size."
+      }
+    </div>
+  `;
+
+  const stat = (label, value, cls) => `
+    <div class="stat-tile">
+      <div class="stat-label">${label}</div>
+      <div class="stat-value ${cls || ""}">${value}</div>
+    </div>`;
+  const pct = (v) => (v != null ? `${(v * 100).toFixed(2)}%` : "—");
+
+  const varCvar = risk.var_cvar || {};
+  document.getElementById("risk-var-cvar").innerHTML = ["95", "99"]
+    .filter((level) => varCvar[level])
+    .map((level) => {
+      const v = varCvar[level];
+      return [
+        stat(`VaR ${level}%`, pct(v.var_pct), pnlClass(v.var_pct)),
+        stat(`CVaR ${level}%`, pct(v.cvar_pct), pnlClass(v.cvar_pct)),
+      ].join("");
+    })
+    .join("") || '<div class="muted">Not enough trades for a tail estimate yet.</div>';
+
+  const dd = risk.drawdown || {};
+  document.getElementById("risk-drawdown").innerHTML = [
+    stat("Max Drawdown", dd.max_drawdown_pct != null ? pct(dd.max_drawdown_pct) : "—", dd.max_drawdown_pct > 0 ? "negative" : ""),
+    stat("Current Drawdown", dd.current_drawdown_pct != null ? pct(dd.current_drawdown_pct) : "—", dd.current_drawdown_pct > 0 ? "negative" : ""),
+    stat("Peak Equity", dd.peak_equity != null ? fmtMoney(dd.peak_equity) : "—"),
+    stat("Trough Equity", dd.trough_equity != null ? fmtMoney(dd.trough_equity) : "—"),
+  ].join("");
+}
+
+// Mirrors updatePnlData/initPnl's split -- the live-refresh poll calls this
+// every cycle, only re-rendering the modal body if it's actually open, so a
+// 30s poll never attaches duplicate listeners to the (listener-free) risk
+// modal content.
+function updateRiskData(risk) {
+  lastRiskData = risk || null;
+  const backdrop = document.getElementById("risk-modal-backdrop");
+  if (backdrop && !backdrop.hidden) renderRiskModal(lastRiskData);
+}
+
+function showRiskModal() {
+  document.getElementById("risk-modal-backdrop").hidden = false;
+  renderRiskModal(lastRiskData);
+}
+
+function hideRiskModal() {
+  document.getElementById("risk-modal-backdrop").hidden = true;
+}
+
+document.getElementById("risk-btn").addEventListener("click", showRiskModal);
+document.getElementById("risk-modal-close").addEventListener("click", hideRiskModal);
+document.getElementById("risk-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "risk-modal-backdrop") hideRiskModal();
+});
+
 // --- Live Market: one TradingView chart that follows whichever symbol is
 // picked from the dropdown or clicked in the feed's Active view. If that
 // symbol has an active plan, its entry/stop/target/invalidation levels are
@@ -833,6 +944,7 @@ async function main() {
   lastHistoryData = data.signal_history || [];
   renderHistoryFeed(lastHistoryData, historyPeriod);
   initPnl(data.pnl);
+  updateRiskData(data.risk);
 
   setInterval(refreshDashboard, LIVE_REFRESH_INTERVAL_MS);
 }
@@ -863,6 +975,7 @@ async function refreshDashboard() {
     lastHistoryData = data.signal_history || [];
     renderHistoryFeed(lastHistoryData, historyPeriod);
     updatePnlData(data.pnl);
+    updateRiskData(data.risk);
   } catch (err) {
     console.error("live refresh failed, will retry next interval:", err);
   } finally {
