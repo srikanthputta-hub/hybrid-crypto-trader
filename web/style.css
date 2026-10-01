@@ -519,6 +519,67 @@ header.topbar {
 .pnl-chart-container { width: 100%; height: 220px; }
 .pnl-empty { padding: 24px 0; text-align: center; }
 
+/* --- Risk modal: statistical validation on the bot's own realized trades
+   (VaR/CVaR, drawdown, win-rate significance) -- same near-duplicate shape
+   as .pnl-modal-*, kept separate rather than unified so a change here can
+   never risk the already-tested P/L modal. --- */
+.risk-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 9, 18, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 80;
+  padding: 16px;
+}
+.risk-modal-backdrop[hidden] { display: none; } /* see .pnl-modal-backdrop[hidden] above for why this is needed */
+.risk-modal {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 20px 22px;
+  box-shadow: 0 0 32px rgba(56,189,248,0.2);
+}
+.risk-modal-close {
+  position: absolute; top: 12px; right: 14px;
+  background: none; border: none; color: var(--muted);
+  font-size: 20px; line-height: 1; cursor: pointer;
+}
+.risk-modal-close:hover { color: var(--text); }
+.risk-modal-title { font-weight: 700; font-size: 15px; margin-bottom: 14px; padding-right: 20px; }
+.risk-empty { padding: 24px 0; text-align: center; }
+
+.risk-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; margin: 16px 0 8px; }
+.risk-section-title:first-of-type { margin-top: 0; }
+.risk-hint { text-transform: none; letter-spacing: normal; }
+
+/* The win-rate significance verdict -- the headline number in this modal --
+   gets its own card with a left accent bar colored by verdict, so "is this
+   losing streak actually meaningful" reads at a glance before the stat
+   tiles below it. */
+.risk-significance-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 4px;
+}
+.risk-significance-card.verdict-surprising { border-left-color: var(--red); }
+.risk-significance-card.verdict-plausible { border-left-color: #fbbf24; }
+.risk-significance-card.verdict-unremarkable { border-left-color: var(--green); }
+.risk-significance-headline { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+.risk-significance-headline.verdict-surprising { color: var(--red); }
+.risk-significance-headline.verdict-plausible { color: #fbbf24; }
+.risk-significance-headline.verdict-unremarkable { color: var(--green); }
+.risk-significance-detail { font-size: 12px; line-height: 1.5; color: var(--text); }
+
 .footer { text-align: center; padding: 24px; }
 
 @media (max-width: 640px) {
@@ -528,4 +589,5 @@ header.topbar {
   .gauge-wrap { align-self: center; }
   .pnl-modal { max-width: none; padding: 16px; }
   .pnl-chart-container { height: 180px; }
+  .risk-modal { max-width: none; padding: 16px; }
 }
