@@ -31,10 +31,19 @@ Plus the account-level guards from before: symbol whitelist, daily loss limit,
 per-symbol cooldown, and a kill switch file. Selling (closing an existing
 position) is never blocked by any of this — closing risk should always be
 possible, even during a kill switch or a daily-loss halt.
+
+Plus a GLOBAL new-entry rate cap: no more than max_new_entries_per_window new
+entries (across ALL symbols combined) may be approved within any rolling
+new_entry_window_minutes. cooldown_minutes only stops the *same* symbol from
+re-entering; this stops a burst of *different* symbols all triggering on the
+same market-wide move (one shared directional bet, not N independent edges)
+from being approved together. It only ever rejects a new entry — it never
+resizes one and never touches an open position.
 """
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -63,6 +72,8 @@ class RiskEngine:
         stop_loss_pct: float = 0.03,
         take_profit_pct: float = 0.06,
         volatility_scale_floor: float = 0.5,
+        max_new_entries_per_window: int = 5,
+        new_entry_window_minutes: float = 120,
     ) -> None:
         # A floor above 1.0 would *enlarge* positions in volatile markets, and a
         # negative/non-finite one is meaningless — refuse to start rather than guess.
@@ -71,6 +82,42 @@ class RiskEngine:
                 f"volatility_scale_floor must be a finite number in [0, 1], got {volatility_scale_floor!r}"
             )
         self.volatility_scale_floor = volatility_scale_floor
+
+        # Global new-entry rate cap. Same "refuse to start rather than guess" rule:
+        # a count below 1 would block every entry forever (or, if negative/fractional,
+        # make the comparison meaningless), and a zero/negative/non-finite window would
+        # make the cap never count anything. bool is rejected explicitly because it is
+        # an int subclass (True would silently mean "1").
+        if (
+            isinstance(max_new_entries_per_window, bool)
+            or not isinstance(max_new_entries_per_window, int)
+            or max_new_entries_per_window < 1
+        ):
+            raise ValueError(
+                f"max_new_entries_per_window must be an integer >= 1, got {max_new_entries_per_window!r}"
+            )
+        if (
+            isinstance(new_entry_window_minutes, bool)
+            or not isinstance(new_entry_window_minutes, (int, float))
+            or not math.isfinite(new_entry_window_minutes)
+            or new_entry_window_minutes <= 0
+        ):
+            raise ValueError(
+                f"new_entry_window_minutes must be a finite number > 0, got {new_entry_window_minutes!r}"
+            )
+        try:
+            # Built once here so an absurdly large window fails at startup, not mid-cycle.
+            self._new_entry_window = timedelta(minutes=new_entry_window_minutes)
+        except OverflowError as exc:
+            raise ValueError(f"new_entry_window_minutes is too large: {new_entry_window_minutes!r}") from exc
+        if self._new_entry_window <= timedelta(0):
+            # timedelta has microsecond resolution: a tiny positive value rounds to zero,
+            # which would make the cap silently count nothing.
+            raise ValueError(
+                f"new_entry_window_minutes is too small to represent: {new_entry_window_minutes!r}"
+            )
+        self.max_new_entries_per_window = max_new_entries_per_window
+        self.new_entry_window_minutes = new_entry_window_minutes
         self.starting_cash_usd = starting_cash_usd
         self.max_position_pct = max_position_pct
         self.max_total_exposure_pct = max_total_exposure_pct
@@ -87,6 +134,12 @@ class RiskEngine:
         self.take_profit_pct = take_profit_pct
 
         self._last_trade_time: dict[str, datetime] = {}
+        # Timestamps of the most recent new entries across ALL symbols, sorted
+        # ascending and truncated to the newest max_new_entries_per_window. That is
+        # all the cap needs: it is hit iff every one of the newest N entries is still
+        # inside the window (any older entry is older still), so the list stays
+        # bounded on a long-running host without any wall-clock-based pruning.
+        self._recent_entry_times: list[datetime] = []
         self._day_start_equity: float | None = None
         self._day_start_date = None
 
@@ -167,6 +220,20 @@ class RiskEngine:
                 remaining = timedelta(minutes=self.cooldown_minutes) - elapsed
                 return RiskDecision(False, f"cooldown active for {symbol}: {remaining} remaining")
 
+        # Global (all-symbol) new-entry rate cap. An entry counts while now - t < window
+        # (same boundary convention as the cooldown above). A timestamp later than `now`
+        # (clock step, out-of-order seed) yields a negative elapsed time and therefore
+        # still counts — on doubt, the slot stays taken.
+        in_window = [t for t in self._recent_entry_times if now - t < self._new_entry_window]
+        if len(in_window) >= self.max_new_entries_per_window:
+            next_slot_in = self._new_entry_window - (now - min(in_window))
+            return RiskDecision(
+                False,
+                f"new-entry rate cap hit: {len(in_window)} new entries already approved across all "
+                f"symbols in the last {self.new_entry_window_minutes:g} minutes "
+                f"(max {self.max_new_entries_per_window}); next slot opens in {next_slot_in}",
+            )
+
         if atr_pct is not None and atr_pct > self.max_volatility_pct:
             return RiskDecision(
                 False,
@@ -201,8 +268,54 @@ class RiskEngine:
             )
         return RiskDecision(True, "ok", max_quote_amount=spend)
 
-    def record_trade(self, symbol: str, now: datetime | None = None) -> None:
-        self._last_trade_time[symbol] = now or datetime.now(timezone.utc)
+    def record_trade(self, symbol: str, now: datetime | None = None, *, new_entry: bool = True) -> None:
+        """Record that a trade plan for `symbol` was accepted (starts its cooldown).
+
+        By default this also counts as one new entry toward the global
+        max_new_entries_per_window cap. Pass new_entry=False only when re-recording a
+        plan that was ALREADY counted when it was accepted (src/bot.py's deferred FILL
+        path), so one plan isn't counted twice. The default is to count: a caller that
+        forgets the flag over-counts (stricter), never under-counts.
+        """
+        ts = now or datetime.now(timezone.utc)
+        self._last_trade_time[symbol] = ts
+        if new_entry:
+            self._add_recent_entry(ts)
+
+    def seed_recent_entries(self, entry_times: Iterable[datetime | str | None], now: datetime | None = None) -> None:
+        """Restore the global new-entry window after a process restart.
+
+        The window lives in memory, so a restart (deploy, crash, systemd restart)
+        would otherwise forget entries approved minutes earlier and re-open every
+        slot. The caller passes the acceptance timestamps of plans it already knows
+        about (e.g. each active plan's created_at). This only affects the global
+        count, never per-symbol cooldowns. Fails closed: anything that isn't a
+        parseable, timezone-aware timestamp counts as an entry made right `now`, and
+        a timestamp in the future is clamped to `now` (so it holds a slot for exactly
+        one window, rather than indefinitely).
+        """
+        now = now or datetime.now(timezone.utc)
+        for raw in entry_times:
+            ts: datetime | None = None
+            if isinstance(raw, datetime):
+                ts = raw
+            elif isinstance(raw, str):
+                try:
+                    ts = datetime.fromisoformat(raw)
+                except ValueError:
+                    ts = None
+            if ts is None or ts.tzinfo is None or ts.utcoffset() is None:
+                ts = now
+            elif ts > now:
+                ts = now
+            self._add_recent_entry(ts)
+
+    def _add_recent_entry(self, ts: datetime) -> None:
+        # Append first: if sorting ever raised (e.g. a naive/aware datetime mix), the
+        # entry is still in the list and still counted — fail closed, not open.
+        self._recent_entry_times.append(ts)
+        self._recent_entry_times.sort()
+        del self._recent_entry_times[: -self.max_new_entries_per_window]
 
     def stop_loss_price(self, entry_price: float) -> float:
         return entry_price * (1 - self.stop_loss_pct)

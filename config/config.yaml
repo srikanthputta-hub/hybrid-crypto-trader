@@ -127,6 +127,22 @@ risk:
                                  # built-in default (0.5) is what's in effect until it does.
   min_risk_reward: 1.5           # reject any trade plan whose risk/reward is below this, even if the risk engine would otherwise size it
   cooldown_minutes: 60           # minimum time between new plans on the same symbol
+  max_new_entries_per_window: 5  # GLOBAL new-entry rate cap, across ALL symbols combined (cooldown_minutes above
+  new_entry_window_minutes: 120  # is per-symbol only): at most this many new plans accepted in any rolling window
+                                 # of this many minutes; anything beyond is rejected (never resized). Added after
+                                 # 2026-09-29, when 11 different symbols were entered between 11:10-12:47 UTC on one
+                                 # market-wide pullback (one correlated bet) and 9 stopped out together. 120 min
+                                 # spans that whole ~100-min burst. Backtested on strategy_pack_run/'s daily-bar
+                                 # harness (kraken_T3_taker) at several N: 3/120 cut 2y return 16.5%->-1.1% and
+                                 # dropped 2y from 3/5 gates to 1/5 (same-day multi-coin entries were on average
+                                 # the strategy's BETTER trades on daily bars there) -- too aggressive. 5/120 was
+                                 # the sweet spot tested: 2y return 16.5%->11.6% but gates improved to 4/5 (vs the
+                                 # uncapped original's 3/5), 11y still passes all 5 gates with return 358%->~280%
+                                 # ballpark. Still meaningfully caps a burst like 09-29's (11 simultaneous entries
+                                 # -> 5), just less aggressively than 3. Daily bars can't test the 1h/5-minute
+                                 # cadence this guards against, so still a risk-appetite choice informed by, not
+                                 # proven by, the backtest -- revisit if hourly backtest data ever becomes
+                                 # available. Must be an integer >= 1 / a number > 0.
   kill_switch_file: "KILL_SWITCH"  # if this file exists in the project root, refuse all new entries
 
 # Pipeline stage 4b — Claude's second opinion. Can only veto a plan the pipeline

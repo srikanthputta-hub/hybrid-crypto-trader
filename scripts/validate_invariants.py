@@ -147,6 +147,17 @@ def check_config_mode_is_paper() -> InvariantResult:
         return InvariantResult("config_mode_paper", False, f"FAIL: Unexpected error: {e}")
 
 
+def _window_representable(minutes: float) -> bool:
+    """Mirror of src/risk_engine.py's own check: the window must convert to a strictly
+    positive timedelta (not overflow, not round down to zero at microsecond resolution)."""
+    from datetime import timedelta
+
+    try:
+        return timedelta(minutes=minutes) > timedelta(0)
+    except OverflowError:
+        return False
+
+
 def check_risk_config_bounds() -> InvariantResult:
     """Verify risk config values are in valid ranges."""
     try:
@@ -190,6 +201,32 @@ def check_risk_config_bounds() -> InvariantResult:
                     "risk_config_bounds",
                     False,
                     f"FAIL: volatility_scale_floor = {vsf!r} is not in [0, 1]",
+                )
+
+        # Global new-entry rate cap (optional keys; src/risk_engine.py has defaults).
+        # RiskEngine refuses to construct on a bad value, which on the VM would mean a
+        # restart loop with no stop-losses being executed -- catch it in CI instead.
+        mne = risk_config.get("max_new_entries_per_window")
+        if mne is not None:
+            if isinstance(mne, bool) or not isinstance(mne, int) or mne < 1:
+                return InvariantResult(
+                    "risk_config_bounds",
+                    False,
+                    f"FAIL: max_new_entries_per_window = {mne!r} is not an integer >= 1",
+                )
+        new_win = risk_config.get("new_entry_window_minutes")
+        if new_win is not None:
+            if (
+                isinstance(new_win, bool)
+                or not isinstance(new_win, (int, float))
+                or not math.isfinite(new_win)
+                or new_win <= 0
+                or not _window_representable(new_win)
+            ):
+                return InvariantResult(
+                    "risk_config_bounds",
+                    False,
+                    f"FAIL: new_entry_window_minutes = {new_win!r} is not a finite number > 0",
                 )
 
         # Check min_risk_reward >= 1.0
