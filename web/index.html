@@ -81,6 +81,7 @@
     <aside class="col feed-col card" id="feed-col">
       <div class="panel-header">
         <h2>Live Signals Feed</h2>
+        <button type="button" class="pnl-btn" id="risk-btn">Risk</button>
         <button type="button" class="pnl-btn" id="pnl-btn">P/L</button>
         <button type="button" class="collapse-toggle" id="feed-collapse-toggle" title="Collapse" aria-label="Collapse Live Signals Feed panel" aria-expanded="true">▶</button>
       </div>
@@ -123,6 +124,21 @@
       </div>
       <div id="pnl-chart-container" class="pnl-chart-container"></div>
       <div id="pnl-empty" class="muted pnl-empty" hidden>No closed trades yet — realized P/L will show up here once a position closes (stop-loss or take-profit).</div>
+    </div>
+  </div>
+
+  <div id="risk-modal-backdrop" class="risk-modal-backdrop" hidden>
+    <div class="risk-modal">
+      <button id="risk-modal-close" class="risk-modal-close" aria-label="Close">×</button>
+      <div class="risk-modal-title">Risk &amp; Validation <span class="muted">— statistics on real trades, not a backtest</span></div>
+      <div id="risk-empty" class="muted risk-empty" hidden></div>
+      <div id="risk-content">
+        <div id="risk-significance" class="risk-significance-card"></div>
+        <div class="risk-section-title muted">Historical VaR / CVaR <span class="risk-hint">— worst-case trade return</span></div>
+        <div id="risk-var-cvar" class="stat-grid"></div>
+        <div class="risk-section-title muted">Drawdown <span class="risk-hint">— realized equity curve only</span></div>
+        <div id="risk-drawdown" class="stat-grid"></div>
+      </div>
     </div>
   </div>
 

@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.config import load_config
 from src.exchange import ExchangeClient
 from src.pnl import build_pnl_report
+from src.risk_analytics import build_risk_report
 from src.portfolio import reconstruct_cash
 from src.trade_plan_store import TradePlanStore
 
@@ -349,6 +350,7 @@ def main() -> None:
     trade_log_path = PROJECT_ROOT / log_cfg.get("trade_log_path", "logs/trades.csv")
     cash = reconstruct_cash(trade_log_path, cfg.risk["starting_cash_usd"])
     pnl_report = build_pnl_report(trade_log_path, now)
+    risk_report = build_risk_report(trade_log_path, cfg.risk["starting_cash_usd"], cfg.risk["min_risk_reward"], now)
 
     records = store.all_current()
 
@@ -417,6 +419,7 @@ def main() -> None:
         "signal_history": _signal_history(audit_events, now),
         "charts": charts,
         "pnl": pnl_report,
+        "risk": risk_report,
     }
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
