@@ -1,0 +1,124 @@
+{
+  "generated_at": "2026-10-01T13:37:00Z",
+  "source_branch": "claude/strategy-pack-backtest",
+  "methodology": "Long-only spot. Next-bar-open fills; fees + slippage charged on every fill, including stop exits (gap-aware: a gap below the stop fills at the open, not the stop price). BTC daily SMA(200) regime filter gates all entries for both strategies. ATR-chandelier trailing stop. Bootstrap 95% confidence interval on average R. Time-shift placebo: 200 simulations with the real signals circular-shifted to random dates, same prices and costs — reports what percentile the real result ranks at among the shuffled copies. Fixed 70/30 in-sample/out-of-sample split by date (not tuned to the split). strategies.py and engine.py (the strategy and backtest-engine code) were used exactly as supplied, unmodified, with no parameter tuned to produce these numbers.",
+  "verdict": "No strategy passed every required gate on either dataset. Neither trend_ensemble nor tsmom is a candidate for paper trading as-is — see the gates table for each strategy below for exactly which check(s) failed.",
+  "cost_presets": {
+    "paper_today_0.10%": "This bot's current paper-trading cost assumption (0.10% per fill)",
+    "kraken_T3_maker": "Kraken Tier 3 maker fee",
+    "kraken_T3_taker": "Kraken Tier 3 taker fee (gates table uses this preset)",
+    "kraken_T1_taker": "Kraken Tier 1 (lowest-volume) taker fee — the worst-case cost assumption"
+  },
+  "datasets": [
+    {
+      "id": "kraken_720",
+      "label": "Kraken (Data A)",
+      "source": "Kraken, via ccxt",
+      "symbols": 16,
+      "timeframe": "1d",
+      "window": "2025-04-30 to 2026-10-01",
+      "bars": 520,
+      "note": "~2 years of daily bars, the bot's current exchange"
+    },
+    {
+      "id": "long",
+      "label": "Coinbase Exchange (Data B)",
+      "source": "Coinbase Exchange, via ccxt (coinbaseexchange) — Kraken's own downloadable history and Binance (geo-blocked) were tried first and were not usable; see data_sources.md on the source branch",
+      "symbols": 16,
+      "timeframe": "1d",
+      "window": "2016-02-05 to 2026-10-01",
+      "bars": 3892,
+      "note": "Long multi-year history; each coin starts at its own real Coinbase listing date (2015-2025 depending on coin — BNB only has ~1yr, for example)"
+    }
+  ],
+  "strategies": {
+    "trend_ensemble": {
+      "label": "Donchian Breakout Ensemble",
+      "description": "Votes across multiple Donchian-channel breakout lookbacks; enters when enough of them agree, sized/trailed with ATR.",
+      "results": [
+        { "dataset": "kraken_720", "cost_preset": "paper_today_0.10%", "trades": 81, "win_rate_pct": 44.4, "avg_r": 0.29, "avg_r_ci": [0.05, 0.55], "profit_factor": 2.60, "return_pct": 18.3, "max_dd_pct": -8.3, "sharpe": 0.94, "exposure_pct": 14.8 },
+        { "dataset": "kraken_720", "cost_preset": "kraken_T3_maker", "trades": 81, "win_rate_pct": 44.4, "avg_r": 0.26, "avg_r_ci": [0.03, 0.52], "profit_factor": 2.43, "return_pct": 17.0, "max_dd_pct": -8.6, "sharpe": 0.88, "exposure_pct": 14.8 },
+        { "dataset": "kraken_720", "cost_preset": "kraken_T3_taker", "trades": 81, "win_rate_pct": 42.0, "avg_r": 0.24, "avg_r_ci": [0.01, 0.50], "profit_factor": 2.27, "return_pct": 15.7, "max_dd_pct": -8.9, "sharpe": 0.83, "exposure_pct": 14.8 },
+        { "dataset": "kraken_720", "cost_preset": "kraken_T1_taker", "trades": 81, "win_rate_pct": 42.0, "avg_r": 0.18, "avg_r_ci": [-0.05, 0.44], "profit_factor": 1.92, "return_pct": 12.6, "max_dd_pct": -9.7, "sharpe": 0.68, "exposure_pct": 14.8 },
+        { "dataset": "long", "cost_preset": "paper_today_0.10%", "trades": 683, "win_rate_pct": 34.8, "avg_r": 0.25, "avg_r_ci": [0.12, 0.39], "profit_factor": 1.60, "return_pct": 197.7, "max_dd_pct": -27.5, "sharpe": 0.72, "exposure_pct": 13.0 },
+        { "dataset": "long", "cost_preset": "kraken_T3_maker", "trades": 682, "win_rate_pct": 34.2, "avg_r": 0.23, "avg_r_ci": [0.10, 0.37], "profit_factor": 1.54, "return_pct": 174.5, "max_dd_pct": -29.0, "sharpe": 0.67, "exposure_pct": 13.0 },
+        { "dataset": "long", "cost_preset": "kraken_T3_taker", "trades": 682, "win_rate_pct": 33.7, "avg_r": 0.21, "avg_r_ci": [0.09, 0.35], "profit_factor": 1.49, "return_pct": 154.0, "max_dd_pct": -30.6, "sharpe": 0.62, "exposure_pct": 13.0 },
+        { "dataset": "long", "cost_preset": "kraken_T1_taker", "trades": 682, "win_rate_pct": 32.1, "avg_r": 0.17, "avg_r_ci": [0.05, 0.31], "profit_factor": 1.35, "return_pct": 107.3, "max_dd_pct": -34.5, "sharpe": 0.50, "exposure_pct": 13.0 }
+      ],
+      "benchmarks": {
+        "kraken_720": { "btc_buy_hold": { "return_pct": -11.4, "max_dd_pct": -53.1, "sharpe": 0.00 }, "equal_weight_buy_hold": { "return_pct": -28.9, "max_dd_pct": -68.5, "sharpe": -0.12 } },
+        "long": { "btc_buy_hold": { "return_pct": 21435.6, "max_dd_pct": -83.8, "sharpe": 1.09 }, "equal_weight_buy_hold": { "return_pct": 2736.2, "max_dd_pct": -85.4, "sharpe": 0.81 } }
+      },
+      "oos_split": {
+        "kraken_720": { "split_date": "2026-04-28", "cost_preset": "kraken_T3_taker", "first_70pct": { "trades": 70, "win_rate_pct": 32.9, "avg_r": 0.00 }, "last_30pct": { "trades": 11, "win_rate_pct": 100.0, "avg_r": 1.78 } },
+        "long": { "split_date": "2023-07-21", "cost_preset": "kraken_T3_taker", "first_70pct": { "trades": 407, "win_rate_pct": 37.6, "avg_r": 0.19 }, "last_30pct": { "trades": 275, "win_rate_pct": 28.0, "avg_r": 0.25 } }
+      },
+      "placebo": {
+        "kraken_720": { "sims": 200, "cost_preset": "kraken_T3_taker", "return_percentile": 92, "avg_r_percentile": 85 },
+        "long": { "sims": 200, "cost_preset": "kraken_T3_taker", "return_percentile": 97, "avg_r_percentile": 98 }
+      },
+      "gates": {
+        "kraken_720": {
+          "min_100_trades": "FAIL",
+          "avg_r_ci_low_gt_0": "PASS",
+          "later_30pct_avg_r_gt_0": "PASS",
+          "beats_placebo_90th_pct": "FAIL",
+          "net_return_and_sharpe_gt_buy_hold": "PASS",
+          "overall": "FAIL"
+        },
+        "long": {
+          "min_100_trades": "PASS",
+          "avg_r_ci_low_gt_0": "PASS",
+          "later_30pct_avg_r_gt_0": "PASS",
+          "beats_placebo_90th_pct": "PASS",
+          "net_return_and_sharpe_gt_buy_hold": "FAIL",
+          "overall": "FAIL"
+        }
+      }
+    },
+    "tsmom": {
+      "label": "Time-Series Momentum",
+      "description": "Enters in the direction of each symbol's own recent trailing return, sized/trailed with ATR.",
+      "results": [
+        { "dataset": "kraken_720", "cost_preset": "paper_today_0.10%", "trades": 109, "win_rate_pct": 60.6, "avg_r": 0.28, "avg_r_ci": [0.12, 0.46], "profit_factor": 2.56, "return_pct": 18.2, "max_dd_pct": -8.3, "sharpe": 0.92, "exposure_pct": 13.8 },
+        { "dataset": "kraken_720", "cost_preset": "kraken_T3_maker", "trades": 109, "win_rate_pct": 60.6, "avg_r": 0.26, "avg_r_ci": [0.10, 0.44], "profit_factor": 2.38, "return_pct": 16.6, "max_dd_pct": -8.8, "sharpe": 0.85, "exposure_pct": 13.8 },
+        { "dataset": "kraken_720", "cost_preset": "kraken_T3_taker", "trades": 109, "win_rate_pct": 59.6, "avg_r": 0.24, "avg_r_ci": [0.08, 0.41], "profit_factor": 2.22, "return_pct": 15.2, "max_dd_pct": -9.2, "sharpe": 0.79, "exposure_pct": 13.8 },
+        { "dataset": "kraken_720", "cost_preset": "kraken_T1_taker", "trades": 109, "win_rate_pct": 57.8, "avg_r": 0.18, "avg_r_ci": [0.02, 0.36], "profit_factor": 1.85, "return_pct": 11.4, "max_dd_pct": -10.4, "sharpe": 0.62, "exposure_pct": 13.8 },
+        { "dataset": "long", "cost_preset": "paper_today_0.10%", "trades": 815, "win_rate_pct": 42.7, "avg_r": 0.27, "avg_r_ci": [0.17, 0.39], "profit_factor": 1.95, "return_pct": 281.3, "max_dd_pct": -24.7, "sharpe": 0.89, "exposure_pct": 11.6 },
+        { "dataset": "long", "cost_preset": "kraken_T3_maker", "trades": 815, "win_rate_pct": 41.2, "avg_r": 0.25, "avg_r_ci": [0.15, 0.37], "profit_factor": 1.85, "return_pct": 245.5, "max_dd_pct": -25.2, "sharpe": 0.83, "exposure_pct": 11.6 },
+        { "dataset": "long", "cost_preset": "kraken_T3_taker", "trades": 815, "win_rate_pct": 39.8, "avg_r": 0.24, "avg_r_ci": [0.13, 0.36], "profit_factor": 1.75, "return_pct": 214.6, "max_dd_pct": -25.7, "sharpe": 0.77, "exposure_pct": 11.6 },
+        { "dataset": "long", "cost_preset": "kraken_T1_taker", "trades": 814, "win_rate_pct": 36.7, "avg_r": 0.19, "avg_r_ci": [0.09, 0.31], "profit_factor": 1.53, "return_pct": 145.7, "max_dd_pct": -26.9, "sharpe": 0.62, "exposure_pct": 11.6 }
+      ],
+      "benchmarks": {
+        "kraken_720": { "btc_buy_hold": { "return_pct": -11.4, "max_dd_pct": -53.1, "sharpe": 0.00 }, "equal_weight_buy_hold": { "return_pct": -28.9, "max_dd_pct": -68.5, "sharpe": -0.12 } },
+        "long": { "btc_buy_hold": { "return_pct": 21435.6, "max_dd_pct": -83.8, "sharpe": 1.09 }, "equal_weight_buy_hold": { "return_pct": 2736.2, "max_dd_pct": -85.4, "sharpe": 0.81 } }
+      },
+      "oos_split": {
+        "kraken_720": { "split_date": "2026-04-28", "cost_preset": "kraken_T3_taker", "first_70pct": { "trades": 88, "win_rate_pct": 54.5, "avg_r": 0.09 }, "last_30pct": { "trades": 21, "win_rate_pct": 81.0, "avg_r": 0.87 } },
+        "long": { "split_date": "2023-07-21", "cost_preset": "kraken_T3_taker", "first_70pct": { "trades": 488, "win_rate_pct": 43.0, "avg_r": 0.19 }, "last_30pct": { "trades": 327, "win_rate_pct": 34.9, "avg_r": 0.30 } }
+      },
+      "placebo": {
+        "kraken_720": { "sims": 200, "cost_preset": "kraken_T3_taker", "return_percentile": 96, "avg_r_percentile": 88 },
+        "long": { "sims": 200, "cost_preset": "kraken_T3_taker", "return_percentile": 100, "avg_r_percentile": 100 }
+      },
+      "gates": {
+        "kraken_720": {
+          "min_100_trades": "PASS",
+          "avg_r_ci_low_gt_0": "PASS",
+          "later_30pct_avg_r_gt_0": "PASS",
+          "beats_placebo_90th_pct": "FAIL",
+          "net_return_and_sharpe_gt_buy_hold": "PASS",
+          "overall": "FAIL"
+        },
+        "long": {
+          "min_100_trades": "PASS",
+          "avg_r_ci_low_gt_0": "PASS",
+          "later_30pct_avg_r_gt_0": "PASS",
+          "beats_placebo_90th_pct": "PASS",
+          "net_return_and_sharpe_gt_buy_hold": "FAIL",
+          "overall": "FAIL"
+        }
+      }
+    }
+  }
+}

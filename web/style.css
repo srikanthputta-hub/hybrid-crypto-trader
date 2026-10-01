@@ -582,6 +582,62 @@ header.topbar {
 
 .footer { text-align: center; padding: 24px; }
 
+/* --- Testing (backtest) modal: reuses .risk-modal-backdrop/.risk-modal for
+   the overlay/card chrome, but needs a lot more room than the Risk modal --
+   it's a whole report (per-strategy, per-dataset, per-cost-preset table
+   plus a gates grid), not a handful of stat tiles. Backtest data is a
+   static snapshot (see scripts/backtest_summary.json), not live-refreshed
+   like .risk-modal's data, so nothing here needs a 30s-poll re-render path. --- */
+.backtest-modal { max-width: 920px; }
+.backtest-methodology {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+.backtest-datasets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.backtest-dataset-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.backtest-dataset-card .backtest-dataset-label { font-weight: 700; font-size: 12px; margin-bottom: 2px; }
+.backtest-dataset-card .muted { font-size: 11px; }
+
+.backtest-strategy { margin-top: 18px; }
+.backtest-strategy-header { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+.backtest-strategy-desc { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+
+.backtest-table-wrap { overflow-x: auto; margin-bottom: 12px; }
+.backtest-table { width: 100%; border-collapse: collapse; font-size: 11.5px; white-space: nowrap; }
+.backtest-table th, .backtest-table td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--border); }
+.backtest-table th:first-child, .backtest-table td:first-child { text-align: left; }
+.backtest-table th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.03em; }
+.backtest-table td.positive { color: var(--green); }
+.backtest-table td.negative { color: var(--red); }
+.backtest-table tr.backtest-row-divider td { border-top: 1px dashed var(--border); }
+
+.backtest-gates-wrap { overflow-x: auto; }
+.backtest-gates-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.backtest-gates-table th, .backtest-gates-table td { padding: 6px 8px; text-align: center; border-bottom: 1px solid var(--border); }
+.backtest-gates-table th:first-child, .backtest-gates-table td:first-child { text-align: left; }
+.backtest-gates-table th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.02em; }
+.backtest-gate-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.02em; }
+.backtest-gate-badge.pass { background: rgba(34,197,94,0.15); color: var(--green); }
+.backtest-gate-badge.fail { background: rgba(248,113,113,0.15); color: var(--red); }
+
 @media (max-width: 640px) {
   #chart-container { height: 260px; }
   .symbol-dropdown-list { min-width: 170px; }
@@ -590,4 +646,5 @@ header.topbar {
   .pnl-modal { max-width: none; padding: 16px; }
   .pnl-chart-container { height: 180px; }
   .risk-modal { max-width: none; padding: 16px; }
+  .backtest-modal { max-width: none; padding: 16px; }
 }

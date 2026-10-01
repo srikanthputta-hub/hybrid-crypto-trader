@@ -637,6 +637,159 @@ document.getElementById("risk-modal-backdrop").addEventListener("click", (e) => 
   if (e.target.id === "risk-modal-backdrop") hideRiskModal();
 });
 
+// --- Testing (backtest) modal -------------------------------------------
+// Shows the offline strategy-backtest report (src.backtest_summary.json via
+// data.backtest, see scripts/export_dashboard_data.py) -- a static snapshot
+// from the last time the strategy_pack_run backtest pack was actually run,
+// not a live/continuously-updated figure like Risk or P/L. Reuses the
+// .risk-modal-backdrop/.risk-modal chrome (see .backtest-modal in
+// style.css) rather than inventing new overlay plumbing.
+
+let lastBacktestData = null;
+
+function fmtPct(v, digits = 1) {
+  return v != null ? `${v > 0 ? "+" : ""}${v.toFixed(digits)}%` : "—";
+}
+function fmtNum(v, digits = 2) {
+  return v != null ? v.toFixed(digits) : "—";
+}
+function pctClass(v) {
+  return v > 0 ? "positive" : v < 0 ? "negative" : "";
+}
+function gateBadge(verdict) {
+  const v = (verdict || "").toUpperCase();
+  const cls = v === "PASS" ? "pass" : "fail";
+  return `<span class="backtest-gate-badge ${cls}">${v || "—"}</span>`;
+}
+
+const GATE_LABELS = {
+  min_100_trades: "≥100 trades",
+  avg_r_ci_low_gt_0: "Avg R CI low > 0",
+  later_30pct_avg_r_gt_0: "Later 30% avg R > 0",
+  beats_placebo_90th_pct: "Beats placebo ≥90th pct",
+  net_return_and_sharpe_gt_buy_hold: "Return > 0 & Sharpe > buy&hold",
+};
+
+function renderBacktestStrategy(key, strat, datasetsById) {
+  const rows = (strat.results || [])
+    .map((r, i) => {
+      const prevDataset = i > 0 ? strat.results[i - 1].dataset : null;
+      const dividerCls = prevDataset && prevDataset !== r.dataset ? "backtest-row-divider" : "";
+      const ds = datasetsById[r.dataset];
+      const ciLabel = r.avg_r_ci ? `[${fmtNum(r.avg_r_ci[0])}, ${fmtNum(r.avg_r_ci[1])}]` : "—";
+      return `
+        <tr class="${dividerCls}">
+          <td>${(ds && ds.label) || r.dataset}</td>
+          <td>${r.cost_preset}</td>
+          <td>${r.trades ?? "—"}</td>
+          <td>${fmtPct(r.win_rate_pct)}</td>
+          <td>${fmtNum(r.avg_r)}</td>
+          <td>${ciLabel}</td>
+          <td>${fmtNum(r.profit_factor)}</td>
+          <td class="${pctClass(r.return_pct)}">${fmtPct(r.return_pct)}</td>
+          <td class="negative">${fmtPct(r.max_dd_pct)}</td>
+          <td>${fmtNum(r.sharpe)}</td>
+          <td>${fmtPct(r.exposure_pct)}</td>
+        </tr>`;
+    })
+    .join("");
+
+  const gateRows = Object.entries(strat.gates || {})
+    .map(([datasetId, gates]) => {
+      const ds = datasetsById[datasetId];
+      const cells = Object.keys(GATE_LABELS)
+        .map((g) => `<td>${gateBadge(gates[g])}</td>`)
+        .join("");
+      return `<tr><td>${(ds && ds.label) || datasetId}</td>${cells}<td>${gateBadge(gates.overall)}</td></tr>`;
+    })
+    .join("");
+  const gateHeaderCells = Object.values(GATE_LABELS).map((l) => `<th>${l}</th>`).join("");
+
+  return `
+    <div class="backtest-strategy">
+      <div class="backtest-strategy-header">${strat.label || key}</div>
+      <div class="backtest-strategy-desc">${strat.description || ""}</div>
+      <div class="backtest-table-wrap">
+        <table class="backtest-table">
+          <thead><tr>
+            <th>Dataset</th><th>Costs</th><th>Trades</th><th>Win %</th><th>Avg R</th>
+            <th>Avg R 95% CI</th><th>PF</th><th>Return</th><th>Max DD</th><th>Sharpe</th><th>Exposure</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="backtest-gates-wrap">
+        <table class="backtest-gates-table">
+          <thead><tr><th>Dataset</th>${gateHeaderCells}<th>Overall</th></tr></thead>
+          <tbody>${gateRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function renderBacktestModal(backtest) {
+  const emptyEl = document.getElementById("backtest-empty");
+  const contentEl = document.getElementById("backtest-content");
+
+  if (!backtest || !backtest.strategies) {
+    contentEl.hidden = true;
+    emptyEl.hidden = false;
+    emptyEl.textContent = "No backtest results available yet.";
+    return;
+  }
+  contentEl.hidden = false;
+  emptyEl.hidden = true;
+
+  document.getElementById("backtest-methodology").textContent = backtest.methodology || "";
+
+  const overallFail = Object.values(backtest.strategies).some((s) =>
+    Object.values(s.gates || {}).some((g) => g.overall === "FAIL")
+  );
+  const verdictEl = document.getElementById("backtest-verdict");
+  verdictEl.className = `risk-significance-card verdict-${overallFail ? "surprising" : "unremarkable"}`;
+  verdictEl.innerHTML = `<div class="risk-significance-headline verdict-${overallFail ? "surprising" : "unremarkable"}">${
+    overallFail ? "Not cleared for paper trading" : "Cleared every gate"
+  }</div><div class="risk-significance-detail">${backtest.verdict || ""}</div>`;
+
+  const datasetsById = {};
+  (backtest.datasets || []).forEach((d) => (datasetsById[d.id] = d));
+  document.getElementById("backtest-datasets").innerHTML = (backtest.datasets || [])
+    .map(
+      (d) => `
+        <div class="backtest-dataset-card">
+          <div class="backtest-dataset-label">${d.label}</div>
+          <div class="muted">${d.source}</div>
+          <div class="muted">${d.symbols} symbols · ${d.bars} ${d.timeframe} bars · ${d.window}</div>
+        </div>`
+    )
+    .join("");
+
+  document.getElementById("backtest-strategies").innerHTML = Object.entries(backtest.strategies)
+    .map(([key, strat]) => renderBacktestStrategy(key, strat, datasetsById))
+    .join("");
+}
+
+function updateBacktestData(backtest) {
+  lastBacktestData = backtest || null;
+  const backdrop = document.getElementById("backtest-modal-backdrop");
+  if (backdrop && !backdrop.hidden) renderBacktestModal(lastBacktestData);
+}
+
+function showBacktestModal() {
+  document.getElementById("backtest-modal-backdrop").hidden = false;
+  renderBacktestModal(lastBacktestData);
+}
+
+function hideBacktestModal() {
+  document.getElementById("backtest-modal-backdrop").hidden = true;
+}
+
+document.getElementById("backtest-btn").addEventListener("click", showBacktestModal);
+document.getElementById("backtest-modal-close").addEventListener("click", hideBacktestModal);
+document.getElementById("backtest-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "backtest-modal-backdrop") hideBacktestModal();
+});
+
 // --- Live Market: one TradingView chart that follows whichever symbol is
 // picked from the dropdown or clicked in the feed's Active view. If that
 // symbol has an active plan, its entry/stop/target/invalidation levels are
@@ -945,6 +1098,7 @@ async function main() {
   renderHistoryFeed(lastHistoryData, historyPeriod);
   initPnl(data.pnl);
   updateRiskData(data.risk);
+  updateBacktestData(data.backtest);
 
   setInterval(refreshDashboard, LIVE_REFRESH_INTERVAL_MS);
 }
@@ -976,6 +1130,7 @@ async function refreshDashboard() {
     renderHistoryFeed(lastHistoryData, historyPeriod);
     updatePnlData(data.pnl);
     updateRiskData(data.risk);
+    updateBacktestData(data.backtest);
   } catch (err) {
     console.error("live refresh failed, will retry next interval:", err);
   } finally {
