@@ -81,6 +81,7 @@
     <aside class="col feed-col card" id="feed-col">
       <div class="panel-header">
         <h2>Live Signals Feed</h2>
+        <button type="button" class="pnl-btn" id="backtest-btn">Testing</button>
         <button type="button" class="pnl-btn" id="risk-btn">Risk</button>
         <button type="button" class="pnl-btn" id="pnl-btn">P/L</button>
         <button type="button" class="collapse-toggle" id="feed-collapse-toggle" title="Collapse" aria-label="Collapse Live Signals Feed panel" aria-expanded="true">▶</button>
@@ -138,6 +139,20 @@
         <div id="risk-var-cvar" class="stat-grid"></div>
         <div class="risk-section-title muted">Drawdown <span class="risk-hint">— realized equity curve only</span></div>
         <div id="risk-drawdown" class="stat-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="backtest-modal-backdrop" class="risk-modal-backdrop" hidden>
+    <div class="risk-modal backtest-modal">
+      <button id="backtest-modal-close" class="risk-modal-close" aria-label="Close">×</button>
+      <div class="risk-modal-title">Strategy Testing <span class="muted">— offline backtests, not live trades</span></div>
+      <div id="backtest-empty" class="muted risk-empty" hidden></div>
+      <div id="backtest-content" hidden>
+        <div id="backtest-methodology" class="backtest-methodology"></div>
+        <div id="backtest-verdict" class="risk-significance-card"></div>
+        <div id="backtest-datasets" class="backtest-datasets"></div>
+        <div id="backtest-strategies"></div>
       </div>
     </div>
   </div>

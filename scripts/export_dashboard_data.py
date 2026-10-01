@@ -40,6 +40,25 @@ from src.trade_plan_store import TradePlanStore
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUT_PATH = PROJECT_ROOT / "web" / "data.json"
+BACKTEST_SUMMARY_PATH = PROJECT_ROOT / "scripts" / "backtest_summary.json"
+
+
+def _load_backtest_summary() -> dict[str, Any] | None:
+    """The "Testing" dashboard panel shows strategy-backtest results (see
+    the strategy_pack_run work, branch claude/strategy-pack-backtest) --
+    these only change when a new backtest is actually run, not every cycle
+    like the rest of this export, so they live in a small checked-in JSON
+    file rather than being recomputed here. Re-run the backtest pack and
+    overwrite scripts/backtest_summary.json by hand to update this panel;
+    every regeneration of web/data.json re-attaches whatever's currently in
+    that file, so it survives the normal automated dashboard refresh."""
+    if not BACKTEST_SUMMARY_PATH.exists():
+        return None
+    try:
+        return json.loads(BACKTEST_SUMMARY_PATH.read_text())
+    except Exception as exc:  # noqa: BLE001 — a bad summary file shouldn't break the live export
+        print(f"warning: couldn't read {BACKTEST_SUMMARY_PATH}, Testing panel will show empty: {exc}", file=sys.stderr)
+        return None
 
 # Which audit-event key marks each role as "working" this cycle, and a short
 # label for the dashboard's office view. Order here is left-to-right/desk order.
@@ -420,6 +439,7 @@ def main() -> None:
         "charts": charts,
         "pnl": pnl_report,
         "risk": risk_report,
+        "backtest": _load_backtest_summary(),
     }
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
