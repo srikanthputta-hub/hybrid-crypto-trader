@@ -133,6 +133,7 @@ _REASON_CATEGORIES: tuple[tuple[str, str], ...] = (
     ("symbol whitelist", "symbol_whitelist"),
     ("daily loss limit", "daily_loss_limit"),
     ("cooldown active", "cooldown"),
+    ("new-entry rate cap", "new_entry_rate_cap"),
     ("market volatility too high", "volatility"),
     ("risk/reward", "min_risk_reward"),
     ("no room left to size", "no_sizing_room"),

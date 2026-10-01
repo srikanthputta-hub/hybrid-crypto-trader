@@ -240,3 +240,222 @@ def test_nonsensical_volatility_scale_floor_is_rejected(tmp_path, bad_floor):
     # Refuse to construct the engine rather than guess.
     with pytest.raises(ValueError):
         _vol_engine(tmp_path, volatility_scale_floor=bad_floor)
+
+
+# --- global new-entry rate cap (correlated-burst guard) ---
+#
+# Motivating incident (2026-09-29, live paper bot): 11 different symbols were approved
+# for new long entries between 11:10 and 12:47 UTC on one market-wide pullback signal,
+# then 9 were stopped out together a few hours later. cooldown_minutes is per-symbol and
+# cannot see that; this cap counts new entries across ALL symbols in a rolling window.
+
+CAP_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "ADA/USDT", "DOT/USDT", "AVAX/USDT"]
+T0 = datetime(2026, 9, 29, 11, 10, tzinfo=timezone.utc)
+
+
+def _cap_engine(tmp_path, **overrides):
+    params = dict(symbol_whitelist=CAP_SYMBOLS, max_new_entries_per_window=3, new_entry_window_minutes=120)
+    params.update(overrides)
+    return make_engine(tmp_path, **params)
+
+
+def _buy(engine, symbol, now):
+    return engine.check_new_trade(symbol, "buy", portfolio_equity=10000, cash_available=10000, now=now)
+
+
+def _approve_and_record(engine, symbol, now):
+    decision = _buy(engine, symbol, now)
+    if decision.allowed:
+        engine.record_trade(symbol, now=now)
+    return decision
+
+
+def test_entry_beyond_global_cap_within_window_is_rejected(tmp_path):
+    # Three DIFFERENT symbols accepted within 20 minutes; a fourth, never-traded symbol
+    # (so no per-symbol cooldown applies) must be rejected by the global cap.
+    engine = _cap_engine(tmp_path)
+    for i, sym in enumerate(["BTC/USDT", "ETH/USDT", "SOL/USDT"]):
+        engine.record_trade(sym, now=T0 + timedelta(minutes=10 * i))
+    decision = _buy(engine, "ADA/USDT", T0 + timedelta(minutes=30))
+    assert not decision.allowed
+    assert decision.max_quote_amount is None
+    assert "new-entry rate cap" in decision.reason
+    assert "3 new entries" in decision.reason
+    assert "last 120 minutes" in decision.reason
+    assert "max 3" in decision.reason
+    # oldest entry was at T0, window is 120 min, now is T0+30 -> next slot in 90 minutes
+    assert "next slot opens in 1:30:00" in decision.reason
+
+
+def test_entries_below_global_cap_are_all_approved(tmp_path):
+    engine = _cap_engine(tmp_path)
+    decisions = [
+        _approve_and_record(engine, sym, T0 + timedelta(minutes=i))
+        for i, sym in enumerate(["BTC/USDT", "ETH/USDT", "SOL/USDT"])
+    ]
+    assert all(d.allowed for d in decisions), [d.reason for d in decisions]
+    assert all(d.max_quote_amount and d.max_quote_amount > 0 for d in decisions)
+    # ...and the very next distinct symbol is the first one refused.
+    fourth = _approve_and_record(engine, "ADA/USDT", T0 + timedelta(minutes=3))
+    assert not fourth.allowed
+    assert "new-entry rate cap" in fourth.reason
+
+
+def test_replays_the_2026_09_29_burst(tmp_path):
+    # The actual live entry times from the incident (minutes after 11:10 UTC). With
+    # N=3 per 120 min only the first three are approved; the rest are refused.
+    offsets = {"AVAX/USDT": 0, "ETH/USDT": 23, "ALGO/USDT": 28, "ADA/USDT": 34, "DOT/USDT": 34,
+               "ATOM/USDT": 74, "XTZ/USDT": 74, "SHIB/USDT": 74, "XRP/USDT": 97, "SOL/USDT": 97,
+               "DOGE/USDT": 97}
+    engine = _cap_engine(tmp_path, symbol_whitelist=list(offsets))
+    approved = [sym for sym, m in offsets.items()
+                if _approve_and_record(engine, sym, T0 + timedelta(minutes=m)).allowed]
+    assert approved == ["AVAX/USDT", "ETH/USDT", "ALGO/USDT"]
+
+
+def test_entry_is_approved_again_once_window_has_passed(tmp_path):
+    engine = _cap_engine(tmp_path)
+    for i, sym in enumerate(["BTC/USDT", "ETH/USDT", "SOL/USDT"]):
+        engine.record_trade(sym, now=T0 + timedelta(minutes=10 * i))
+    # One second before the oldest entry ages out: still capped.
+    assert not _buy(engine, "ADA/USDT", T0 + timedelta(minutes=120) - timedelta(seconds=1)).allowed
+    # Exactly when the oldest entry is a full window old it no longer counts
+    # (same `elapsed < window` boundary as cooldown_minutes): one slot frees up.
+    assert _approve_and_record(engine, "ADA/USDT", T0 + timedelta(minutes=120)).allowed
+    # ...but only one slot: the 2nd/3rd original entries plus ADA fill the window again.
+    blocked = _buy(engine, "DOT/USDT", T0 + timedelta(minutes=121))
+    assert not blocked.allowed
+    assert "new-entry rate cap" in blocked.reason
+    # Long after everything has aged out, entries flow again.
+    assert _buy(engine, "DOT/USDT", T0 + timedelta(hours=6)).allowed
+
+
+def test_global_cap_never_blocks_sells(tmp_path):
+    engine = _cap_engine(tmp_path)
+    for i, sym in enumerate(["BTC/USDT", "ETH/USDT", "SOL/USDT"]):
+        engine.record_trade(sym, now=T0 + timedelta(minutes=i))
+    now = T0 + timedelta(minutes=5)
+    assert not _buy(engine, "ADA/USDT", now).allowed  # cap is active right now...
+    for sym in ["BTC/USDT", "ETH/USDT", "SOL/USDT", "ADA/USDT"]:
+        decision = engine.check_new_trade(sym, "sell", 10000, 0, now=now)
+        assert decision.allowed  # ...and closing any position is still always allowed
+        assert decision.reason == "ok"
+
+
+def test_checks_alone_do_not_consume_cap_slots(tmp_path):
+    # Only an ACCEPTED plan (record_trade) consumes a slot. An approval that is then
+    # vetoed downstream (e.g. by the Claude advisor) never reaches record_trade, so it
+    # must not eat into the cap.
+    engine = _cap_engine(tmp_path)
+    for i in range(10):
+        assert _buy(engine, CAP_SYMBOLS[i % len(CAP_SYMBOLS)], T0 + timedelta(seconds=i)).allowed
+
+
+def test_reapproving_a_fill_does_not_double_count(tmp_path):
+    # src/bot.py calls record_trade once when a plan is accepted and again when a
+    # deferred PENDING plan fills; the fill-time call passes new_entry=False so one
+    # plan only ever consumes one slot.
+    engine = _cap_engine(tmp_path)
+    engine.record_trade("BTC/USDT", now=T0)  # plan accepted
+    engine.record_trade("BTC/USDT", now=T0 + timedelta(minutes=5), new_entry=False)  # same plan fills
+    engine.record_trade("ETH/USDT", now=T0 + timedelta(minutes=6))
+    assert _buy(engine, "SOL/USDT", T0 + timedelta(minutes=7)).allowed  # 2 of 3 slots used
+    # The fill-time call still refreshes the per-symbol cooldown, exactly as before.
+    cooldown = _buy(engine, "BTC/USDT", T0 + timedelta(minutes=64))
+    assert not cooldown.allowed and "cooldown" in cooldown.reason
+
+
+def test_record_trade_counts_by_default(tmp_path):
+    # Fail-closed default: a caller that doesn't know about new_entry over-counts.
+    engine = _cap_engine(tmp_path, max_new_entries_per_window=1)
+    engine.record_trade("BTC/USDT", now=T0)
+    assert not _buy(engine, "ETH/USDT", T0 + timedelta(minutes=1)).allowed
+
+
+def test_future_dated_entry_still_holds_a_slot(tmp_path):
+    # A recorded time later than `now` (clock step / out-of-order data) must never be
+    # treated as "outside the window".
+    engine = _cap_engine(tmp_path, max_new_entries_per_window=1)
+    engine.record_trade("BTC/USDT", now=T0 + timedelta(hours=1))
+    decision = _buy(engine, "ETH/USDT", T0)
+    assert not decision.allowed
+    assert "new-entry rate cap" in decision.reason
+
+
+def test_out_of_order_records_keep_the_newest_entries(tmp_path):
+    engine = _cap_engine(tmp_path, max_new_entries_per_window=2)
+    engine.record_trade("BTC/USDT", now=T0 + timedelta(minutes=100))
+    engine.record_trade("ETH/USDT", now=T0 + timedelta(minutes=90))
+    engine.record_trade("SOL/USDT", now=T0 - timedelta(days=1))  # stale, recorded last
+    # The two recent entries must still both count; the stale one must not evict either.
+    assert not _buy(engine, "ADA/USDT", T0 + timedelta(minutes=101)).allowed
+
+
+def test_global_cap_defaults(tmp_path):
+    engine = make_engine(tmp_path)
+    assert engine.max_new_entries_per_window == 5
+    assert engine.new_entry_window_minutes == 120
+
+
+@pytest.mark.parametrize("bad_count", [0, -1, 2.5, 3.0, True, None, "3", float("nan")])
+def test_nonsensical_max_new_entries_per_window_is_rejected(tmp_path, bad_count):
+    with pytest.raises(ValueError):
+        _cap_engine(tmp_path, max_new_entries_per_window=bad_count)
+
+
+@pytest.mark.parametrize("bad_window", [0, -5, float("nan"), float("inf"), True, None, "120", 1e15,
+                                        1e-12])  # 1e-12 min rounds to timedelta(0) -> would silently disable the cap
+def test_nonsensical_new_entry_window_minutes_is_rejected(tmp_path, bad_window):
+    with pytest.raises(ValueError):
+        _cap_engine(tmp_path, new_entry_window_minutes=bad_window)
+
+
+def test_fractional_window_minutes_is_accepted(tmp_path):
+    engine = _cap_engine(tmp_path, max_new_entries_per_window=1, new_entry_window_minutes=0.5)
+    engine.record_trade("BTC/USDT", now=T0)
+    assert not _buy(engine, "ETH/USDT", T0 + timedelta(seconds=29)).allowed
+    assert _buy(engine, "ETH/USDT", T0 + timedelta(seconds=30)).allowed
+
+
+# --- restoring the window after a process restart ---
+
+def test_seeded_entries_block_like_recorded_ones(tmp_path):
+    engine = _cap_engine(tmp_path)
+    now = T0 + timedelta(minutes=30)
+    engine.seed_recent_entries(
+        [(T0 + timedelta(minutes=m)).isoformat() for m in (0, 10, 20)], now=now
+    )
+    decision = _buy(engine, "ADA/USDT", now)
+    assert not decision.allowed
+    assert "new-entry rate cap" in decision.reason
+
+
+def test_seeded_entries_outside_window_do_not_block(tmp_path):
+    engine = _cap_engine(tmp_path)
+    now = T0 + timedelta(days=2)
+    engine.seed_recent_entries([T0, T0 + timedelta(minutes=1), (T0 + timedelta(minutes=2)).isoformat()], now=now)
+    assert _buy(engine, "ADA/USDT", now).allowed
+
+
+def test_seeding_does_not_start_per_symbol_cooldowns(tmp_path):
+    engine = _cap_engine(tmp_path)
+    engine.seed_recent_entries([T0], now=T0)
+    assert _buy(engine, "BTC/USDT", T0 + timedelta(minutes=1)).allowed
+
+
+@pytest.mark.parametrize("garbage", [None, "", "not-a-timestamp", "2026-09-29T11:10:00", datetime(2026, 9, 29, 11, 10), 12345])
+def test_unparseable_or_naive_seed_counts_as_now(tmp_path, garbage):
+    # Fail closed: an entry whose time can't be trusted is treated as just made.
+    engine = _cap_engine(tmp_path, max_new_entries_per_window=1)
+    now = T0 + timedelta(days=30)
+    engine.seed_recent_entries([garbage], now=now)
+    assert not _buy(engine, "ETH/USDT", now + timedelta(minutes=119)).allowed
+    assert _buy(engine, "ETH/USDT", now + timedelta(minutes=120)).allowed
+
+
+def test_future_seed_is_clamped_to_now(tmp_path):
+    # A far-future created_at must hold a slot for one window from now, not forever.
+    engine = _cap_engine(tmp_path, max_new_entries_per_window=1)
+    engine.seed_recent_entries([datetime(2099, 1, 1, tzinfo=timezone.utc)], now=T0)
+    assert not _buy(engine, "ETH/USDT", T0 + timedelta(minutes=119)).allowed
+    assert _buy(engine, "ETH/USDT", T0 + timedelta(minutes=120)).allowed

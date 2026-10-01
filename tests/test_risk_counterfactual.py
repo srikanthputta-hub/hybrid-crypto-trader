@@ -333,6 +333,9 @@ def test_reason_categories_match_real_risk_engine_strings(tmp_path):
     e = engine()
     e.record_trade("BTC/USDT")
     reasons["cooldown"] = e.check_new_trade("BTC/USDT", "buy", **base).reason
+    e = engine(max_new_entries_per_window=1)
+    e.record_trade("ETH/USDT")  # a different symbol, so only the global cap (not cooldown) applies
+    reasons["new_entry_rate_cap"] = e.check_new_trade("BTC/USDT", "buy", **base).reason
     reasons["volatility"] = engine().check_new_trade("BTC/USDT", "buy", atr_pct=0.2, **base).reason
     reasons["min_risk_reward"] = engine().check_new_trade("BTC/USDT", "buy", risk_reward=1.0, **base).reason
     reasons["no_sizing_room"] = engine().check_new_trade(

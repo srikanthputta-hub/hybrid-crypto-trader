@@ -55,6 +55,13 @@ def build_components(cfg: Config):
         cooldown_minutes=risk_cfg["cooldown_minutes"],
         kill_switch_path=PROJECT_ROOT / risk_cfg.get("kill_switch_file", "KILL_SWITCH"),
         symbol_whitelist=cfg.symbols,
+        # Optional keys: only passed when present, so RiskEngine's own defaults (and its
+        # own bounds validation) stay the single source of truth when they're omitted.
+        **{
+            key: risk_cfg[key]
+            for key in ("max_new_entries_per_window", "new_entry_window_minutes")
+            if key in risk_cfg
+        },
     )
 
     log_cfg = cfg.logging_cfg
@@ -64,6 +71,11 @@ def build_components(cfg: Config):
         current_path=PROJECT_ROOT / log_cfg.get("trade_plan_current_path", "logs/trade_plans_current.json"),
         history_path=PROJECT_ROOT / log_cfg.get("trade_plan_history_path", "logs/trade_plans_history.jsonl"),
     )
+    # The risk engine's global new-entry window is in-memory; without this a restart
+    # (deploy, crash, systemd Restart=always) would forget entries accepted minutes ago
+    # and re-open every slot mid-burst. Every still-active plan's acceptance time is
+    # replayed into it (old ones simply fall outside the window and don't count).
+    risk_engine.seed_recent_entries(record.created_at for record in store.all_current().values())
 
     # Portfolio itself is in-memory only (see reconstruct_cash's docstring in
     # src/portfolio.py) -- rebuild it from what's actually happened so far
@@ -156,7 +168,10 @@ def _execute_monitor_action(action, record, broker, store, risk_engine, event) -
         quote_amount = record.plan["approved_quote_amount"]
         fill = broker.buy(action.symbol, quote_amount, action.price)
         store.mark_open(action.symbol, fill_price=fill.price, fill_amount=fill.base_amount)
-        risk_engine.record_trade(action.symbol)
+        # Refreshes the per-symbol cooldown as before. new_entry=False: this plan was
+        # already counted toward the global new-entry cap when it was accepted (the
+        # record_trade call in run_cycle), so its later fill must not count it twice.
+        risk_engine.record_trade(action.symbol, new_entry=False)
         event["execution"] = fill.__dict__
     elif action.action == "DISCARD":
         store.discard_pending(action.symbol, reason="invalidated", price=action.price)
@@ -316,7 +331,7 @@ def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfol
             plan_dict = dict(plan.__dict__)
             plan_dict["approved_quote_amount"] = decision.max_quote_amount
             store.set_pending(symbol, plan_dict, claude_verdict_dict)
-            risk_engine.record_trade(symbol)  # cooldown starts at planning time
+            risk_engine.record_trade(symbol)  # cooldown starts, and the global new-entry cap counts it, at planning time
             event["action"] = "planned"
 
             # If price is already inside the entry zone right now, don't wait
