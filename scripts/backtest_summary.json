@@ -210,6 +210,72 @@
       "config_value": 2.44,
       "promoted_at": null,
       "promoted_pr_url": null
+    },
+    {
+      "id": "trend-stop-atr-bonus-0p47-20261002-2259",
+      "tested_at": "2026-10-02T23:30:00Z",
+      "name": "trade_planner.trend_stop_atr_bonus = 0.47",
+      "description": "Parameter variant of the live strategy: widen the extra stop (ATR multiples) applied when ADX confirms a trend from 0.3 to 0.47 (hyperopt-chosen).",
+      "kind": "parameter_variant",
+      "based_on": "live_strategy",
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 529,
+      "win_rate_pct": 49.1,
+      "avg_r": 0.55,
+      "avg_r_ci": [
+        0.39,
+        0.71
+      ],
+      "return_pct": 387.3,
+      "max_dd_pct": -29.6,
+      "sharpe": 1.0,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "PASS",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "PASS"
+      },
+      "notes": "Chosen by hyperopt_param.optimize_live_bot_param (15 calls, bounds 0.0-1.0, train-split avg R objective on the long set; best 0.466 rounded to 0.47). The objective surface was flat/noisy (train avg R ~0.60-0.74 across the range; live 0.3 ~0.66), so this is a weak signal. Gated with fresh 200-sim placebo, 70/30 split. Long set: PASS 5/5. Baseline 0.3: 562 trades, avg R 0.52 [0.36,0.68], return 387%, Sharpe 1.00, maxDD -29.2%. 0.47: avg R 0.55, return 387%, Sharpe 1.00, maxDD -29.6% -- essentially a tie, small avg R gain only.",
+      "config_key": "trade_planner.trend_stop_atr_bonus",
+      "config_value": 0.47,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "trend-stop-atr-bonus-0p47-20261002-2259",
+      "tested_at": "2026-10-02T23:30:00Z",
+      "name": "trade_planner.trend_stop_atr_bonus = 0.47",
+      "description": "Parameter variant of the live strategy: widen the extra stop (ATR multiples) applied when ADX confirms a trend from 0.3 to 0.47 (hyperopt-chosen).",
+      "kind": "parameter_variant",
+      "based_on": "live_strategy",
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 143,
+      "win_rate_pct": 42.0,
+      "avg_r": 0.22,
+      "avg_r_ci": [
+        -0.06,
+        0.51
+      ],
+      "return_pct": 20.9,
+      "max_dd_pct": -26.5,
+      "sharpe": 0.64,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "PASS",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "FAIL"
+      },
+      "notes": "Chosen by hyperopt_param.optimize_live_bot_param (15 calls, bounds 0.0-1.0, train-split avg R objective on the long set; best 0.466 rounded to 0.47). The objective surface was flat/noisy (train avg R ~0.60-0.74 across the range; live 0.3 ~0.66), so this is a weak signal. Gated with fresh 200-sim placebo, 70/30 split. 2-year set: FAIL (4/5, avg R CI low -0.06 <0 -- same gate the live baseline also fails). Baseline 0.3: 154 trades, avg R 0.18, return 22.5%, Sharpe 0.68. 0.47: avg R 0.22, return 20.9%, Sharpe 0.64 -- no meaningful difference. Not promotion-eligible (needs PASS on both datasets); no evidence 0.47 beats the live 0.3.",
+      "config_key": "trade_planner.trend_stop_atr_bonus",
+      "config_value": 0.47,
+      "promoted_at": null,
+      "promoted_pr_url": null
     }
   ]
 }
