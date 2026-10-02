@@ -68,7 +68,7 @@ def build_plan(
     current_price: float,
     atr: float,
     entry_buffer_atr_mult: float = 0.1,
-    stop_atr_mult: float = 1.0,
+    stop_atr_mult: float = 1.5,
     invalidation_atr_mult: float = 0.5,
     min_risk_reward: float = 2.0,
     adx_trend_threshold: float = 25,
