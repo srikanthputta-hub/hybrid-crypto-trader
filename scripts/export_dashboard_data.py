@@ -79,6 +79,42 @@ RECENCY_WINDOW = timedelta(minutes=15)
 # window instead.
 BACKTESTER_RECENCY_WINDOW = timedelta(hours=6)
 
+# How long a FAILED candidate stays visible on the dashboard's "Failed" tab
+# before it's dropped from the export -- see _visible_candidates. This only
+# affects what web/data.json exposes; scripts/backtest_summary.json itself is
+# never touched, since the daily Backtester Routine still needs every past
+# candidate (pass or fail) on disk to avoid re-testing an already-tried
+# parameter (see candidates_schema / "append-only" in that file).
+FAILED_CANDIDATE_RETENTION_WINDOW = timedelta(hours=24)
+
+
+def _parse_iso(ts: str | None) -> datetime | None:
+    if not ts:
+        return None
+    try:
+        parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+    except ValueError:
+        return None
+
+
+def _visible_candidates(summary: dict[str, Any] | None, now: datetime) -> list[dict[str, Any]]:
+    """Dashboard-facing candidate list for the Testing modal's Passed/Failed
+    tabs: a FAILED candidate (gates.overall == "FAIL") older than
+    FAILED_CANDIDATE_RETENTION_WINDOW is dropped here, at export time only --
+    scripts/backtest_summary.json on disk is never modified, so the Routine's
+    own "don't retest an already-tried parameter" logic keeps seeing the full
+    history. A PASS candidate, or one with no gates verdict at all, is always
+    kept."""
+    visible = []
+    for c in (summary or {}).get("candidates") or []:
+        if (c.get("gates") or {}).get("overall") == "FAIL":
+            tested_at = _parse_iso(c.get("tested_at"))
+            if tested_at is not None and now - tested_at > FAILED_CANDIDATE_RETENTION_WINDOW:
+                continue
+        visible.append(c)
+    return visible
+
 
 def _read_audit_tail(path: Path, max_lines: int = 200_000) -> list[dict[str, Any]]:
     """`max_lines` is a safety ceiling against an unexpectedly huge audit log,
@@ -193,17 +229,8 @@ def _backtester_role(summary: dict[str, Any] | None, now: datetime) -> dict[str,
     latest_test = max(candidates, key=lambda c: c.get("tested_at") or "")
     latest_promotion = max(promoted_candidates, key=lambda c: c["promoted_at"]) if promoted_candidates else None
 
-    def _parse(ts: str | None) -> datetime | None:
-        if not ts:
-            return None
-        try:
-            parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
-        except ValueError:
-            return None
-
-    test_ts = _parse(latest_test.get("tested_at"))
-    promo_ts = _parse(latest_promotion["promoted_at"]) if latest_promotion else None
+    test_ts = _parse_iso(latest_test.get("tested_at"))
+    promo_ts = _parse_iso(latest_promotion["promoted_at"]) if latest_promotion else None
 
     if promo_ts is not None and (test_ts is None or promo_ts >= test_ts):
         last_active = latest_promotion["promoted_at"]
@@ -507,6 +534,16 @@ def main() -> None:
 
     equity = cash + sum((p["current_price"] or p["fill_price"] or 0) * (p["fill_amount"] or 0) for p in positions)
     backtest_summary = _load_backtest_summary()
+    # Role status (_role_statuses below) reads the raw summary -- the
+    # Backtester's working/idle state should reflect the latest test or
+    # promotion regardless of whether that candidate is still visible on the
+    # dashboard's Failed tab. Only the exported "backtest" payload itself gets
+    # the stale-FAILED filter applied, for the Testing modal's candidate list.
+    visible_backtest = (
+        {**backtest_summary, "candidates": _visible_candidates(backtest_summary, now)}
+        if backtest_summary
+        else None
+    )
 
     data = {
         "generated_at": now.isoformat(),
@@ -526,7 +563,7 @@ def main() -> None:
         "charts": charts,
         "pnl": pnl_report,
         "risk": risk_report,
-        "backtest": backtest_summary,
+        "backtest": visible_backtest,
     }
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
