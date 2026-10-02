@@ -149,15 +149,25 @@ risk:
                                  # market-wide pullback (one correlated bet) and 9 stopped out together. 120 min
                                  # spans that whole ~100-min burst. Backtested on strategy_pack_run/'s daily-bar
                                  # harness (kraken_T3_taker) at several N: 3/120 cut 2y return 16.5%->-1.1% and
-                                 # dropped 2y from 3/5 gates to 1/5 (same-day multi-coin entries were on average
-                                 # the strategy's BETTER trades on daily bars there) -- too aggressive. 5/120 was
-                                 # the sweet spot tested: 2y return 16.5%->11.6% but gates improved to 4/5 (vs the
-                                 # uncapped original's 3/5), 11y still passes all 5 gates with return 358%->~280%
-                                 # ballpark. Still meaningfully caps a burst like 09-29's (11 simultaneous entries
-                                 # -> 5), just less aggressively than 3. Daily bars can't test the 1h/5-minute
-                                 # cadence this guards against, so still a risk-appetite choice informed by, not
-                                 # proven by, the backtest -- revisit if hourly backtest data ever becomes
-                                 # available. Must be an integer >= 1 / a number > 0.
+                                 # dropped 2y gates from 3/5 to 1/5 (same-day multi-coin entries were on average
+                                 # the strategy's BETTER trades on daily bars there) -- too aggressive. 5/120 costs
+                                 # less: 2y return 16.5%->11.6%, gates roughly flat at 4/5 vs the uncapped
+                                 # original's 3/5 (the extra pass is the placebo gate moving from the 90th to the
+                                 # 91st percentile -- right at the threshold, noise-level, not a real improvement);
+                                 # 11y still passes all 5 gates, return 358%->311%.
+                                 # IMPORTANT CAVEAT: N=5 barely touches the actual DOLLAR exposure of a 09-29-style
+                                 # burst. max_position_pct=0.10 and max_total_exposure_pct=0.40 already cap full-
+                                 # size concurrent positions at 4, so a cap of 5 entries never actually limits
+                                 # full-size correlated exposure -- the existing exposure cap does that first.
+                                 # Replaying the real 09-29 entries, N=5 lets 5 of the 11 burst entries through;
+                                 # everything past the 4th was already a tiny ("dust") fill on scraps of exposure
+                                 # room. Treat this cap as a guard against an even larger, more extreme burst
+                                 # (e.g. 15-20+ simultaneous signals), NOT as the fix for 09-29's actual loss --
+                                 # that would need a lower max_total_exposure_pct or (more directly) a minimum
+                                 # order/notional size, neither of which exists yet. Daily bars also can't test
+                                 # the live 1h/5-minute cadence this guards against, so this remains a risk-
+                                 # appetite choice informed by, not proven by, the backtest -- revisit if hourly
+                                 # backtest data ever becomes available. Must be an integer >= 1 / a number > 0.
   kill_switch_file: "KILL_SWITCH"  # if this file exists in the project root, refuse all new entries
 
 # Pipeline stage 4b — Claude's second opinion. Can only veto a plan the pipeline
