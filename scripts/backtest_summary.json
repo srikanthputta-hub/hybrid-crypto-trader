@@ -138,7 +138,11 @@
     "max_dd_pct": "float",
     "sharpe": "float",
     "gates": "same 5-key PASS/FAIL dict as strategies.*.gates.<dataset>, plus overall",
-    "notes": "free text -- caveats, what was tried, why it did or did not work"
+    "notes": "free text -- caveats, what was tried, why it did or did not work",
+    "config_key": "REQUIRED for kind=parameter_variant: dotted path into config/config.yaml this candidate changes, e.g. 'trade_planner.stop_atr_mult'. null for kind=new_strategy (no mechanical promotion path exists for a from-scratch strategy -- it needs a human to wire it into src/ by hand).",
+    "config_value": "REQUIRED for kind=parameter_variant: the exact new value tested, same type as the live config key (e.g. 1.8). This is the value the auto-promotion step writes verbatim if the candidate passes -- it must be the literal tested value, not an approximation.",
+    "promoted_at": "null until auto-promoted; ISO8601 UTC timestamp set by the Routine's promotion phase the day it applied this candidate's config_key/config_value to config/config.yaml. Once set, this candidate is never promoted again (idempotency guard).",
+    "promoted_pr_url": "null until promoted_at is set; the GitHub PR URL that made the config.yaml change."
   },
   "candidates": []
 }
