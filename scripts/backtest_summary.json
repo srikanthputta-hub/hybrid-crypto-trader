@@ -144,5 +144,72 @@
     "promoted_at": "null until auto-promoted; ISO8601 UTC timestamp set by the Routine's promotion phase the day it applied this candidate's config_key/config_value to config/config.yaml. Once set, this candidate is never promoted again (idempotency guard).",
     "promoted_pr_url": "null until promoted_at is set; the GitHub PR URL that made the config.yaml change."
   },
-  "candidates": []
+  "candidates": [
+    {
+      "id": "min-risk-reward-2p44-20261002",
+      "tested_at": "2026-10-02T16:00:00Z",
+      "name": "trade_planner.min_risk_reward = 2.44",
+      "description": "Parameter variant of the live strategy: raise the planner's take-profit R:R target from 2.0 to 2.44 (hyperopt-chosen). Wider targets win less often but bigger.",
+      "kind": "parameter_variant",
+      "based_on": "live_strategy",
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 496,
+      "win_rate_pct": 42.9,
+      "avg_r": 0.6,
+      "avg_r_ci": [
+        0.41,
+        0.79
+      ],
+      "return_pct": 473.7,
+      "max_dd_pct": -32.8,
+      "sharpe": 1.05,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "PASS",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "PASS"
+      },
+      "notes": "Chosen by strategy_pack_run/hyperopt_param.optimize_live_bot_param (15 calls, bounds 1.5-3.0, train-split avg R objective on the long dataset; best 2.435 rounded to 2.44, train avg R 0.805 vs ~0.59 at 2.0). Gated with fresh 200-sim placebo, 70/30 split, kraken_T3_taker. Long set: PASS 5/5. Baseline 2.0 same run: 562 trades, avg R 0.52 CI [0.36,0.68], return 387%, maxDD -29.2%, Sharpe 1.00 (5/5). 2.44 improves avg R/return/Sharpe but deepens maxDD (-29.2% -> -32.8%) and cuts win rate 48%->43%.",
+      "config_key": "trade_planner.min_risk_reward",
+      "config_value": 2.44,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "min-risk-reward-2p44-20261002",
+      "tested_at": "2026-10-02T16:00:00Z",
+      "name": "trade_planner.min_risk_reward = 2.44",
+      "description": "Parameter variant of the live strategy: raise the planner's take-profit R:R target from 2.0 to 2.44 (hyperopt-chosen). Wider targets win less often but bigger.",
+      "kind": "parameter_variant",
+      "based_on": "live_strategy",
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 136,
+      "win_rate_pct": 34.6,
+      "avg_r": 0.1,
+      "avg_r_ci": [
+        -0.2,
+        0.42
+      ],
+      "return_pct": 10.6,
+      "max_dd_pct": -30.0,
+      "sharpe": 0.36,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "FAIL"
+      },
+      "notes": "Chosen by strategy_pack_run/hyperopt_param.optimize_live_bot_param (15 calls, bounds 1.5-3.0, train-split avg R objective on the long dataset; best 2.435 rounded to 2.44, train avg R 0.805 vs ~0.59 at 2.0). Gated with fresh 200-sim placebo, 70/30 split, kraken_T3_taker. 2-year set: FAIL (3/5): avg R CI low <0 and placebo 90th-pct gate missed (return 90th, avg R 83.5th pct). Baseline 2.0 same run: 154 trades, avg R 0.18 (CI low -0.08), return 22.5%, Sharpe 0.68, 4/5. 2.44 is worse than baseline here on every metric. Not eligible for promotion (needs PASS on both datasets); likely train-split overfit on the long set.",
+      "config_key": "trade_planner.min_risk_reward",
+      "config_value": 2.44,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    }
+  ]
 }
