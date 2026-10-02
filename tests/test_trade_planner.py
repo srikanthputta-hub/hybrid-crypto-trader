@@ -130,7 +130,10 @@ def test_missing_adx_key_is_byte_identical_to_pre_upgrade_behavior():
         supporting_patterns=["BREAKOUT", "MOMENTUM"],
         primary_details={"level": 118.5},
     )
-    plan = build_plan(signal, "BTC/USDT", current_price=119.0, atr=1.0)
+    # stop_atr_mult passed explicitly: this test is about the ADX-less code path being
+    # byte-identical to the pre-upgrade formula, not about whatever build_plan's own
+    # default happens to be right now.
+    plan = build_plan(signal, "BTC/USDT", current_price=119.0, atr=1.0, stop_atr_mult=1.0)
 
     # Recompute what pre-upgrade build_plan would have produced by hand.
     atr = 1.0
