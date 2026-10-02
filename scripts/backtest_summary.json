@@ -120,5 +120,25 @@
         }
       }
     }
-  }
+  },
+  "candidates_schema": {
+    "id": "unique slug, e.g. <strategy-slug>-YYYYMMDD",
+    "tested_at": "ISO8601 UTC timestamp of when this candidate was backtested",
+    "name": "short human-readable name",
+    "description": "what this candidate actually is -- a parameter variant of the live strategy, or a genuinely new strategy idea, and why it was tried",
+    "kind": "parameter_variant | new_strategy",
+    "based_on": "live_strategy, or null for a from-scratch new strategy",
+    "dataset": "kraken_720 | long -- which strategy_pack_run dataset this run used",
+    "cost_preset": "which strategy_pack_run/engine.py COST_PRESETS entry was used (kraken_T3_taker is standard for gating)",
+    "trades": "int",
+    "win_rate_pct": "float",
+    "avg_r": "float",
+    "avg_r_ci": "[low, high] 95% bootstrap CI on avg R",
+    "return_pct": "float",
+    "max_dd_pct": "float",
+    "sharpe": "float",
+    "gates": "same 5-key PASS/FAIL dict as strategies.*.gates.<dataset>, plus overall",
+    "notes": "free text -- caveats, what was tried, why it did or did not work"
+  },
+  "candidates": []
 }

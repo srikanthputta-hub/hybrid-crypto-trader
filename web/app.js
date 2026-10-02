@@ -767,6 +767,54 @@ function renderBacktestModal(backtest) {
   document.getElementById("backtest-strategies").innerHTML = Object.entries(backtest.strategies)
     .map(([key, strat]) => renderBacktestStrategy(key, strat, datasetsById))
     .join("");
+
+  renderBacktestCandidates(backtest.candidates || [], datasetsById);
+}
+
+function renderBacktestCandidates(candidates, datasetsById) {
+  const emptyEl = document.getElementById("backtest-candidates-empty");
+  const listEl = document.getElementById("backtest-candidates");
+  if (!candidates.length) {
+    emptyEl.hidden = false;
+    listEl.innerHTML = "";
+    return;
+  }
+  emptyEl.hidden = true;
+
+  // Newest first.
+  const sorted = [...candidates].sort((a, b) => (b.tested_at || "").localeCompare(a.tested_at || ""));
+
+  listEl.innerHTML = sorted
+    .map((c) => {
+      const gates = c.gates || {};
+      const allPass = gates.overall === "PASS";
+      const ds = datasetsById[c.dataset];
+      const gateCells = Object.keys(GATE_LABELS)
+        .map((g) => `<span title="${GATE_LABELS[g]}">${gateBadge(gates[g])}</span>`)
+        .join("");
+      const ci = c.avg_r_ci ? `[${fmtNum(c.avg_r_ci[0])}, ${fmtNum(c.avg_r_ci[1])}]` : "—";
+      const testedDate = c.tested_at ? new Date(c.tested_at).toLocaleDateString() : "—";
+      return `
+        <div class="backtest-candidate-card ${allPass ? "all-pass" : ""}">
+          <div class="backtest-candidate-head">
+            <div class="backtest-candidate-name">${c.name || c.id || "untitled"} ${gateBadge(gates.overall)}</div>
+            <div class="backtest-candidate-meta">${testedDate} · ${(ds && ds.label) || c.dataset || "—"} · ${c.kind === "new_strategy" ? "new strategy" : "parameter variant"}</div>
+          </div>
+          <div class="backtest-candidate-desc">${c.description || ""}</div>
+          <div class="backtest-candidate-stats">
+            <div><span class="label">Trades</span>${c.trades ?? "—"}</div>
+            <div><span class="label">Win%</span>${fmtPct(c.win_rate_pct)}</div>
+            <div><span class="label">Avg R</span>${fmtNum(c.avg_r)}</div>
+            <div><span class="label">CI</span>${ci}</div>
+            <div><span class="label">Return</span>${fmtPct(c.return_pct)}</div>
+            <div><span class="label">Max DD</span>${fmtPct(c.max_dd_pct)}</div>
+            <div><span class="label">Sharpe</span>${fmtNum(c.sharpe)}</div>
+          </div>
+          <div class="backtest-candidate-gates">${gateCells}</div>
+          ${c.notes ? `<div class="backtest-candidate-notes">${c.notes}</div>` : ""}
+        </div>`;
+    })
+    .join("");
 }
 
 function updateBacktestData(backtest) {
