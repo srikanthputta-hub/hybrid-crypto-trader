@@ -71,6 +71,14 @@ ROLE_MARKERS = [
 ]
 RECENCY_WINDOW = timedelta(minutes=15)
 
+# The Backtester (see the daily Routine set up alongside the Testing
+# dashboard's candidate leaderboard) doesn't run inside the live per-cycle
+# pipeline the roles above are read from -- it's a once-a-day offline job
+# that never writes to audit_log.jsonl. "Working" for a single daily run has
+# no equivalent of RECENCY_WINDOW's 15 minutes, so it gets its own, wider
+# window instead.
+BACKTESTER_RECENCY_WINDOW = timedelta(hours=6)
+
 
 def _read_audit_tail(path: Path, max_lines: int = 200_000) -> list[dict[str, Any]]:
     """`max_lines` is a safety ceiling against an unexpectedly huge audit log,
@@ -161,7 +169,64 @@ def _role_detail(role_id: str, event: dict[str, Any] | None) -> str | None:
     return None
 
 
-def _role_statuses(events: list[dict[str, Any]], now: datetime, advisor_enabled: bool) -> list[dict[str, Any]]:
+def _backtester_role(summary: dict[str, Any] | None, now: datetime) -> dict[str, Any]:
+    """Builds the Backtester's card from scripts/backtest_summary.json's
+    `candidates` array (the daily Routine's own output) instead of the audit
+    log the other roles read from -- see the module docstring on
+    BACKTESTER_RECENCY_WINDOW for why its "working" window is different."""
+    candidates = (summary or {}).get("candidates") or []
+    if not candidates:
+        return {
+            "id": "backtester",
+            "label": "Backtester",
+            "model_tier": "sonnet",
+            "status": "idle",
+            "last_active": None,
+            "detail": "No candidates tested yet — daily sweep runs ~04:59 UTC",
+        }
+
+    latest = max(candidates, key=lambda c: c.get("tested_at") or "")
+    last_active = latest.get("tested_at")
+    status = "idle"
+    if last_active:
+        try:
+            ts = datetime.fromisoformat(last_active.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if now - ts <= BACKTESTER_RECENCY_WINDOW:
+                status = "working"
+        except ValueError:
+            pass
+
+    gates = latest.get("gates") or {}
+    gate_keys = [k for k in gates if k != "overall"]
+    if gates.get("overall") == "PASS":
+        verdict = "passed all 5 gates ✓"
+    elif gate_keys:
+        passed = sum(1 for k in gate_keys if gates.get(k) == "PASS")
+        verdict = f"{passed}/{len(gate_keys)} gates passed"
+    else:
+        verdict = "tested"
+    name = latest.get("name", "?")
+    dataset = latest.get("dataset", "?")
+    detail = f"{name}: {verdict} ({dataset})"
+
+    return {
+        "id": "backtester",
+        "label": "Backtester",
+        "model_tier": "sonnet",
+        "status": status,
+        "last_active": last_active,
+        "detail": detail,
+    }
+
+
+def _role_statuses(
+    events: list[dict[str, Any]],
+    now: datetime,
+    advisor_enabled: bool,
+    backtest_summary: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
     roles = []
     for role_id, label, model_tier, marker_keys in ROLE_MARKERS:
         last_event = None
@@ -211,6 +276,7 @@ def _role_statuses(events: list[dict[str, Any]], now: datetime, advisor_enabled:
             ),
         },
     )
+    roles.append(_backtester_role(backtest_summary, now))
     return roles
 
 
@@ -420,6 +486,7 @@ def main() -> None:
     pending.sort(key=lambda p: p["timestamp"] or "", reverse=True)
 
     equity = cash + sum((p["current_price"] or p["fill_price"] or 0) * (p["fill_amount"] or 0) for p in positions)
+    backtest_summary = _load_backtest_summary()
 
     data = {
         "generated_at": now.isoformat(),
@@ -432,14 +499,14 @@ def main() -> None:
             "equity": round(equity, 2),
             "pnl_pct": round((equity - cfg.risk["starting_cash_usd"]) / cfg.risk["starting_cash_usd"], 4),
         },
-        "roles": _role_statuses(audit_events, now, cfg.advisor.get("enabled", False)),
+        "roles": _role_statuses(audit_events, now, cfg.advisor.get("enabled", False), backtest_summary),
         "positions": positions,
         "pending": pending,
         "signal_history": _signal_history(audit_events, now),
         "charts": charts,
         "pnl": pnl_report,
         "risk": risk_report,
-        "backtest": _load_backtest_summary(),
+        "backtest": backtest_summary,
     }
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
