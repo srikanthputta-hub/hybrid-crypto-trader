@@ -638,6 +638,38 @@ header.topbar {
 .backtest-gate-badge.pass { background: rgba(34,197,94,0.15); color: var(--green); }
 .backtest-gate-badge.fail { background: rgba(248,113,113,0.15); color: var(--red); }
 
+/* --- Candidate strategies: the daily automated-sweep leaderboard, appended
+   below the two fixed reference strategies. Each candidate is its own card
+   rather than a table row -- descriptions/notes vary a lot in length, and a
+   card reads better than a table cell for that. An all-5-gates-passing
+   candidate gets the same green-accent treatment as .risk-significance-card's
+   "unremarkable" (good) verdict, so a real find is visually unmistakable. --- */
+.backtest-candidates-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 18px;
+  margin-bottom: 4px;
+}
+.backtest-section-title { font-size: 14px; font-weight: 700; }
+.backtest-candidate-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+.backtest-candidate-card.all-pass { border-left-color: var(--green); }
+.backtest-candidate-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.backtest-candidate-name { font-size: 13px; font-weight: 700; }
+.backtest-candidate-meta { font-size: 10.5px; color: var(--muted); }
+.backtest-candidate-desc { font-size: 12px; color: var(--text); margin: 4px 0 8px; line-height: 1.4; }
+.backtest-candidate-stats { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; margin-bottom: 6px; }
+.backtest-candidate-stats span.label { color: var(--muted); margin-right: 3px; }
+.backtest-candidate-gates { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.backtest-candidate-notes { font-size: 11px; color: var(--muted); line-height: 1.4; }
+
 @media (max-width: 640px) {
   #chart-container { height: 260px; }
   .symbol-dropdown-list { min-width: 170px; }
