@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from scripts.export_dashboard_data import _backtester_role, _signal_history
+from scripts.export_dashboard_data import _backtester_role, _signal_history, _visible_candidates
 
 NOW = datetime(2026, 9, 29, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -142,3 +142,52 @@ def test_backtester_role_prefers_newer_test_over_older_promotion():
     assert role["last_active"] == fresh_test_ts
     assert "Fresh test" in role["detail"]
     assert "Promoted" not in role["detail"]
+
+
+# --- _visible_candidates: dashboard-facing Passed/Failed tab filtering.
+# A FAILED candidate older than 24h should disappear from the export, but a
+# PASS (of any age) and a recent FAIL must both survive -- and the function
+# must never mutate the summary dict it's handed, since the caller still
+# needs the untouched dict for _role_statuses. ---
+
+
+def test_visible_candidates_drops_failed_older_than_24h():
+    stale_fail = _candidate("Stale fail", (NOW - timedelta(hours=25)).isoformat(), {"overall": "FAIL"})
+    summary = {"candidates": [stale_fail]}
+    assert _visible_candidates(summary, NOW) == []
+
+
+def test_visible_candidates_keeps_failed_within_24h():
+    recent_fail = _candidate("Recent fail", (NOW - timedelta(hours=23)).isoformat(), {"overall": "FAIL"})
+    summary = {"candidates": [recent_fail]}
+    visible = _visible_candidates(summary, NOW)
+    assert visible == [recent_fail]
+
+
+def test_visible_candidates_keeps_passed_regardless_of_age():
+    old_pass = _candidate("Old pass", (NOW - timedelta(days=30)).isoformat(), {"overall": "PASS"})
+    summary = {"candidates": [old_pass]}
+    visible = _visible_candidates(summary, NOW)
+    assert visible == [old_pass]
+
+
+def test_visible_candidates_keeps_candidate_with_no_gates_verdict():
+    # A malformed/in-progress-looking row with no gates.overall shouldn't be
+    # silently dropped -- only an explicit FAIL older than the window is.
+    no_verdict = {"name": "No verdict", "tested_at": (NOW - timedelta(days=5)).isoformat(), "gates": {}}
+    summary = {"candidates": [no_verdict]}
+    visible = _visible_candidates(summary, NOW)
+    assert visible == [no_verdict]
+
+
+def test_visible_candidates_handles_empty_and_missing_summary():
+    assert _visible_candidates(None, NOW) == []
+    assert _visible_candidates({"candidates": []}, NOW) == []
+
+
+def test_visible_candidates_does_not_mutate_input():
+    stale_fail = _candidate("Stale fail", (NOW - timedelta(hours=25)).isoformat(), {"overall": "FAIL"})
+    keep_pass = _candidate("Keep pass", (NOW - timedelta(hours=1)).isoformat(), {"overall": "PASS"})
+    summary = {"candidates": [stale_fail, keep_pass]}
+    _visible_candidates(summary, NOW)
+    assert summary["candidates"] == [stale_fail, keep_pass]
