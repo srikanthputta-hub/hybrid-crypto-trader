@@ -661,14 +661,18 @@ header.topbar {
   margin-bottom: 10px;
 }
 .backtest-candidate-card.all-pass { border-left-color: var(--green); }
+.backtest-candidate-card.is-promoted { border-left-color: var(--accent); box-shadow: 0 0 10px rgba(56,189,248,0.15); }
 .backtest-candidate-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.backtest-candidate-name { font-size: 13px; font-weight: 700; }
+.backtest-candidate-name { font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .backtest-candidate-meta { font-size: 10.5px; color: var(--muted); }
 .backtest-candidate-desc { font-size: 12px; color: var(--text); margin: 4px 0 8px; line-height: 1.4; }
 .backtest-candidate-stats { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; margin-bottom: 6px; }
 .backtest-candidate-stats span.label { color: var(--muted); margin-right: 3px; }
 .backtest-candidate-gates { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .backtest-candidate-notes { font-size: 11px; color: var(--muted); line-height: 1.4; }
+.pill-promoted { color: var(--accent); border-color: var(--accent); background: rgba(56,189,248,0.08); }
+.backtest-candidate-promoted { font-size: 11px; color: var(--accent); margin-bottom: 6px; }
+.backtest-candidate-promoted a { color: inherit; text-decoration: underline; }
 
 @media (max-width: 640px) {
   #chart-container { height: 260px; }

@@ -116,3 +116,29 @@ def test_backtester_role_picks_most_recently_tested_candidate():
     role = _backtester_role({"candidates": [older, newer]}, NOW)
     assert "Newer one" in role["detail"]
     assert role["last_active"] == newer_ts
+
+
+def test_backtester_role_surfaces_promotion_when_newer_than_any_test():
+    tested_ts = (NOW - timedelta(hours=4)).isoformat()
+    promoted_ts = (NOW - timedelta(minutes=5)).isoformat()
+    candidate = _candidate("Stop ATR 1.8", tested_ts, {"overall": "PASS"})
+    candidate["promoted_at"] = promoted_ts
+    candidate["config_key"] = "trade_planner.stop_atr_mult"
+    candidate["config_value"] = 1.8
+    role = _backtester_role({"candidates": [candidate]}, NOW)
+    assert role["last_active"] == promoted_ts
+    assert "Promoted" in role["detail"]
+    assert "trade_planner.stop_atr_mult=1.8" in role["detail"]
+    assert role["status"] == "working"  # promoted 5 min ago, within the recency window
+
+
+def test_backtester_role_prefers_newer_test_over_older_promotion():
+    promoted_ts = (NOW - timedelta(hours=10)).isoformat()
+    old_promoted = _candidate("Old promoted one", (NOW - timedelta(hours=11)).isoformat(), {"overall": "PASS"})
+    old_promoted["promoted_at"] = promoted_ts
+    fresh_test_ts = (NOW - timedelta(minutes=10)).isoformat()
+    fresh = _candidate("Fresh test", fresh_test_ts, {"overall": "FAIL"})
+    role = _backtester_role({"candidates": [old_promoted, fresh]}, NOW)
+    assert role["last_active"] == fresh_test_ts
+    assert "Fresh test" in role["detail"]
+    assert "Promoted" not in role["detail"]

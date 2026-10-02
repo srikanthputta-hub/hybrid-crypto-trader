@@ -185,31 +185,51 @@ def _backtester_role(summary: dict[str, Any] | None, now: datetime) -> dict[str,
             "detail": "No candidates tested yet — daily sweep runs ~04:59 UTC",
         }
 
-    latest = max(candidates, key=lambda c: c.get("tested_at") or "")
-    last_active = latest.get("tested_at")
-    status = "idle"
-    if last_active:
-        try:
-            ts = datetime.fromisoformat(last_active.replace("Z", "+00:00"))
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            if now - ts <= BACKTESTER_RECENCY_WINDOW:
-                status = "working"
-        except ValueError:
-            pass
+    # The most recent EVENT is either a test (tested_at) or a promotion
+    # (promoted_at) -- a promotion is the more important thing to surface on
+    # the card when it's the newer of the two, since it means live config
+    # actually changed, not just that a backtest ran.
+    promoted_candidates = [c for c in candidates if c.get("promoted_at")]
+    latest_test = max(candidates, key=lambda c: c.get("tested_at") or "")
+    latest_promotion = max(promoted_candidates, key=lambda c: c["promoted_at"]) if promoted_candidates else None
 
-    gates = latest.get("gates") or {}
-    gate_keys = [k for k in gates if k != "overall"]
-    if gates.get("overall") == "PASS":
-        verdict = "passed all 5 gates ✓"
-    elif gate_keys:
-        passed = sum(1 for k in gate_keys if gates.get(k) == "PASS")
-        verdict = f"{passed}/{len(gate_keys)} gates passed"
+    def _parse(ts: str | None) -> datetime | None:
+        if not ts:
+            return None
+        try:
+            parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+        except ValueError:
+            return None
+
+    test_ts = _parse(latest_test.get("tested_at"))
+    promo_ts = _parse(latest_promotion["promoted_at"]) if latest_promotion else None
+
+    if promo_ts is not None and (test_ts is None or promo_ts >= test_ts):
+        last_active = latest_promotion["promoted_at"]
+        event_ts = promo_ts
+        config_key = latest_promotion.get("config_key", "?")
+        config_value = latest_promotion.get("config_value", "?")
+        detail = f"Promoted '{latest_promotion.get('name', '?')}' to live config — {config_key}={config_value}"
     else:
-        verdict = "tested"
-    name = latest.get("name", "?")
-    dataset = latest.get("dataset", "?")
-    detail = f"{name}: {verdict} ({dataset})"
+        last_active = latest_test.get("tested_at")
+        event_ts = test_ts
+        gates = latest_test.get("gates") or {}
+        gate_keys = [k for k in gates if k != "overall"]
+        if gates.get("overall") == "PASS":
+            verdict = "passed all 5 gates ✓"
+        elif gate_keys:
+            passed = sum(1 for k in gate_keys if gates.get(k) == "PASS")
+            verdict = f"{passed}/{len(gate_keys)} gates passed"
+        else:
+            verdict = "tested"
+        name = latest_test.get("name", "?")
+        dataset = latest_test.get("dataset", "?")
+        detail = f"{name}: {verdict} ({dataset})"
+
+    status = "idle"
+    if event_ts is not None and now - event_ts <= BACKTESTER_RECENCY_WINDOW:
+        status = "working"
 
     return {
         "id": "backtester",
