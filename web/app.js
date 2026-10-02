@@ -48,6 +48,7 @@ const ROLE_OWNS = {
   risk_officer: "src/risk_engine.py — position sizing, exposure cap, max loss per trade, daily loss limit, volatility filter, cooldown, kill switch. Always reviewed at Opus.",
   compliance_reviewer: "src/claude_advisor.py — the optional Claude second opinion. APPROVE/VETO only, never originates or resizes a trade, fails closed on error.",
   execution_trader: "src/broker_paper.py, src/broker_live.py, src/monitor.py, src/trade_plan_store.py — order execution and the PENDING/OPEN/CLOSED lifecycle. broker_live.py is always Opus-reviewed.",
+  backtester: "strategy_pack_run/ + scripts/backtest_summary.json — runs once a day, finds candidate strategy variants, backtests them, and records results on the Testing dashboard's candidate leaderboard. Never touches src/ or config/config.yaml, never places an order, never promotes a strategy into live use — a human reviews and merges its PR.",
 };
 
 const STATUS_LABEL = { working: "working", disabled: "disabled" };
