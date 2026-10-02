@@ -674,6 +674,24 @@ header.topbar {
 .backtest-candidate-promoted { font-size: 11px; color: var(--accent); margin-bottom: 6px; }
 .backtest-candidate-promoted a { color: inherit; text-decoration: underline; }
 
+/* --- Candidate Strategies tabs: Live / Passed / Failed, replacing the old
+   single ever-growing list. Reuses .signals-toggle/.toggle-btn so this tab
+   bar matches the Active/History toggle elsewhere on the dashboard. --- */
+.backtest-candidates-toggle { margin-top: 10px; }
+.backtest-candidates-tab { min-height: 20px; }
+.backtest-live-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.backtest-live-card.is-working { border-left-color: var(--accent); }
+.backtest-live-headline { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+.backtest-live-card.is-working .backtest-live-headline { color: var(--accent); }
+.backtest-live-detail { font-size: 12px; color: var(--text); margin-bottom: 6px; line-height: 1.4; }
+.backtest-live-note { font-size: 10.5px; line-height: 1.4; }
+
 @media (max-width: 640px) {
   #chart-container { height: 260px; }
   .symbol-dropdown-list { min-width: 170px; }

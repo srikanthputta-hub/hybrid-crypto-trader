@@ -155,9 +155,23 @@
         <div id="backtest-strategies"></div>
         <div class="backtest-candidates-header">
           <div class="backtest-section-title">Candidate Strategies <span class="muted">— daily automated sweep</span></div>
-          <div id="backtest-candidates-empty" class="muted" hidden>No candidates tested yet.</div>
         </div>
-        <div id="backtest-candidates"></div>
+        <div class="signals-toggle backtest-candidates-toggle" id="backtest-candidates-toggle">
+          <button type="button" class="toggle-btn active" data-tab="live">Live</button>
+          <button type="button" class="toggle-btn" data-tab="passed">Passed</button>
+          <button type="button" class="toggle-btn" data-tab="failed">Failed</button>
+        </div>
+        <div id="backtest-candidates-live" class="backtest-candidates-tab">
+          <div id="backtest-live-status"></div>
+        </div>
+        <div id="backtest-candidates-passed" class="backtest-candidates-tab" hidden>
+          <div id="backtest-candidates-passed-empty" class="muted" hidden></div>
+          <div id="backtest-candidates-passed-list"></div>
+        </div>
+        <div id="backtest-candidates-failed" class="backtest-candidates-tab" hidden>
+          <div id="backtest-candidates-failed-empty" class="muted" hidden></div>
+          <div id="backtest-candidates-failed-list"></div>
+        </div>
       </div>
     </div>
   </div>
