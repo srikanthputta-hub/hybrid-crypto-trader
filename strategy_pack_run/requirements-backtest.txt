@@ -1,0 +1,9 @@
+# Optional dependencies for offline backtest research tools under strategy_pack_run/ --
+# NOT installed by the live bot's deploy (see requirements.txt) or by CI (see
+# .github/workflows/ci.yml), since nothing under src/ ever imports these. Install only when
+# running strategy_pack_run/hyperopt_param.py locally or in the daily Backtester Routine's
+# environment:
+#
+#     pip install -r strategy_pack_run/requirements-backtest.txt
+
+scikit-optimize>=0.10.0

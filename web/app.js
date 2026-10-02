@@ -48,6 +48,7 @@ const ROLE_OWNS = {
   risk_officer: "src/risk_engine.py — position sizing, exposure cap, max loss per trade, daily loss limit, volatility filter, cooldown, kill switch. Always reviewed at Opus.",
   compliance_reviewer: "src/claude_advisor.py — the optional Claude second opinion. APPROVE/VETO only, never originates or resizes a trade, fails closed on error.",
   execution_trader: "src/broker_paper.py, src/broker_live.py, src/monitor.py, src/trade_plan_store.py — order execution and the PENDING/OPEN/CLOSED lifecycle. broker_live.py is always Opus-reviewed.",
+  backtester: "strategy_pack_run/ + scripts/backtest_summary.json — runs once a day, finds candidate strategy variants, backtests them, and records results on the Testing dashboard's candidate leaderboard. Never touches src/ or config/config.yaml, never places an order, never promotes a strategy into live use — a human reviews and merges its PR.",
 };
 
 const STATUS_LABEL = { working: "working", disabled: "disabled" };
@@ -646,6 +647,7 @@ document.getElementById("risk-modal-backdrop").addEventListener("click", (e) => 
 // style.css) rather than inventing new overlay plumbing.
 
 let lastBacktestData = null;
+let lastRolesForBacktest = null;
 
 function fmtPct(v, digits = 1) {
   return v != null ? `${v > 0 ? "+" : ""}${v.toFixed(digits)}%` : "—";
@@ -767,10 +769,122 @@ function renderBacktestModal(backtest) {
   document.getElementById("backtest-strategies").innerHTML = Object.entries(backtest.strategies)
     .map(([key, strat]) => renderBacktestStrategy(key, strat, datasetsById))
     .join("");
+
+  const backtesterRole = (lastRolesForBacktest || []).find((r) => r.id === "backtester") || null;
+  renderBacktestCandidates(backtest.candidates || [], datasetsById, backtesterRole);
 }
 
-function updateBacktestData(backtest) {
+// Candidate Strategies is split into three tabs (Live / Passed / Failed)
+// rather than one ever-growing flat list -- a FAILED candidate has no
+// lasting value once it's a day old, and burying real passes under a pile of
+// failures made the panel unreadable. "Failed" results are actually dropped
+// from web/data.json after 24h by scripts/export_dashboard_data.py
+// (_visible_candidates) -- the source scripts/backtest_summary.json on disk
+// stays complete/append-only for the Routine's own don't-retest logic, so
+// what disappears here is a display-time filter, not a deletion.
+function candidateCardHtml(c, datasetsById) {
+  const gates = c.gates || {};
+  const allPass = gates.overall === "PASS";
+  const ds = datasetsById[c.dataset];
+  const gateCells = Object.keys(GATE_LABELS)
+    .map((g) => `<span title="${GATE_LABELS[g]}">${gateBadge(gates[g])}</span>`)
+    .join("");
+  const ci = c.avg_r_ci ? `[${fmtNum(c.avg_r_ci[0])}, ${fmtNum(c.avg_r_ci[1])}]` : "—";
+  const testedDate = c.tested_at ? new Date(c.tested_at).toLocaleDateString() : "—";
+  const promoted = Boolean(c.promoted_at);
+  const promotedBadge = promoted
+    ? `<span class="pill pill-promoted" title="Auto-promoted to live config.yaml on ${new Date(c.promoted_at).toLocaleString()}">LIVE ✓</span>`
+    : "";
+  const promotedLine = promoted
+    ? `<div class="backtest-candidate-promoted">Promoted to live config.yaml ${new Date(c.promoted_at).toLocaleDateString()}${c.promoted_pr_url ? ` · <a href="${escapeHtml(c.promoted_pr_url)}" target="_blank" rel="noopener">PR</a>` : ""}</div>`
+    : "";
+  return `
+    <div class="backtest-candidate-card ${allPass ? "all-pass" : ""} ${promoted ? "is-promoted" : ""}">
+      <div class="backtest-candidate-head">
+        <div class="backtest-candidate-name">${escapeHtml(c.name || c.id || "untitled")} ${gateBadge(gates.overall)} ${promotedBadge}</div>
+        <div class="backtest-candidate-meta">${testedDate} · ${escapeHtml((ds && ds.label) || c.dataset || "—")} · ${c.kind === "new_strategy" ? "new strategy" : "parameter variant"}</div>
+      </div>
+      <div class="backtest-candidate-desc">${escapeHtml(c.description || "")}</div>
+      <div class="backtest-candidate-stats">
+        <div><span class="label">Trades</span>${c.trades ?? "—"}</div>
+        <div><span class="label">Win%</span>${fmtPct(c.win_rate_pct)}</div>
+        <div><span class="label">Avg R</span>${fmtNum(c.avg_r)}</div>
+        <div><span class="label">CI</span>${ci}</div>
+        <div><span class="label">Return</span>${fmtPct(c.return_pct)}</div>
+        <div><span class="label">Max DD</span>${fmtPct(c.max_dd_pct)}</div>
+        <div><span class="label">Sharpe</span>${fmtNum(c.sharpe)}</div>
+      </div>
+      <div class="backtest-candidate-gates">${gateCells}</div>
+      ${promotedLine}
+      ${c.notes ? `<div class="backtest-candidate-notes">${escapeHtml(c.notes)}</div>` : ""}
+    </div>`;
+}
+
+function renderCandidateBucket(bucket, list, datasetsById, emptyMessage) {
+  const emptyEl = document.getElementById(`backtest-candidates-${bucket}-empty`);
+  const listEl = document.getElementById(`backtest-candidates-${bucket}-list`);
+  if (!list.length) {
+    emptyEl.hidden = false;
+    emptyEl.textContent = emptyMessage;
+    listEl.innerHTML = "";
+    return;
+  }
+  emptyEl.hidden = true;
+  // Newest first.
+  const sorted = [...list].sort((a, b) => (b.tested_at || "").localeCompare(a.tested_at || ""));
+  listEl.innerHTML = sorted.map((c) => candidateCardHtml(c, datasetsById)).join("");
+}
+
+function renderBacktestLiveTab(role) {
+  const el = document.getElementById("backtest-live-status");
+  if (!role) {
+    el.innerHTML = `<div class="muted">No live testing status available.</div>`;
+    return;
+  }
+  const working = role.status === "working";
+  el.innerHTML = `
+    <div class="backtest-live-card ${working ? "is-working" : ""}">
+      <div class="backtest-live-headline">${working ? "Sweep active" : "Idle — next sweep ~04:59 UTC"}</div>
+      <div class="backtest-live-detail">${escapeHtml(role.detail || "")}</div>
+      <div class="muted backtest-live-note">
+        This reflects the Backtester's last recorded activity (refreshed every dashboard poll), not
+        step-by-step progress of an in-flight test — that level of detail isn't tracked yet.
+      </div>
+    </div>`;
+}
+
+function renderBacktestCandidates(candidates, datasetsById, backtesterRole) {
+  renderBacktestLiveTab(backtesterRole);
+  renderCandidateBucket(
+    "passed",
+    candidates.filter((c) => (c.gates || {}).overall === "PASS"),
+    datasetsById,
+    "No candidates have passed all gates yet."
+  );
+  renderCandidateBucket(
+    "failed",
+    candidates.filter((c) => (c.gates || {}).overall === "FAIL"),
+    datasetsById,
+    "No recent failures — failed results clear automatically after 24h."
+  );
+}
+
+function initBacktestCandidatesToggle() {
+  const buttons = document.querySelectorAll("#backtest-candidates-toggle .toggle-btn");
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      buttons.forEach((b) => b.classList.toggle("active", b === btn));
+      const tab = btn.dataset.tab;
+      document.getElementById("backtest-candidates-live").hidden = tab !== "live";
+      document.getElementById("backtest-candidates-passed").hidden = tab !== "passed";
+      document.getElementById("backtest-candidates-failed").hidden = tab !== "failed";
+    });
+  });
+}
+
+function updateBacktestData(backtest, roles) {
   lastBacktestData = backtest || null;
+  lastRolesForBacktest = roles || null;
   const backdrop = document.getElementById("backtest-modal-backdrop");
   if (backdrop && !backdrop.hidden) renderBacktestModal(lastBacktestData);
 }
@@ -1098,7 +1212,7 @@ async function main() {
   renderHistoryFeed(lastHistoryData, historyPeriod);
   initPnl(data.pnl);
   updateRiskData(data.risk);
-  updateBacktestData(data.backtest);
+  updateBacktestData(data.backtest, data.roles);
 
   setInterval(refreshDashboard, LIVE_REFRESH_INTERVAL_MS);
 }
@@ -1130,7 +1244,7 @@ async function refreshDashboard() {
     renderHistoryFeed(lastHistoryData, historyPeriod);
     updatePnlData(data.pnl);
     updateRiskData(data.risk);
-    updateBacktestData(data.backtest);
+    updateBacktestData(data.backtest, data.roles);
   } catch (err) {
     console.error("live refresh failed, will retry next interval:", err);
   } finally {
@@ -1139,6 +1253,7 @@ async function refreshDashboard() {
 }
 
 initSignalsToggle();
+initBacktestCandidatesToggle();
 initHistoryPeriodToggle();
 initCollapsibleSidebars();
 

@@ -104,7 +104,22 @@ htf_filter:
 # Pipeline stage 3 — "creates the trade plan with entry, target, stop loss, and invalidation."
 trade_planner:
   entry_buffer_atr_mult: 0.1     # how wide the entry zone is, in ATRs, around the pattern's level
-  stop_atr_mult: 1.0             # stop loss = entry zone low - this many ATRs
+  stop_atr_mult: 1.5             # stop loss = entry zone low - this many ATRs. Widened from 1.0 after the
+                                 # 2026-09-29 losing streak: backed out the actual ATR used for 3 of that day's
+                                 # stop-outs and found the real move-candle's range was 1.6-2.4x the trailing
+                                 # ATR(14) -- a 1.0x stop is sized for calm conditions and gets blown through the
+                                 # moment volatility genuinely spikes, a known static-stop failure mode during a
+                                 # regime shift. Backtested 1.0 vs 1.5 vs 2.0 on strategy_pack_run/'s real-
+                                 # pipeline harness (kraken_T3_taker), both datasets: on the 11-year set (746/
+                                 # 562/501 trades -- the statistically strong one) 1.5 beats 1.0 on EVERY metric
+                                 # (avg R 0.39->0.52, CI [0.24,0.54]->[0.36,0.68] fully positive, return 311%->
+                                 # 388%, maxDD -33.6%->-29.2%, Sharpe 0.92->1.00, still 5/5 gates); on the 2-year
+                                 # set, 1.5 improves return/maxDD/Sharpe (11.6%->22.5%, -32.1%->-24.1%, 0.39->
+                                 # 0.68) with a noisier (not clearly worse) avg-R confidence interval. 2.0
+                                 # overshoots and is clearly worse than 1.5 on both datasets -- this isn't
+                                 # "wider is always better," 1.5 is the evidenced point, not a guess. Position
+                                 # sizing is risk_amount/stop_distance, so this doesn't increase $ risk per
+                                 # trade -- it just needs a bigger adverse move to realize the same loss.
   invalidation_atr_mult: 0.5     # invalidation = stop loss - this many further ATRs
   min_risk_reward: 2.0           # take-profit target is sized to hit at least this R:R
   adx_trend_threshold: 25        # regime filter: Wilder ADX >= this confirms a real trend (matches scanner.py)
