@@ -795,13 +795,20 @@ function renderBacktestCandidates(candidates, datasetsById) {
         .join("");
       const ci = c.avg_r_ci ? `[${fmtNum(c.avg_r_ci[0])}, ${fmtNum(c.avg_r_ci[1])}]` : "—";
       const testedDate = c.tested_at ? new Date(c.tested_at).toLocaleDateString() : "—";
+      const promoted = Boolean(c.promoted_at);
+      const promotedBadge = promoted
+        ? `<span class="pill pill-promoted" title="Auto-promoted to live config.yaml on ${new Date(c.promoted_at).toLocaleString()}">LIVE ✓</span>`
+        : "";
+      const promotedLine = promoted
+        ? `<div class="backtest-candidate-promoted">Promoted to live config.yaml ${new Date(c.promoted_at).toLocaleDateString()}${c.promoted_pr_url ? ` · <a href="${escapeHtml(c.promoted_pr_url)}" target="_blank" rel="noopener">PR</a>` : ""}</div>`
+        : "";
       return `
-        <div class="backtest-candidate-card ${allPass ? "all-pass" : ""}">
+        <div class="backtest-candidate-card ${allPass ? "all-pass" : ""} ${promoted ? "is-promoted" : ""}">
           <div class="backtest-candidate-head">
-            <div class="backtest-candidate-name">${c.name || c.id || "untitled"} ${gateBadge(gates.overall)}</div>
-            <div class="backtest-candidate-meta">${testedDate} · ${(ds && ds.label) || c.dataset || "—"} · ${c.kind === "new_strategy" ? "new strategy" : "parameter variant"}</div>
+            <div class="backtest-candidate-name">${escapeHtml(c.name || c.id || "untitled")} ${gateBadge(gates.overall)} ${promotedBadge}</div>
+            <div class="backtest-candidate-meta">${testedDate} · ${escapeHtml((ds && ds.label) || c.dataset || "—")} · ${c.kind === "new_strategy" ? "new strategy" : "parameter variant"}</div>
           </div>
-          <div class="backtest-candidate-desc">${c.description || ""}</div>
+          <div class="backtest-candidate-desc">${escapeHtml(c.description || "")}</div>
           <div class="backtest-candidate-stats">
             <div><span class="label">Trades</span>${c.trades ?? "—"}</div>
             <div><span class="label">Win%</span>${fmtPct(c.win_rate_pct)}</div>
@@ -812,7 +819,8 @@ function renderBacktestCandidates(candidates, datasetsById) {
             <div><span class="label">Sharpe</span>${fmtNum(c.sharpe)}</div>
           </div>
           <div class="backtest-candidate-gates">${gateCells}</div>
-          ${c.notes ? `<div class="backtest-candidate-notes">${c.notes}</div>` : ""}
+          ${promotedLine}
+          ${c.notes ? `<div class="backtest-candidate-notes">${escapeHtml(c.notes)}</div>` : ""}
         </div>`;
     })
     .join("");
