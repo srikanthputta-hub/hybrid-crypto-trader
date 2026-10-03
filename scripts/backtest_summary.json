@@ -276,6 +276,72 @@
       "config_value": 0.47,
       "promoted_at": null,
       "promoted_pr_url": null
+    },
+    {
+      "id": "entry-buffer-atr-mult-0p02-20261003-0459",
+      "tested_at": "2026-10-03T05:30:00Z",
+      "name": "trade_planner.entry_buffer_atr_mult = 0.02",
+      "description": "Parameter variant of the live strategy: shrink the entry zone half-width around the pattern level from 0.1 to 0.02 ATR (hyperopt-chosen), i.e. a tighter entry zone.",
+      "kind": "parameter_variant",
+      "based_on": "live_strategy",
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 611,
+      "win_rate_pct": 48.6,
+      "avg_r": 0.52,
+      "avg_r_ci": [
+        0.37,
+        0.67
+      ],
+      "return_pct": 388.1,
+      "max_dd_pct": -28.7,
+      "sharpe": 1.01,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "PASS",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "PASS"
+      },
+      "notes": "Chosen by hyperopt_param.optimize_live_bot_param (15 calls, bounds 0.0-0.5, train-split avg R objective on the long set; best 0.0227 rounded to 0.02, near the lower bound; train avg R 0.71 vs ~0.65 near live 0.1). Gated with fresh 200-sim placebo, 70/30 split. Long set: PASS 5/5. Baseline 0.1: 562 trades, avg R 0.52 [0.36,0.68], return 387%, Sharpe 1.00, maxDD -29.2%. 0.02: 611 trades, avg R 0.52, return 388%, Sharpe 1.01, maxDD -28.7% -- essentially identical, slightly more trades.",
+      "config_key": "trade_planner.entry_buffer_atr_mult",
+      "config_value": 0.02,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "entry-buffer-atr-mult-0p02-20261003-0459",
+      "tested_at": "2026-10-03T05:30:00Z",
+      "name": "trade_planner.entry_buffer_atr_mult = 0.02",
+      "description": "Parameter variant of the live strategy: shrink the entry zone half-width around the pattern level from 0.1 to 0.02 ATR (hyperopt-chosen), i.e. a tighter entry zone.",
+      "kind": "parameter_variant",
+      "based_on": "live_strategy",
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 165,
+      "win_rate_pct": 43.6,
+      "avg_r": 0.27,
+      "avg_r_ci": [
+        -0.01,
+        0.55
+      ],
+      "return_pct": 19.9,
+      "max_dd_pct": -26.6,
+      "sharpe": 0.6,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "PASS",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "FAIL"
+      },
+      "notes": "Chosen by hyperopt_param.optimize_live_bot_param (15 calls, bounds 0.0-0.5, train-split avg R objective on the long set; best 0.0227 rounded to 0.02, near the lower bound; train avg R 0.71 vs ~0.65 near live 0.1). Gated with fresh 200-sim placebo, 70/30 split. 2-year set: FAIL (4/5, avg R CI low -0.009 <0 by a hair; the live baseline also fails this gate at -0.08). Baseline 0.1: 154 trades, avg R 0.18, return 22.5%, Sharpe 0.68, maxDD -24.1%. 0.02: 165 trades, avg R 0.27, return 19.9%, Sharpe 0.60, maxDD -26.6% -- higher avg R, lower return/Sharpe, deeper drawdown; mixed. Not promotion-eligible (needs PASS on both datasets).",
+      "config_key": "trade_planner.entry_buffer_atr_mult",
+      "config_value": 0.02,
+      "promoted_at": null,
+      "promoted_pr_url": null
     }
   ]
 }
