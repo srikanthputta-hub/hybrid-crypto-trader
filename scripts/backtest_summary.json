@@ -474,6 +474,72 @@
       "config_value": 30,
       "promoted_at": null,
       "promoted_pr_url": null
+    },
+    {
+      "id": "max-volatility-pct-0p04-20261003-2259",
+      "tested_at": "2026-10-04T00:00:00Z",
+      "name": "risk.max_volatility_pct = 0.04",
+      "description": "Parameter variant of the live strategy: tighten the volatility filter (skip entries when ATR/price exceeds this) from 8% to 4% (hyperopt-chosen, at the lower bound of the search range).",
+      "kind": "parameter_variant",
+      "based_on": "live_strategy",
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 140,
+      "win_rate_pct": 57.1,
+      "avg_r": 0.77,
+      "avg_r_ci": [
+        0.45,
+        1.08
+      ],
+      "return_pct": 74.6,
+      "max_dd_pct": -10.7,
+      "sharpe": 1.08,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "PASS",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "PASS"
+      },
+      "notes": "Chosen by hyperopt_param.optimize_live_bot_param (15 calls, bounds 0.04-0.16, train-split avg R objective on the long set; best landed on the lower bound 0.04, train avg R 1.11 vs ~0.55-0.63 at 0.08-0.14). A lower-bound result means the true optimum may lie outside the searched range, and the tight cap simply selects far fewer trades. Gated with fresh 200-sim placebo, 70/30 split. Long set: PASS 5/5 with 140 trades (vs 562): avg R 0.77 [0.45,1.08], return 75%, maxDD -10.7%, Sharpe 1.08. Baseline 0.08: 562 trades, avg R 0.52, return 387%, maxDD -29.2%, Sharpe 1.00. Trades far fewer, lower total return (capital is idle more), but better drawdown and Sharpe -- a different risk/return profile, not a free improvement.",
+      "config_key": "risk.max_volatility_pct",
+      "config_value": 0.04,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "max-volatility-pct-0p04-20261003-2259",
+      "tested_at": "2026-10-04T00:00:00Z",
+      "name": "risk.max_volatility_pct = 0.04",
+      "description": "Parameter variant of the live strategy: tighten the volatility filter (skip entries when ATR/price exceeds this) from 8% to 4% (hyperopt-chosen, at the lower bound of the search range).",
+      "kind": "parameter_variant",
+      "based_on": "live_strategy",
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 63,
+      "win_rate_pct": 46.0,
+      "avg_r": 0.37,
+      "avg_r_ci": [
+        -0.07,
+        0.83
+      ],
+      "return_pct": 11.6,
+      "max_dd_pct": -13.3,
+      "sharpe": 0.76,
+      "gates": {
+        "min_100_trades": "FAIL",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "FAIL"
+      },
+      "notes": "Chosen by hyperopt_param.optimize_live_bot_param (15 calls, bounds 0.04-0.16, train-split avg R objective on the long set; best landed on the lower bound 0.04, train avg R 1.11 vs ~0.55-0.63 at 0.08-0.14). A lower-bound result means the true optimum may lie outside the searched range, and the tight cap simply selects far fewer trades. Gated with fresh 200-sim placebo, 70/30 split. 2-year set: FAIL 2/5 -- only 63 trades (<100 gate), avg R CI low -0.07, placebo gate missed (return 91.5th, avg R 76.5th pct). Baseline 0.08: 154 trades, avg R 0.18, return 22.5%, Sharpe 0.68, maxDD -24.1% (4/5). 0.04 shows higher avg R (0.37) and Sharpe (0.76) but on too few trades to trust. Not promotion-eligible (needs PASS on both datasets); any change to a risk.* limit also warrants Opus-level review per CLAUDE.md regardless.",
+      "config_key": "risk.max_volatility_pct",
+      "config_value": 0.04,
+      "promoted_at": null,
+      "promoted_pr_url": null
     }
   ]
 }
