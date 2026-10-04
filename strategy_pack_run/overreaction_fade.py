@@ -6,12 +6,16 @@ days inside an established up-trend, price tends to snap partly back; buy the dr
 Trend-following buys strength; this buys weakness, so the two are structurally different.
 
   enter : z <= -z_entry  AND  close > SMA(trend_len)  AND  BTC daily regime ON
-            z = n-bar return / (ATR/close * sqrt(n))   -- an ATR-normalised n-day move
+            z = n-bar return / (rolling_std(1-bar returns, vol_len) * sqrt(n))   -- a volatility-normalised n-day move
   hold  : False once close >= SMA(exit_len) (rebound achieved) OR more than max_hold bars since the last
           entry signal (time stop). The engine's ATR chandelier stop still applies as the loss limit.
   rank  : -z (the more oversold, the higher priority when capital is scarce)
 
-All values are a-priori starting points, NOT tuned (one run, no search). Every column on row i uses only
+All values are a-priori starting points, NOT tuned against returns (one gated run, no search). Calibration
+history, for transparency: the first draft normalised by ATR% and a -2.0 threshold, which never fired (ATR is an
+intraday range, wider than close-to-close vol); the normaliser was changed to a standard rolling-std z-score and
+z_entry set to 1.5 from entry-signal COUNTS only (2.0 gave only 9/59 signal bars on the 2y/long sets, too few
+to test) -- no returns were looked at for any other value. Every column on row i uses only
 rows <= i; signals are acted on at the NEXT bar's open by engine.run_backtest. Reuses strategies.py helpers
 (import only).
 """
@@ -28,10 +32,11 @@ from strategies import _atr, align_regime
 @dataclass(frozen=True)
 class FadeParams:
     n: int = 3               # bars over which the drop is measured
-    z_entry: float = 2.0     # ATR-normalised drop required to trigger
+    z_entry: float = 1.5     # volatility-normalised drop required to trigger
     trend_len: int = 100     # only fade dips while close is above this SMA (established up-trend)
     exit_len: int = 5        # exit once close recovers to this SMA
     max_hold: int = 8        # time stop, in bars since the last entry signal
+    vol_len: int = 20        # window for the std of 1-bar returns used to normalise the move
     atr_len: int = 14
     atr_mult: float = 3.0    # chandelier distance (must match EngineConfig.atr_mult)
 
@@ -41,8 +46,8 @@ def overreaction_fade(df: pd.DataFrame, regime: pd.Series, p: FadeParams = FadeP
     close = df["close"]
     out["atr"] = _atr(df, p.atr_len)
     ret = close / close.shift(p.n) - 1.0
-    atr_pct = pd.Series(out["atr"].to_numpy(), index=df.index) / close
-    z = ret / (atr_pct * np.sqrt(p.n))
+    sigma = close.pct_change().rolling(p.vol_len).std()   # uses rows <= i only
+    z = ret / (sigma * np.sqrt(p.n))
     trend_ok = close > close.rolling(p.trend_len).mean()
     reg = align_regime(regime, df.index)
     reg_on = reg.fillna(0.0) > 0.5
