@@ -474,6 +474,72 @@
       "config_value": 30,
       "promoted_at": null,
       "promoted_pr_url": null
+    },
+    {
+      "id": "overreaction-fade-20261004-0459",
+      "tested_at": "2026-10-04T05:40:00Z",
+      "name": "Short-term overreaction fade (long-only dip buy)",
+      "description": "New strategy idea (not a variant of the live pipeline): buy a volatility-normalised 3-day drop (z <= -1.5) inside an established up-trend (close > SMA100, BTC regime ON), exit on rebound to SMA(5) or an 8-bar time stop. Mean-reversion, structurally different from the trend pack. Code: strategy_pack_run/overreaction_fade.py; sourced from the shortlist's 'short-term overreaction fade' concept (paper-claimed Sharpe 0.53, not validated here).",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 221,
+      "win_rate_pct": 62.0,
+      "avg_r": 0.03,
+      "avg_r_ci": [
+        -0.01,
+        0.07
+      ],
+      "return_pct": 4.7,
+      "max_dd_pct": -3.7,
+      "sharpe": 0.2,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "FAIL",
+        "overall": "FAIL"
+      },
+      "notes": "Calibration history: the first draft (ATR%-normalised z, threshold 2.0) produced zero signals; it was replaced by a standard rolling-std z-score and z_entry fixed at 1.5 from entry-signal COUNTS only (2.0 gave 9/59 signal bars on the 2y/long sets), with no returns examined for any other value -- one gated run. Idea: buy a volatility-normalised 3-day drop while close > SMA(100) and BTC regime ON; exit on rebound to SMA(5) or an 8-bar time stop; engine ATR(3x) chandelier as loss limit. Kraken_T3_taker costs, 200 placebo sims, 70/30 split. Long set: FAIL (avg R 0.03, CI [-0.01,0.07] includes 0; placebo gate just misses (return 92nd, avg R 89.5th pct); return 4.7% and Sharpe 0.20 far below buy&hold Sharpe 0.81). 221 trades, 62% win rate, tiny exposure (0.7%) -- positive but economically negligible edge after costs; later-30% avg R 0.04.",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "overreaction-fade-20261004-0459",
+      "tested_at": "2026-10-04T05:40:00Z",
+      "name": "Short-term overreaction fade (long-only dip buy)",
+      "description": "New strategy idea (not a variant of the live pipeline): buy a volatility-normalised 3-day drop (z <= -1.5) inside an established up-trend (close > SMA100, BTC regime ON), exit on rebound to SMA(5) or an 8-bar time stop. Mean-reversion, structurally different from the trend pack. Code: strategy_pack_run/overreaction_fade.py; sourced from the shortlist's 'short-term overreaction fade' concept (paper-claimed Sharpe 0.53, not validated here).",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 36,
+      "win_rate_pct": 58.3,
+      "avg_r": 0.06,
+      "avg_r_ci": [
+        0.0,
+        0.13
+      ],
+      "return_pct": 1.6,
+      "max_dd_pct": -2.2,
+      "sharpe": 0.4,
+      "gates": {
+        "min_100_trades": "FAIL",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "FAIL",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "FAIL"
+      },
+      "notes": "Calibration history: the first draft (ATR%-normalised z, threshold 2.0) produced zero signals; it was replaced by a standard rolling-std z-score and z_entry fixed at 1.5 from entry-signal COUNTS only (2.0 gave 9/59 signal bars on the 2y/long sets), with no returns examined for any other value -- one gated run. Idea: buy a volatility-normalised 3-day drop while close > SMA(100) and BTC regime ON; exit on rebound to SMA(5) or an 8-bar time stop; engine ATR(3x) chandelier as loss limit. Kraken_T3_taker costs, 200 placebo sims, 70/30 split. 2-year set: FAIL -- only 36 trades (<100, so smoke test only), later-30% slice has 5 trades (avg R -0.02), placebo 85th/84th pct. Avg R CI low just above 0 on 36 trades is not evidence. Not a candidate for building into the pipeline on this evidence.",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
     }
   ]
 }
