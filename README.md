@@ -1,8 +1,10 @@
 # Hybrid Crypto Trading Bot
 
 A crypto trading bot for Claude Code built as a five-stage pipeline — scanner,
-signal engine, trade planner, risk engine, and a 24/7 monitor — with an
-optional Claude second opinion that can veto (but never originate) a trade.
+signal engine, trade planner, risk engine, and a 24/7 monitor — plus a
+daily-trend confirmation gate (stage 2b) between the signal engine and the
+trade planner, and an optional Claude second opinion that can veto (but never
+originate) a trade.
 Supports any exchange [ccxt](https://github.com/ccxt/ccxt) supports, starts in
 **paper trading** mode by default, and only ever places real orders once you
 deliberately flip two independent safety switches.
@@ -10,6 +12,13 @@ deliberately flip two independent safety switches.
 ## Architecture
 
 ```
+universe               src/universe.py   (infrastructure, not a stage)
+   Which symbols the bot may open NEW plans on. `universe.mode: static`
+   (the only implemented mode) is exactly `market.symbols`. Symbols with an
+   active plan or position are always walked too, even if they've left the
+   universe, so they keep being monitored (but never get a new plan).
+   |
+   v
 market data (ccxt)
    |
    v
@@ -23,6 +32,17 @@ market data (ccxt)
    Drops weak candidates, drops conflicting evidence (bullish + bearish at
    once = noise), and turns agreeing candidates into one prioritized Signal
    with a confluence-boosted engine score.
+   |
+   v
+2b. HTF FILTER         src/htf_filter.py
+   Daily-trend confirmation gate. Checks the signal's direction against the
+   daily chart's own trend (fast EMA vs. slow EMA on the most recent daily
+   candle) — standard top-down multi-timeframe practice. A signal that
+   disagrees with (or can't confirm) the daily uptrend is blocked here; like
+   the risk engine and Claude advisor, this stage can only veto, never
+   originate or resize a trade. Fails closed on insufficient daily history or
+   a fetch error. Cached per symbol per UTC day, since daily candles only
+   change once a day.
    |
    v
 3. TRADE PLANNER       src/trade_planner.py
@@ -49,7 +69,8 @@ market data (ccxt)
    |
    v
 5. 24/7 MONITOR        src/monitor.py
-   Every cycle, for every active plan: fills a PENDING plan once price
+   Every cycle, for every active plan (in or out of the current universe):
+   fills a PENDING plan once price
    re-enters the entry zone, discards it if price breaches invalidation
    first, and closes an OPEN position at its stop loss or take-profit
    target. This bot executes automatically — there's no separate human
@@ -101,7 +122,8 @@ it**.
 |---|---|
 | `mode` | `paper` (default) or `live` |
 | `exchange.id` / `exchange.testnet` | any ccxt exchange id; use its sandbox where supported |
-| `market.symbols` | whitelist — the bot only ever looks at / trades these |
+| `market.symbols` | whitelist — the bot only ever opens new plans on these (it keeps monitoring an existing plan until it closes, even if you remove its symbol here). At most one active plan per base asset (e.g. `BTC/USD` and `BTC/USDT` can't both be held) |
+| `universe.*` | where the tradeable symbol list comes from; only `mode: static` (= `market.symbols`) is implemented, other keys are reserved for `discover` mode |
 | `indicators` | EMA fast/slow periods, RSI period (shared by scanner + planner) |
 | `scanner.*` | per-pattern thresholds — lookback windows, volume multiplier, momentum threshold, consolidation range, RSI extremes |
 | `signal_engine.*` | minimum candidate strength, confluence bonus, pattern tie-break priority |
@@ -146,10 +168,12 @@ Before you do this:
 
 ```
 config/config.yaml           settings for every pipeline stage
+src/universe.py               which symbols are tradeable (static mode = market.symbols) + held-symbol tagging
 src/exchange.py               ccxt wrapper (market data + live order placement)
 src/indicators.py             EMA / RSI / ATR
 src/scanner.py                stage 1: Breakout/Pullback/Momentum/Trend/Reversal detectors
 src/signal_engine.py          stage 2: filters + prioritizes candidates into one signal
+src/htf_filter.py             stage 2b: daily-trend confirmation gate (veto only, like risk_engine/claude_advisor)
 src/trade_planner.py          stage 3: entry zone/stop/target/invalidation/confidence
 src/risk_engine.py            stage 4: position sizing, exposure, daily loss, volatility, cooldown
 src/claude_advisor.py         stage 4b: optional Claude veto + independent confidence score
