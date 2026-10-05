@@ -261,6 +261,107 @@ def test_compute_symbol_signals_finds_the_known_breakout():
     assert signals[idx[20]].direction == "bullish"
 
 
+# --------------------------------------------------------------------------- #
+# P1c: use_rank_order (docs/p1c_rank_signals_validation.md) -- per-bar scarce-slot competition
+# --------------------------------------------------------------------------- #
+RANK_ORDER_RISK_CFG = dict(
+    starting_cash_usd=10_000.0,
+    max_position_pct=0.5,
+    max_total_exposure_pct=0.9,
+    max_loss_per_trade_pct=0.5,
+    max_daily_loss_pct=0.5,
+    max_volatility_pct=1.0,
+    min_risk_reward=1.0,
+    cooldown_minutes=0,
+    symbol_whitelist=["AAA", "ZZZ"],
+    # Tight on purpose: exactly one of the two symbols below can win the only slot.
+    max_new_entries_per_window=1,
+    new_entry_window_minutes=120,
+)
+
+
+def _flat_frame(n: int, volume: float = 10.0) -> tuple[pd.DataFrame, pd.DatetimeIndex]:
+    """A constant-price, constant-ATR frame -- bypasses add_indicators/scanner entirely (same
+    style as _cooldown_frame_and_signals above) since these tests hand-build the Signal that
+    fires, and only care about which of two competing symbols gets the new-entry slot, not about
+    pattern detection."""
+    idx = _idx(n)
+    df = pd.DataFrame(
+        {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": volume}, index=idx
+    )
+    df["atr"] = 2.0
+    return df, idx
+
+
+def _hand_signal(engine_score: float) -> Signal:
+    return Signal(direction="bullish", primary_pattern="BREAKOUT", engine_score=engine_score,
+                  supporting_patterns=["BREAKOUT"], primary_details={}, rationale={})
+
+
+def test_simulate_portfolio_use_rank_order_defaults_false_and_is_unchanged():
+    """Calling simulate_portfolio without use_rank_order must behave exactly like passing
+    use_rank_order=False explicitly -- guards against the default ever silently flipping."""
+    enriched, idx, signals = _cooldown_frame_and_signals()
+    res_implicit = simulate_portfolio(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT,
+    )
+    res_explicit = simulate_portfolio(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, use_rank_order=False,
+    )
+    pd.testing.assert_frame_equal(res_implicit.trades, res_explicit.trades)
+    pd.testing.assert_series_equal(res_implicit.equity, res_explicit.equity)
+
+
+def test_rank_order_picks_higher_engine_score_over_alphabetical_order():
+    """Two symbols signal on the SAME bar; the new-entry cap only allows one of them through.
+    sorted(symbols) order hands the slot to 'AAA' (alphabetically first) regardless of strength.
+    rank_signals order must instead hand it to 'ZZZ', which has the higher engine_score."""
+    enr_a, idx = _flat_frame(3)
+    enr_z, _ = _flat_frame(3)
+    enriched = {"AAA": enr_a, "ZZZ": enr_z}
+    signals = {"AAA": {idx[0]: _hand_signal(0.3)}, "ZZZ": {idx[0]: _hand_signal(0.9)}}
+
+    res_sorted = simulate_portfolio(
+        enriched, signals, Costs(0.0, 0.0), RANK_ORDER_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, use_rank_order=False,
+    )
+    res_rank = simulate_portfolio(
+        enriched, signals, Costs(0.0, 0.0), RANK_ORDER_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, use_rank_order=True,
+    )
+    assert list(res_sorted.trades["symbol"]) == ["AAA"], (
+        f"sorted(symbols) order must pick the alphabetically-first symbol, got:\n{res_sorted.trades}"
+    )
+    assert list(res_rank.trades["symbol"]) == ["ZZZ"], (
+        f"rank_signals order must pick the higher-engine_score symbol, got:\n{res_rank.trades}"
+    )
+
+
+def test_rank_order_tie_break_uses_liquidity_when_engine_score_ties():
+    """Equal engine_score on both symbols this time -- rank_signals must tie-break on
+    trailing_quote_volume (ZZZ's volume is 1,000,000x AAA's), still overriding alphabetical
+    sorted(symbols) order."""
+    enr_a, idx = _flat_frame(3, volume=1.0)
+    enr_z, _ = _flat_frame(3, volume=1_000_000.0)
+    enriched = {"AAA": enr_a, "ZZZ": enr_z}
+    signals = {"AAA": {idx[0]: _hand_signal(0.8)}, "ZZZ": {idx[0]: _hand_signal(0.8)}}
+
+    res_sorted = simulate_portfolio(
+        enriched, signals, Costs(0.0, 0.0), RANK_ORDER_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, use_rank_order=False,
+    )
+    res_rank = simulate_portfolio(
+        enriched, signals, Costs(0.0, 0.0), RANK_ORDER_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, use_rank_order=True,
+    )
+    assert list(res_sorted.trades["symbol"]) == ["AAA"]
+    assert list(res_rank.trades["symbol"]) == ["ZZZ"], (
+        f"rank_signals order must tie-break on higher trailing_quote_volume, got:\n{res_rank.trades}"
+    )
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

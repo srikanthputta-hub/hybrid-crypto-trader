@@ -498,7 +498,6 @@ def _record_view(symbol: str, record, current_price: float | None) -> dict[str, 
     plan = record.plan
     view = {
         "symbol": symbol,
-        "status": record.status,
         "pattern": plan.get("pattern"),
         "entry_zone": plan.get("entry_zone"),
         "stop_loss": plan.get("stop_loss"),
@@ -510,8 +509,6 @@ def _record_view(symbol: str, record, current_price: float | None) -> dict[str, 
         "fill_price": record.fill_price,
         "fill_amount": record.fill_amount,
         "current_price": current_price,
-        "created_at": record.created_at,
-        "filled_at": record.filled_at,
         # what "When" means for this row: an OPEN position's fill time, or
         # a PENDING plan's plan time -- used for both display and sorting
         # newest-first in the dashboard's Active signals table.
@@ -577,7 +574,6 @@ def main() -> None:
         "exchange_id": cfg.exchange_id,
         "symbols": cfg.symbols,
         "portfolio": {
-            "starting_cash": cfg.risk["starting_cash_usd"],
             "cash": round(cash, 2),
             "equity": round(equity, 2),
             "pnl_pct": round((equity - cfg.risk["starting_cash_usd"]) / cfg.risk["starting_cash_usd"], 4),
