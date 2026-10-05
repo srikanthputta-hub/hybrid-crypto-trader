@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-05T12:52:46.746726+00:00",
+  "generated_at": "2026-10-05T12:58:37.488435+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -23,8 +23,8 @@
   "portfolio": {
     "starting_cash": 10000,
     "cash": 5961.53,
-    "equity": 9874.0,
-    "pnl_pct": -0.0126
+    "equity": 9870.91,
+    "pnl_pct": -0.0129
   },
   "roles": [
     {
@@ -32,7 +32,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-10-05T12:52:46.122941+00:00",
+      "last_active": "2026-10-05T12:58:36.855516+00:00",
       "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
@@ -40,7 +40,7 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-10-05T12:52:46.120764+00:00",
+      "last_active": "2026-10-05T12:58:36.853360+00:00",
       "detail": "XTZ/USDT: checked, nothing worth trading"
     },
     {
@@ -80,8 +80,8 @@
       "label": "Backtester",
       "model_tier": "sonnet",
       "status": "idle",
-      "last_active": "2026-10-03T17:40:00Z",
-      "detail": "signal_engine.min_strength = 0.4: passed all 5 gates \u2713 (long)"
+      "last_active": "2026-10-04T00:00:00Z",
+      "detail": "risk.max_volatility_pct = 0.04: passed all 5 gates \u2713 (long)"
     }
   ],
   "positions": [
@@ -101,11 +101,11 @@
       "confidence_claude": null,
       "fill_price": 0.09671,
       "fill_amount": 73.38564420692708,
-      "current_price": 0.09567,
+      "current_price": 0.09563,
       "created_at": "2026-10-05T08:01:24.338511+00:00",
       "filled_at": "2026-10-05T08:01:24.341047+00:00",
       "timestamp": "2026-10-05T08:01:24.341047+00:00",
-      "unrealized_pnl_pct": -0.010753800020680377
+      "unrealized_pnl_pct": -0.011167407713783451
     },
     {
       "symbol": "SHIB/USDT",
@@ -145,11 +145,11 @@
       "confidence_claude": null,
       "fill_price": 0.262255,
       "fill_amount": 3.6090051970360513,
-      "current_price": 0.271984,
+      "current_price": 0.271835,
       "created_at": "2026-10-04T23:04:28.455194+00:00",
       "filled_at": "2026-10-04T23:04:28.457814+00:00",
       "timestamp": "2026-10-04T23:04:28.457814+00:00",
-      "unrealized_pnl_pct": 0.03709748145888539
+      "unrealized_pnl_pct": 0.036529332138567336
     },
     {
       "symbol": "XRP/USDT",
@@ -167,11 +167,11 @@
       "confidence_claude": null,
       "fill_price": 1.51889,
       "fill_amount": 623.1390409764517,
-      "current_price": 1.50992,
+      "current_price": 1.50915,
       "created_at": "2026-10-04T23:04:28.271006+00:00",
       "filled_at": "2026-10-04T23:04:28.273793+00:00",
       "timestamp": "2026-10-04T23:04:28.273793+00:00",
-      "unrealized_pnl_pct": -0.00590562845235675
+      "unrealized_pnl_pct": -0.006412577606014973
     },
     {
       "symbol": "SOL/USDT",
@@ -189,11 +189,11 @@
       "confidence_claude": null,
       "fill_price": 120.18,
       "fill_amount": 0.1208390147710244,
-      "current_price": 120.45,
+      "current_price": 120.38,
       "created_at": "2026-10-04T01:00:30.194664+00:00",
       "filled_at": "2026-10-04T01:00:30.196802+00:00",
       "timestamp": "2026-10-04T01:00:30.196802+00:00",
-      "unrealized_pnl_pct": 0.0022466300549175903
+      "unrealized_pnl_pct": 0.0016641704110499967
     },
     {
       "symbol": "BCH/USDT",
@@ -233,11 +233,11 @@
       "confidence_claude": null,
       "fill_price": 1.7252,
       "fill_amount": 2.045801826215795,
-      "current_price": 1.7672,
+      "current_price": 1.7638,
       "created_at": "2026-10-03T16:00:36.976942+00:00",
       "filled_at": "2026-10-03T16:00:36.978773+00:00",
       "timestamp": "2026-10-03T16:00:36.978773+00:00",
-      "unrealized_pnl_pct": 0.02434500347785766
+      "unrealized_pnl_pct": 0.02237421748203105
     },
     {
       "symbol": "ALGO/USDT",
@@ -255,11 +255,11 @@
       "confidence_claude": null,
       "fill_price": 0.12934,
       "fill_amount": 7604.203364583094,
-      "current_price": 0.12989,
+      "current_price": 0.13011,
       "created_at": "2026-10-03T13:03:58.213576+00:00",
       "filled_at": "2026-10-03T13:03:58.215127+00:00",
       "timestamp": "2026-10-03T13:03:58.215127+00:00",
-      "unrealized_pnl_pct": 0.004252358125869761
+      "unrealized_pnl_pct": 0.005953301376217666
     },
     {
       "symbol": "DOT/USDT",
@@ -277,11 +277,11 @@
       "confidence_claude": null,
       "fill_price": 1.1972,
       "fill_amount": 822.8494005344119,
-      "current_price": 1.2024,
+      "current_price": 1.1998,
       "created_at": "2026-10-03T12:01:39.060981+00:00",
       "filled_at": "2026-10-03T12:01:39.062435+00:00",
       "timestamp": "2026-10-03T12:01:39.062435+00:00",
-      "unrealized_pnl_pct": 0.004343468092215061
+      "unrealized_pnl_pct": 0.0021717340461075304
     },
     {
       "symbol": "AVAX/USDT",
@@ -299,11 +299,11 @@
       "confidence_claude": null,
       "fill_price": 11.132,
       "fill_amount": 88.49400847285285,
-      "current_price": 10.942,
+      "current_price": 10.918,
       "created_at": "2026-10-03T12:01:37.834125+00:00",
       "filled_at": "2026-10-03T12:01:37.838110+00:00",
       "timestamp": "2026-10-03T12:01:37.838110+00:00",
-      "unrealized_pnl_pct": -0.017067912324829276
+      "unrealized_pnl_pct": -0.0192238591448078
     }
   ],
   "pending": [],
@@ -12466,145 +12466,145 @@
     "hourly": [
       {
         "label": "13:00",
-        "start": "2026-10-04T12:52:46.746726+00:00",
+        "start": "2026-10-04T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "14:00",
-        "start": "2026-10-04T13:52:46.746726+00:00",
+        "start": "2026-10-04T13:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "15:00",
-        "start": "2026-10-04T14:52:46.746726+00:00",
+        "start": "2026-10-04T14:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "16:00",
-        "start": "2026-10-04T15:52:46.746726+00:00",
+        "start": "2026-10-04T15:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "17:00",
-        "start": "2026-10-04T16:52:46.746726+00:00",
+        "start": "2026-10-04T16:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "18:00",
-        "start": "2026-10-04T17:52:46.746726+00:00",
+        "start": "2026-10-04T17:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "19:00",
-        "start": "2026-10-04T18:52:46.746726+00:00",
+        "start": "2026-10-04T18:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "20:00",
-        "start": "2026-10-04T19:52:46.746726+00:00",
+        "start": "2026-10-04T19:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "21:00",
-        "start": "2026-10-04T20:52:46.746726+00:00",
+        "start": "2026-10-04T20:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "22:00",
-        "start": "2026-10-04T21:52:46.746726+00:00",
+        "start": "2026-10-04T21:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "23:00",
-        "start": "2026-10-04T22:52:46.746726+00:00",
+        "start": "2026-10-04T22:58:37.488435+00:00",
         "pnl": 12.69,
         "trades": 1
       },
       {
         "label": "00:00",
-        "start": "2026-10-04T23:52:46.746726+00:00",
+        "start": "2026-10-04T23:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "01:00",
-        "start": "2026-10-05T00:52:46.746726+00:00",
+        "start": "2026-10-05T00:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "02:00",
-        "start": "2026-10-05T01:52:46.746726+00:00",
+        "start": "2026-10-05T01:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "03:00",
-        "start": "2026-10-05T02:52:46.746726+00:00",
+        "start": "2026-10-05T02:58:37.488435+00:00",
         "pnl": 0.58,
         "trades": 1
       },
       {
         "label": "04:00",
-        "start": "2026-10-05T03:52:46.746726+00:00",
+        "start": "2026-10-05T03:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "05:00",
-        "start": "2026-10-05T04:52:46.746726+00:00",
+        "start": "2026-10-05T04:58:37.488435+00:00",
         "pnl": -0.66,
         "trades": 3
       },
       {
         "label": "06:00",
-        "start": "2026-10-05T05:52:46.746726+00:00",
+        "start": "2026-10-05T05:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "07:00",
-        "start": "2026-10-05T06:52:46.746726+00:00",
+        "start": "2026-10-05T06:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "08:00",
-        "start": "2026-10-05T07:52:46.746726+00:00",
+        "start": "2026-10-05T07:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "09:00",
-        "start": "2026-10-05T08:52:46.746726+00:00",
+        "start": "2026-10-05T08:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "10:00",
-        "start": "2026-10-05T09:52:46.746726+00:00",
+        "start": "2026-10-05T09:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "11:00",
-        "start": "2026-10-05T10:52:46.746726+00:00",
+        "start": "2026-10-05T10:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "12:00",
-        "start": "2026-10-05T11:52:46.746726+00:00",
+        "start": "2026-10-05T11:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       }
@@ -12612,181 +12612,181 @@
     "daily": [
       {
         "label": "Sep 06",
-        "start": "2026-09-05T12:52:46.746726+00:00",
+        "start": "2026-09-05T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 07",
-        "start": "2026-09-06T12:52:46.746726+00:00",
+        "start": "2026-09-06T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 08",
-        "start": "2026-09-07T12:52:46.746726+00:00",
+        "start": "2026-09-07T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 09",
-        "start": "2026-09-08T12:52:46.746726+00:00",
+        "start": "2026-09-08T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 10",
-        "start": "2026-09-09T12:52:46.746726+00:00",
+        "start": "2026-09-09T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 11",
-        "start": "2026-09-10T12:52:46.746726+00:00",
+        "start": "2026-09-10T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 12",
-        "start": "2026-09-11T12:52:46.746726+00:00",
+        "start": "2026-09-11T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 13",
-        "start": "2026-09-12T12:52:46.746726+00:00",
+        "start": "2026-09-12T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 14",
-        "start": "2026-09-13T12:52:46.746726+00:00",
+        "start": "2026-09-13T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 15",
-        "start": "2026-09-14T12:52:46.746726+00:00",
+        "start": "2026-09-14T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 16",
-        "start": "2026-09-15T12:52:46.746726+00:00",
+        "start": "2026-09-15T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 17",
-        "start": "2026-09-16T12:52:46.746726+00:00",
+        "start": "2026-09-16T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 18",
-        "start": "2026-09-17T12:52:46.746726+00:00",
+        "start": "2026-09-17T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 19",
-        "start": "2026-09-18T12:52:46.746726+00:00",
+        "start": "2026-09-18T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 20",
-        "start": "2026-09-19T12:52:46.746726+00:00",
+        "start": "2026-09-19T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 21",
-        "start": "2026-09-20T12:52:46.746726+00:00",
+        "start": "2026-09-20T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 22",
-        "start": "2026-09-21T12:52:46.746726+00:00",
+        "start": "2026-09-21T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 23",
-        "start": "2026-09-22T12:52:46.746726+00:00",
+        "start": "2026-09-22T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 24",
-        "start": "2026-09-23T12:52:46.746726+00:00",
+        "start": "2026-09-23T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 25",
-        "start": "2026-09-24T12:52:46.746726+00:00",
+        "start": "2026-09-24T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 26",
-        "start": "2026-09-25T12:52:46.746726+00:00",
+        "start": "2026-09-25T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 27",
-        "start": "2026-09-26T12:52:46.746726+00:00",
+        "start": "2026-09-26T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 28",
-        "start": "2026-09-27T12:52:46.746726+00:00",
+        "start": "2026-09-27T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 29",
-        "start": "2026-09-28T12:52:46.746726+00:00",
+        "start": "2026-09-28T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 30",
-        "start": "2026-09-29T12:52:46.746726+00:00",
+        "start": "2026-09-29T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 01",
-        "start": "2026-09-30T12:52:46.746726+00:00",
+        "start": "2026-09-30T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 02",
-        "start": "2026-10-01T12:52:46.746726+00:00",
+        "start": "2026-10-01T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 03",
-        "start": "2026-10-02T12:52:46.746726+00:00",
+        "start": "2026-10-02T12:58:37.488435+00:00",
         "pnl": -138.99,
         "trades": 8
       },
       {
         "label": "Oct 04",
-        "start": "2026-10-03T12:52:46.746726+00:00",
+        "start": "2026-10-03T12:58:37.488435+00:00",
         "pnl": 18.18,
         "trades": 1
       },
       {
         "label": "Oct 05",
-        "start": "2026-10-04T12:52:46.746726+00:00",
+        "start": "2026-10-04T12:58:37.488435+00:00",
         "pnl": 12.61,
         "trades": 5
       }
@@ -12794,73 +12794,73 @@
     "weekly": [
       {
         "label": "Jul 20",
-        "start": "2026-07-13T12:52:46.746726+00:00",
+        "start": "2026-07-13T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Jul 27",
-        "start": "2026-07-20T12:52:46.746726+00:00",
+        "start": "2026-07-20T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 03",
-        "start": "2026-07-27T12:52:46.746726+00:00",
+        "start": "2026-07-27T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 10",
-        "start": "2026-08-03T12:52:46.746726+00:00",
+        "start": "2026-08-03T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 17",
-        "start": "2026-08-10T12:52:46.746726+00:00",
+        "start": "2026-08-10T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 24",
-        "start": "2026-08-17T12:52:46.746726+00:00",
+        "start": "2026-08-17T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 31",
-        "start": "2026-08-24T12:52:46.746726+00:00",
+        "start": "2026-08-24T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 07",
-        "start": "2026-08-31T12:52:46.746726+00:00",
+        "start": "2026-08-31T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 14",
-        "start": "2026-09-07T12:52:46.746726+00:00",
+        "start": "2026-09-07T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 21",
-        "start": "2026-09-14T12:52:46.746726+00:00",
+        "start": "2026-09-14T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 28",
-        "start": "2026-09-21T12:52:46.746726+00:00",
+        "start": "2026-09-21T12:58:37.488435+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 05",
-        "start": "2026-09-28T12:52:46.746726+00:00",
+        "start": "2026-09-28T12:58:37.488435+00:00",
         "pnl": -108.2,
         "trades": 14
       }
@@ -13559,6 +13559,39 @@
         "notes": "Manual sweep (scanner.* is outside hyperopt_param's scope): tested scanner.breakout_lookback at 15 and 30 vs live 20, trade_planner/risk unchanged; signals rebuilt per value. Fresh 200-sim placebo, 70/30 split. Baseline 20: 562 trades, avg R 0.52 [0.36,0.68], return 387%, Sharpe 1.00, maxDD -29.2% (5/5). Result: 5/5, small edge (avg R 0.54, return 410%, Sharpe 1.03) vs baseline.",
         "config_key": "scanner.breakout_lookback",
         "config_value": 30,
+        "promoted_at": null,
+        "promoted_pr_url": null
+      },
+      {
+        "id": "max-volatility-pct-0p04-20261003-2259",
+        "tested_at": "2026-10-04T00:00:00Z",
+        "name": "risk.max_volatility_pct = 0.04",
+        "description": "Parameter variant of the live strategy: tighten the volatility filter (skip entries when ATR/price exceeds this) from 8% to 4% (hyperopt-chosen, at the lower bound of the search range).",
+        "kind": "parameter_variant",
+        "based_on": "live_strategy",
+        "dataset": "long",
+        "cost_preset": "kraken_T3_taker",
+        "trades": 140,
+        "win_rate_pct": 57.1,
+        "avg_r": 0.77,
+        "avg_r_ci": [
+          0.45,
+          1.08
+        ],
+        "return_pct": 74.6,
+        "max_dd_pct": -10.7,
+        "sharpe": 1.08,
+        "gates": {
+          "min_100_trades": "PASS",
+          "avg_r_ci_low_gt_0": "PASS",
+          "later_30pct_avg_r_gt_0": "PASS",
+          "beats_placebo_90th_pct": "PASS",
+          "net_return_and_sharpe_gt_buy_hold": "PASS",
+          "overall": "PASS"
+        },
+        "notes": "Chosen by hyperopt_param.optimize_live_bot_param (15 calls, bounds 0.04-0.16, train-split avg R objective on the long set; best landed on the lower bound 0.04, train avg R 1.11 vs ~0.55-0.63 at 0.08-0.14). A lower-bound result means the true optimum may lie outside the searched range, and the tight cap simply selects far fewer trades. Gated with fresh 200-sim placebo, 70/30 split. Long set: PASS 5/5 with 140 trades (vs 562): avg R 0.77 [0.45,1.08], return 75%, maxDD -10.7%, Sharpe 1.08. Baseline 0.08: 562 trades, avg R 0.52, return 387%, maxDD -29.2%, Sharpe 1.00. Trades far fewer, lower total return (capital is idle more), but better drawdown and Sharpe -- a different risk/return profile, not a free improvement.",
+        "config_key": "risk.max_volatility_pct",
+        "config_value": 0.04,
         "promoted_at": null,
         "promoted_pr_url": null
       },
