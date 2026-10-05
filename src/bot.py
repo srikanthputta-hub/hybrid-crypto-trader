@@ -24,6 +24,7 @@ from src.broker_paper import PaperBroker
 from src.config import Config, load_config
 from src.exchange import ExchangeClient
 from src.indicators import add_indicators
+from src.market_data import MarketDataCache
 from src.portfolio import Portfolio, Position, now_iso, reconstruct_cash
 from src.risk_engine import RiskEngine
 from src.trade_plan_store import TradePlanStore
@@ -105,6 +106,15 @@ def build_components(cfg: Config):
     return exchange, risk_engine, portfolio, broker, store, audit
 
 
+def build_market_data(cfg: Config, exchange: ExchangeClient) -> MarketDataCache:
+    """Kept separate from build_components() rather than folded into its
+    return tuple: build_components' 6-item return is unpacked positionally
+    in several places (scripts/run_live.py, tests/test_bot.py) -- appending a
+    7th item would silently break every one of those call sites. Call this
+    right after build_components() instead (see main() / scripts/run_live.py)."""
+    return MarketDataCache(exchange, cfg.timeframe, cfg.history_bars)
+
+
 def _fmt_price(price: float) -> str:
     """USD-formats a price with enough decimals to stay readable at any scale --
     a fixed 2 decimals reads as "$0.00" for a sub-cent coin like SHIB, which is
@@ -181,7 +191,16 @@ def _execute_monitor_action(action, record, broker, store, risk_engine, event) -
         event["execution"] = fill.__dict__
 
 
-def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfolio, broker, store: TradePlanStore, audit: AuditLog) -> None:
+def run_cycle(
+    cfg: Config,
+    exchange,
+    risk_engine: RiskEngine,
+    portfolio: Portfolio,
+    broker,
+    store: TradePlanStore,
+    audit: AuditLog,
+    market_data: MarketDataCache,
+) -> None:
     def _record(event: dict) -> None:
         audit.write(event)
         _maybe_notify(cfg, event)
@@ -190,16 +209,25 @@ def run_cycle(cfg: Config, exchange, risk_engine: RiskEngine, portfolio: Portfol
     enriched_by_symbol = {}
     current_prices: dict[str, float] = {}
 
+    # Symbols with an active (PENDING/OPEN) plan get fetch priority -- see
+    # MarketDataCache._priority_order. There's no liquidity ranking yet, so
+    # everything else stays in market.symbols config order.
+    active_symbols = {symbol for symbol in cfg.symbols if store.get(symbol) is not None}
+    ohlcv_by_symbol = market_data.refresh(cfg.symbols, active_symbols=active_symbols)
+    log_cfg = cfg.logging_cfg
+    market_data.write_snapshot(PROJECT_ROOT / log_cfg.get("market_snapshot_path", "logs/market_snapshot.json"))
+
     for symbol in cfg.symbols:
+        if symbol not in ohlcv_by_symbol:
+            continue
         try:
-            ohlcv = exchange.fetch_ohlcv_df(symbol, cfg.timeframe, cfg.history_bars)
             enriched = add_indicators(
-                ohlcv, indicators_cfg["fast_ema"], indicators_cfg["slow_ema"], indicators_cfg["rsi_period"]
+                ohlcv_by_symbol[symbol], indicators_cfg["fast_ema"], indicators_cfg["slow_ema"], indicators_cfg["rsi_period"]
             )
             enriched_by_symbol[symbol] = enriched
             current_prices[symbol] = float(enriched["close"].iloc[-1])
         except Exception:
-            logger.exception("failed to fetch/enrich market data for %s", symbol)
+            logger.exception("failed to enrich market data for %s", symbol)
 
     equity = portfolio.equity(current_prices)
 
@@ -360,14 +388,15 @@ def main() -> None:
     logger.info("starting bot: mode=%s exchange=%s symbols=%s", cfg.mode, cfg.exchange_id, cfg.symbols)
 
     exchange, risk_engine, portfolio, broker, store, audit = build_components(cfg)
+    market_data = build_market_data(cfg, exchange)
 
     if args.once:
-        run_cycle(cfg, exchange, risk_engine, portfolio, broker, store, audit)
+        run_cycle(cfg, exchange, risk_engine, portfolio, broker, store, audit, market_data)
         return
 
     interval = cfg.loop.get("poll_interval_seconds", 300)
     while True:
-        run_cycle(cfg, exchange, risk_engine, portfolio, broker, store, audit)
+        run_cycle(cfg, exchange, risk_engine, portfolio, broker, store, audit, market_data)
         time.sleep(interval)
 
 

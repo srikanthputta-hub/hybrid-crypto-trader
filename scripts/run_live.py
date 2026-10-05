@@ -34,7 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.bot import build_components, run_cycle
+from src.bot import build_components, build_market_data, run_cycle
 from src.config import load_config
 from src.heartbeat import send_heartbeat_ping
 from src.log_retention import run_log_retention
@@ -85,12 +85,14 @@ def main() -> None:
     logger.info("starting live loop: mode=%s exchange=%s symbols=%s", cfg.mode, cfg.exchange_id, cfg.symbols)
 
     exchange, risk_engine, portfolio, broker, store, audit = build_components(cfg)
+    market_data = build_market_data(cfg, exchange)
     interval = cfg.loop.get("poll_interval_seconds", 300)
     last_retention_run_date = None
 
     while True:
+        cycle_started = time.monotonic()
         try:
-            run_cycle(cfg, exchange, risk_engine, portfolio, broker, store, audit)
+            run_cycle(cfg, exchange, risk_engine, portfolio, broker, store, audit, market_data)
         except Exception:
             logger.exception("bot cycle failed -- will retry next interval")
         try:
@@ -104,7 +106,12 @@ def main() -> None:
             run_log_retention(cfg)
             last_retention_run_date = today
 
-        time.sleep(interval)
+        # Sleep interval - elapsed rather than a flat interval, so a pass that
+        # took longer than usual (e.g. a bar-close scan, a slow push) doesn't
+        # push the next tick's timing out by a full extra interval on top of
+        # however long this one already took. Never sleeps negative.
+        elapsed = time.monotonic() - cycle_started
+        time.sleep(max(0.0, interval - elapsed))
 
 
 if __name__ == "__main__":
