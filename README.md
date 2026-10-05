@@ -1,8 +1,10 @@
 # Hybrid Crypto Trading Bot
 
 A crypto trading bot for Claude Code built as a five-stage pipeline — scanner,
-signal engine, trade planner, risk engine, and a 24/7 monitor — with an
-optional Claude second opinion that can veto (but never originate) a trade.
+signal engine, trade planner, risk engine, and a 24/7 monitor — plus a
+daily-trend confirmation gate (stage 2b) between the signal engine and the
+trade planner, and an optional Claude second opinion that can veto (but never
+originate) a trade.
 Supports any exchange [ccxt](https://github.com/ccxt/ccxt) supports, starts in
 **paper trading** mode by default, and only ever places real orders once you
 deliberately flip two independent safety switches.
@@ -23,6 +25,17 @@ market data (ccxt)
    Drops weak candidates, drops conflicting evidence (bullish + bearish at
    once = noise), and turns agreeing candidates into one prioritized Signal
    with a confluence-boosted engine score.
+   |
+   v
+2b. HTF FILTER         src/htf_filter.py
+   Daily-trend confirmation gate. Checks the signal's direction against the
+   daily chart's own trend (fast EMA vs. slow EMA on the most recent daily
+   candle) — standard top-down multi-timeframe practice. A signal that
+   disagrees with (or can't confirm) the daily uptrend is blocked here; like
+   the risk engine and Claude advisor, this stage can only veto, never
+   originate or resize a trade. Fails closed on insufficient daily history or
+   a fetch error. Cached per symbol per UTC day, since daily candles only
+   change once a day.
    |
    v
 3. TRADE PLANNER       src/trade_planner.py
@@ -150,6 +163,7 @@ src/exchange.py               ccxt wrapper (market data + live order placement)
 src/indicators.py             EMA / RSI / ATR
 src/scanner.py                stage 1: Breakout/Pullback/Momentum/Trend/Reversal detectors
 src/signal_engine.py          stage 2: filters + prioritizes candidates into one signal
+src/htf_filter.py             stage 2b: daily-trend confirmation gate (veto only, like risk_engine/claude_advisor)
 src/trade_planner.py          stage 3: entry zone/stop/target/invalidation/confidence
 src/risk_engine.py            stage 4: position sizing, exposure, daily loss, volatility, cooldown
 src/claude_advisor.py         stage 4b: optional Claude veto + independent confidence score
