@@ -84,6 +84,18 @@ class Config:
     def logging_cfg(self) -> dict[str, Any]:
         return self.raw.get("logging", {})
 
+    @property
+    def universe_cfg(self) -> dict[str, Any]:
+        """The `universe:` block (see config/config.yaml and
+        docs/system-redesign-2026-10.md §4.2). Only `mode` is actually read
+        by src/universe.py's `refresh()` today (in `static` mode it's the
+        only thing `refresh()` looks at); the rest of the keys are passed
+        through unread for `mode: "discover"`, not implemented yet. Defaults
+        to `static` mode with no exchange calls if the block is omitted
+        entirely, matching today's `market.symbols`-is-the-whole-universe
+        behavior."""
+        return self.raw.get("universe", {"mode": "static"})
+
     # --- env-derived secrets, never come from the yaml file ---
     @property
     def exchange_api_key(self) -> str | None:
