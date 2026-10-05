@@ -23,7 +23,15 @@ for _p in (_REPO_ROOT, _THIS_DIR):
 
 from engine import Costs  # noqa: E402
 
-from backtest_live_bot import compute_symbol_signals, simulate_portfolio  # noqa: E402
+from backtest_live_bot import (  # noqa: E402
+    TF_SECONDS,
+    compute_symbol_signals,
+    liquidity_window_bars,
+    load_csv,
+    load_dir,
+    simulate_portfolio,
+    trailing_quote_volume,
+)
 from src.indicators import add_indicators  # noqa: E402
 from src import scanner, signal_engine, trade_planner  # noqa: E402
 from src.signal_engine import Signal  # noqa: E402
@@ -362,9 +370,244 @@ def test_rank_order_tie_break_uses_liquidity_when_engine_score_ties():
     )
 
 
+# --------------------------------------------------------------------------- #
+# Phase 2.0 harness generalization (docs/system-redesign-2026-10.md §5.4): load_csv/load_dir/
+# liquidity_window_bars/simulate_portfolio's new `timeframe` parameter. Every test above this
+# point never passes `timeframe`, so they also double as the "default unchanged" regression
+# guard -- these tests cover the NEW behavior specifically.
+# --------------------------------------------------------------------------- #
+def _write_csv(path: Path, timeframe: str, n: int, start: str = "2026-01-01 00:00") -> None:
+    tf_s = TF_SECONDS[timeframe]
+    open_times = pd.date_range(start, periods=n, freq=pd.Timedelta(seconds=tf_s), tz="UTC")
+    ts_ms = open_times.values.astype("datetime64[ms]").astype("int64")
+    df = pd.DataFrame({
+        "timestamp": ts_ms,
+        "open": 100.0 + np.arange(n, dtype=float),
+        "high": 101.0 + np.arange(n, dtype=float),
+        "low": 99.0 + np.arange(n, dtype=float),
+        "close": 100.5 + np.arange(n, dtype=float),
+        "volume": 1.0,
+    })
+    df.to_csv(path, index=False)
+
+
+def test_load_csv_timeframe_default_is_1d_unchanged():
+    """No `timeframe` arg -> same close-time shift (TF_SECONDS["1d"]) as before this parameter
+    existed."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "X_USD_1d.csv"
+        _write_csv(path, "1d", 3)
+        df = load_csv(path)  # no timeframe kwarg
+        first_open = pd.Timestamp("2026-01-01", tz="UTC")
+        assert df.index[0] == first_open + pd.Timedelta(seconds=TF_SECONDS["1d"])
+
+
+def test_load_csv_timeframe_aware_close_time_shift():
+    """An explicit timeframe="1h" shifts the bar-OPEN timestamp by 3600s (not 86400s) to get the
+    bar-CLOSE index this harness walks on."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "X_USD_1h.csv"
+        _write_csv(path, "1h", 3)
+        df = load_csv(path, timeframe="1h")
+        first_open = pd.Timestamp("2026-01-01 00:00", tz="UTC")
+        assert df.index[0] == first_open + pd.Timedelta(hours=1)
+        assert df.index[1] == first_open + pd.Timedelta(hours=2)
+
+
+def test_load_dir_globs_only_the_requested_timeframe_suffix(tmp_path):
+    """A directory holding BOTH 1h and 1d files for the same symbol (exactly resample_ohlcv.py's
+    own output layout) must have load_dir(..., timeframe="1h") return ONLY the 1h data, never
+    accidentally pick up the 1d file for the same base."""
+    _write_csv(tmp_path / "BTC_USD_1h.csv", "1h", 5)
+    _write_csv(tmp_path / "BTC_USD_1d.csv", "1d", 2)
+    _write_csv(tmp_path / "ETH_USD_1h.csv", "1h", 5)
+
+    hourly = load_dir(tmp_path, timeframe="1h")
+    assert set(hourly) == {"BTC", "ETH"}
+    assert len(hourly["BTC"]) == 5
+
+    daily = load_dir(tmp_path, timeframe="1d")
+    assert set(daily) == {"BTC"}
+    assert len(daily["BTC"]) == 2
+
+
+def test_load_dir_default_timeframe_is_1d_unchanged(tmp_path):
+    _write_csv(tmp_path / "BTC_USD_1d.csv", "1d", 4)
+    out = load_dir(tmp_path)  # no timeframe kwarg
+    assert set(out) == {"BTC"}
+    assert len(out["BTC"]) == 4
+
+
+def test_load_dir_also_discovers_parquet_files(tmp_path):
+    """Phase 2.0's actual on-disk format (docs/system-redesign-2026-10.md §5.4: intraday data
+    "stored gitignored as parquet, not as CSV") -- load_dir must find `.parquet` files for the
+    requested timeframe exactly like it finds `.csv` ones."""
+    tf_s = TF_SECONDS["1h"]
+    open_times = pd.date_range("2026-01-01 00:00", periods=6, freq=pd.Timedelta(seconds=tf_s), tz="UTC")
+    ts_ms = open_times.values.astype("datetime64[ms]").astype("int64")
+    df = pd.DataFrame({
+        "timestamp": ts_ms, "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 1.0,
+    })
+    df.to_parquet(tmp_path / "ETH_USD_1h.parquet", index=False)
+
+    out = load_dir(tmp_path, timeframe="1h")
+    assert set(out) == {"ETH"}
+    assert len(out["ETH"]) == 6
+
+
+def test_load_csv_reads_parquet_by_suffix(tmp_path):
+    tf_s = TF_SECONDS["1h"]
+    open_times = pd.date_range("2026-01-01 00:00", periods=3, freq=pd.Timedelta(seconds=tf_s), tz="UTC")
+    ts_ms = open_times.values.astype("datetime64[ms]").astype("int64")
+    df = pd.DataFrame({
+        "timestamp": ts_ms, "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 9.0,
+    })
+    path = tmp_path / "X_USD_1h.parquet"
+    df.to_parquet(path, index=False)
+
+    back = load_csv(path, timeframe="1h")
+    assert len(back) == 3
+    assert back.index[0] == open_times[0] + pd.Timedelta(hours=1)
+
+
+def test_liquidity_window_bars_scales_with_timeframe():
+    """30 calendar days is 30 bars at 1d (unchanged), but 720 bars at 1h, 180 at 4h, 2880 at
+    15m -- a bare bar-count constant would silently mean '30 hours' instead of '30 days' at 1h,
+    which is exactly the generalization this function exists to fix."""
+    assert liquidity_window_bars("1d") == 30
+    assert liquidity_window_bars("1h") == 720
+    assert liquidity_window_bars("4h") == 180
+    assert liquidity_window_bars("15m") == 2880
+
+
+def test_simulate_portfolio_timeframe_default_does_not_change_rank_order_result():
+    """simulate_portfolio's new `timeframe` kwarg must default to "1d" -- confirms the rank-order
+    tie-break test above (which exercises trailing_quote_volume through use_rank_order=True)
+    gives an IDENTICAL result whether `timeframe` is omitted or passed explicitly as "1d"."""
+    enr_a, idx = _flat_frame(3, volume=1.0)
+    enr_z, _ = _flat_frame(3, volume=1_000_000.0)
+    enriched = {"AAA": enr_a, "ZZZ": enr_z}
+    signals = {"AAA": {idx[0]: _hand_signal(0.8)}, "ZZZ": {idx[0]: _hand_signal(0.8)}}
+
+    res_implicit = simulate_portfolio(
+        enriched, signals, Costs(0.0, 0.0), RANK_ORDER_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, use_rank_order=True,
+    )
+    res_explicit = simulate_portfolio(
+        enriched, signals, Costs(0.0, 0.0), RANK_ORDER_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, use_rank_order=True, timeframe="1d",
+    )
+    pd.testing.assert_frame_equal(res_implicit.trades, res_explicit.trades)
+
+
+def _breakout_frame_hourly(n_warm: int = 35) -> tuple[pd.DataFrame, int]:
+    """Same shape as _breakout_frame (flat warm-up bars then one clean breakout bar), but with
+    HOURLY timestamps and enough warm-up bars (>= slow_ema=26) for htf_filter's own EMA to be
+    meaningful on the reused-window path -- needed so the "old behavior" sanity check below is a
+    real confirmation, not a fails-closed-on-too-little-history no-op. Returns (df, breakout_row_index)."""
+    rows = [(100.0, 101.0, 99.0, 100.0, 10.0)] * n_warm
+    rows.append((100.0, 116.0, 100.0, 115.0, 50.0))  # the breakout bar itself
+    idx = pd.date_range("2024-03-01 00:00", periods=len(rows), freq="1h", tz="UTC")
+    o, h, l, c, v = zip(*rows)
+    df = pd.DataFrame({"open": o, "high": h, "low": l, "close": c, "volume": v}, index=idx)
+    return df, n_warm
+
+
+def test_compute_symbol_signals_daily_closes_overrides_window_trend():
+    """Phase 2.0 fix (docs/system-redesign-2026-10.md §5.4): src/htf_filter.py's LIVE wrapper
+    always fetches real "1d" candles regardless of market.timeframe -- it is NOT the same frame
+    the scanner runs on. Reusing the scan-timeframe `window` for the htf gate (the old,
+    daily-only-harness behavior) was only ever harmless because the daily harness's `window` WAS
+    the real daily frame. This test proves that at a sub-daily replay, a real `daily_closes`
+    series in a clear DOWNTREND blocks a signal the (upward-shaped) hourly window alone would
+    have confirmed -- i.e. the gate reads the real daily series, not the sub-daily window's own
+    EMA cross."""
+    df, _ = _breakout_frame_hourly()
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+
+    # OLD behavior (daily_closes=None): reuses `window` itself, which IS a clean uptrend shape
+    # (flat then a breakout) -- sanity check this still confirms, so the downtrend test below is
+    # a real override, not a vacuous "nothing ever confirms" result.
+    signals_old = compute_symbol_signals(
+        enriched, SCANNER_CFG, SIGNAL_CFG, htf_enabled=True, fast_ema=12, slow_ema=26,
+    )
+    assert len(signals_old) >= 1, "sanity check failed: the reuse-window path should confirm here"
+
+    # A real daily series, straight downtrend, with 70 days of history ending well AFTER the
+    # hourly frame's own last timestamp -- plenty of point-in-time history available at every
+    # hourly bar in `enriched`.
+    daily_idx = pd.date_range("2024-01-01", periods=70, freq="1D", tz="UTC")
+    daily_closes = pd.Series(np.linspace(200.0, 100.0, len(daily_idx)), index=daily_idx)
+
+    signals_new = compute_symbol_signals(
+        enriched, SCANNER_CFG, SIGNAL_CFG, htf_enabled=True, fast_ema=12, slow_ema=26,
+        daily_closes=daily_closes,
+    )
+    assert signals_new == {}, f"a real daily downtrend must block every signal, got:\n{signals_new}"
+
+
+def test_compute_symbol_signals_daily_closes_excludes_forming_daily_bar():
+    """Point-in-time check (the design doc's §5.4 look-ahead hazard, applied to the existing
+    htf_filter gate rather than the not-yet-built MTF confluence): a daily bar whose own close
+    time is AFTER the hourly bar being evaluated must never be visible to the gate -- proven here
+    by putting the only bullish-trend daily bars in the FUTURE relative to the signal bar, with a
+    flat/bearish real history available up to that point, and confirming the signal is blocked."""
+    df, n_warm = _breakout_frame_hourly()
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+    breakout_bar_time = enriched.index[n_warm]
+
+    # Daily history up to and including the breakout bar's own date is FLAT (no confirmed
+    # uptrend); a sharp uptrend only starts the day AFTER -- which must not be visible yet.
+    past_idx = pd.date_range("2024-01-01", periods=60, freq="1D", tz="UTC")
+    future_idx = pd.date_range(breakout_bar_time.normalize() + pd.Timedelta(days=1), periods=10, freq="1D", tz="UTC")
+    daily_closes = pd.concat([
+        pd.Series(100.0, index=past_idx),
+        pd.Series(np.linspace(100.0, 500.0, len(future_idx)), index=future_idx),
+    ])
+    assert past_idx[-1] <= breakout_bar_time  # sanity: "past" really is at/before the signal bar
+    assert future_idx[0] > breakout_bar_time  # sanity: "future" really is strictly after it
+
+    signals = compute_symbol_signals(
+        enriched, SCANNER_CFG, SIGNAL_CFG, htf_enabled=True, fast_ema=12, slow_ema=26,
+        daily_closes=daily_closes,
+    )
+    assert signals == {}, (
+        f"the future uptrend must not be visible at the breakout bar's own close time, got:\n{signals}"
+    )
+
+
+def test_trailing_quote_volume_window_bars_changes_tie_break_sensitivity():
+    """Sanity check that liquidity_window_bars actually flows into trailing_quote_volume as a bar
+    count, not a calendar-day count: a block of elevated volume sitting inside a 30-bar
+    (1d-equivalent) trailing window -- but entirely outside a short 5-bar window -- must shift
+    the wide window's MEDIAN while leaving the narrow window's median untouched (a single
+    isolated spike wouldn't move a median at all, which is why this uses a contiguous elevated
+    block large enough to be a majority of the wide window instead)."""
+    idx = pd.date_range("2026-01-01", periods=40, freq="1h", tz="UTC")
+    volume = np.full(40, 1.0)
+    volume[10:26] = 100.0  # 16 elevated bars: majority of a trailing 30-bar window at i=39 (10-39)
+    close = np.full(40, 100.0)
+    enriched = pd.DataFrame({"close": close, "volume": volume}, index=idx)
+
+    wide = trailing_quote_volume(enriched, window=liquidity_window_bars("1d"))  # 30 bars: 10..39
+    narrow = trailing_quote_volume(enriched, window=5)  # 35..39, entirely past the elevated block
+    assert narrow.iloc[-1] == 100.0
+    assert wide.iloc[-1] > narrow.iloc[-1]
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
-        t()
+        if "tmp_path" in t.__code__.co_varnames[: t.__code__.co_argcount]:
+            import tempfile
+
+            with tempfile.TemporaryDirectory() as d:
+                t(Path(d))
+        else:
+            t()
         print("PASS", t.__name__)
     print(f"{len(tests)} tests passed")

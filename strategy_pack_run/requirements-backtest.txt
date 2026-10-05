@@ -7,3 +7,10 @@
 #     pip install -r strategy_pack_run/requirements-backtest.txt
 
 scikit-optimize>=0.10.0
+
+# Phase 2.0 (docs/system-redesign-2026-10.md §5.4): the 15m Coinbase intraday dataset (and its
+# resampled 1h/4h/1d derivatives, see resample_ohlcv.py) is stored gitignored as parquet rather
+# than CSV committed to git -- ~16 coins x ~2 years x 15m bars is large enough that parquet's
+# columnar compression meaningfully matters, and nothing under src/ or the live bot's deploy path
+# ever needs to read it.
+pyarrow>=14.0.0
