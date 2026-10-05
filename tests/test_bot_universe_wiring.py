@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 
 from src import htf_filter
-from src.bot import build_components, run_cycle
+from src.bot import build_components, build_market_data, run_cycle
 from src.config import Config, load_config
 from tests._legacy_run_cycle import legacy_run_cycle
 
@@ -156,9 +156,10 @@ def _components(raw: dict, fake: FakeCcxt):
     cfg = Config(raw=raw)
     exchange, risk_engine, portfolio, broker, store, audit = build_components(cfg)
     exchange.client = fake
+    market_data = build_market_data(cfg, exchange)
     events: list[dict] = []
     audit.write = events.append  # capture in-memory
-    return cfg, (exchange, risk_engine, portfolio, broker, store, audit), events
+    return cfg, (exchange, risk_engine, portfolio, broker, store, audit, market_data), events
 
 
 def _strip_wall_clock(event: dict) -> dict:
@@ -197,7 +198,7 @@ def test_wired_run_cycle_matches_pre_wiring_run_cycle_on_todays_config(tmp_path)
     # would let one pipeline warm the other's daily-trend cache and hide (or fake)
     # a difference in exchange traffic.
     for fake, cycle, cfg, parts in (
-        (legacy_fake, legacy_run_cycle, legacy_cfg, legacy_parts),
+        (legacy_fake, legacy_run_cycle, legacy_cfg, legacy_parts[:-1]),  # predates market_data (P1a)
         (wired_fake, run_cycle, wired_cfg, wired_parts),
     ):
         htf_filter._cache.clear()
@@ -209,8 +210,18 @@ def test_wired_run_cycle_matches_pre_wiring_run_cycle_on_todays_config(tmp_path)
     for i, (before, after) in enumerate(zip(legacy_events, wired_events)):
         assert _strip_wall_clock(before) == _strip_wall_clock(after), f"event {i} ({before['symbol']}) diverged"
 
-    # Same exchange traffic, call for call (no extra or missing fetches).
-    assert legacy_fake.calls == wired_fake.calls
+    # NOT call-for-call identical: P1a's bar-close-aligned MarketDataCache is
+    # merged into `run_cycle` on this branch too, and it intentionally skips a
+    # fetch when a symbol's bar hasn't closed since its last refresh -- legacy
+    # fetches every symbol every tick with no cache. The invariant that
+    # survives both features together: the cache never fetches MORE than the
+    # naive legacy path (it only ever reduces/reorders calls, confirmed
+    # separately by P1a's own review), and it never silently drops a symbol
+    # entirely (every symbol legacy ever fetched is fetched at least once by
+    # the wired path too -- the actual decisions already verified identical
+    # above is the real safety property; this is just "no missing coverage").
+    assert len(wired_fake.calls) <= len(legacy_fake.calls)
+    assert {symbol for symbol, _tf in legacy_fake.calls} <= {symbol for symbol, _tf in wired_fake.calls}
     # Same end state.
     assert legacy_parts[2].cash == pytest.approx(wired_parts[2].cash)
     assert set(legacy_parts[2].positions) == set(wired_parts[2].positions)
@@ -366,7 +377,7 @@ def test_position_on_symbol_outside_market_symbols_still_hits_stop_and_target(
     raw = _isolated_raw(_small_raw(["ETH/USDT"]), logs)
     fake = FakeCcxt({"ETH/USDT": _flat_hourly(50.0), "BTC/USDT": _flat_hourly(100.0, last_close=last_close)}, {})
     cfg, parts, events = _components(raw, fake)
-    _exchange, risk_engine, portfolio, _broker, store, _audit = parts
+    _exchange, risk_engine, portfolio, _broker, store, _audit, _market_data = parts
     assert "BTC/USDT" in portfolio.positions
     assert "BTC/USDT" not in risk_engine.symbol_whitelist
 
@@ -397,7 +408,7 @@ def test_legacy_run_cycle_never_monitored_a_held_symbol_outside_market_symbols(t
     fake = FakeCcxt({"ETH/USDT": _flat_hourly(50.0), "BTC/USDT": _flat_hourly(100.0, last_close=85.0)}, {})
     cfg, parts, events = _components(raw, fake)
     _tick_to(fake, 259)
-    legacy_run_cycle(cfg, *parts)
+    legacy_run_cycle(cfg, *parts[:-1])  # legacy signature predates market_data (P1a)
     assert _events_for(events, "BTC/USDT") == []
     assert ("BTC/USDT", "1h") not in fake.calls
     assert parts[4].get("BTC/USDT").status == "OPEN"  # stop blown through, never closed
