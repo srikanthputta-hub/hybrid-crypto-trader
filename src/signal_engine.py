@@ -91,3 +91,41 @@ def evaluate(
             "min_strength": min_strength,
         },
     )
+
+
+def rank_signals(signals: dict[str, Signal], liquidity: dict[str, float]) -> list[str]:
+    """Deterministically order symbols by signal strength, for scarce-slot processing order.
+
+    Pure function — no I/O, no mutation, no randomness, no wall-clock dependency. This is
+    Phase 1c of the system redesign (docs/system-redesign-2026-10.md §4.1): when
+    `max_total_exposure_pct` or `max_new_entries_per_window` bind, something has to decide
+    which symbols get the remaining slots. Today that's `market.symbols` config order,
+    an unexamined selection rule once the universe grows past a handful of symbols. This
+    function is registered here, pre-tuning, so it can be validated against the existing
+    backtest datasets before (a separate decision) anything wires it into the live cycle.
+
+    Sort key: `(-engine_score, -median_quote_volume_30d, symbol)` — highest engine_score
+    first, ties broken by higher liquidity, remaining ties broken alphabetically by symbol
+    so the order is always fully determined (no two inputs can compare equal).
+
+    Missing/``None`` liquidity (e.g. every `UniverseMember` in today's static mode, which
+    always has `median_quote_volume_30d=None`) is treated as strictly lower priority than
+    any known liquidity value, including zero or a very small one — not as equivalent to
+    zero (which would rank it ahead of a negative-volume value, impossible in practice but
+    semantically wrong) and not as an error. Concretely, a missing/`None` entry sorts as
+    though its liquidity were `+inf` on the `-median_quote_volume_30d` sort key, i.e. always
+    last among ties on `engine_score` — this is a tie-break, so `engine_score` still
+    dominates: a `None`-liquidity symbol with a higher `engine_score` still outranks a
+    known-liquidity symbol with a lower one.
+
+    Only symbols present in `signals` are returned. `liquidity` may contain extra symbols
+    (e.g. the whole universe) or be missing entries for some signaled symbols — either is
+    fine and treated as unknown liquidity for that symbol.
+    """
+
+    def sort_key(symbol: str) -> tuple[float, float, str]:
+        volume = liquidity.get(symbol)
+        liquidity_key = -volume if volume is not None else float("inf")
+        return (-signals[symbol].engine_score, liquidity_key, symbol)
+
+    return sorted(signals, key=sort_key)
