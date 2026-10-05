@@ -1,11 +1,16 @@
 # P1c validation: does `rank_signals` processing order change existing backtest results?
 
-**Status:** investigation complete, numbers below are real backtest output. **Not yet reviewed by
-the Architect role** (required per `docs/system-redesign-2026-10.md` §4.1's
-`strategy_pack_run/backtest_live_bot.py` row: "QA/Tester + Architect review") — this is a
-harness-semantics change and per this repo's `CLAUDE.md` roster needs that review before anything
-gets wired toward `src/bot.py`. **No decision is made here about whether to proceed to wiring
-`rank_signals` into the live bot** — that's the user's call once this is reviewed.
+**Status:** investigation complete, numbers below are real backtest output, **independently
+reproduced and reviewed by the Architect role** (required per the system redesign design doc's
+§4.1 `strategy_pack_run/backtest_live_bot.py` row: "QA/Tester + Architect review" — that design
+doc lives on branch `claude/system-redesign-design`, not this one, as
+`docs/system-redesign-2026-10.md`; it's cited here by section number, not as a file present on this
+branch). **Verdict on the harness code: safe, correct, independently reproduced exactly.** **Verdict
+on what the experiment itself actually tested: flawed in two separate ways that matter more than the
+raw gate numbers below** — see "What the Architect review found" below before reading the headline
+numbers as a clean answer. **No decision is made here about whether to proceed to wiring
+`rank_signals` into the live bot** — that's the user's call, now with a fuller picture of what this
+test does and doesn't show.
 
 **Branch:** `claude/redesign-p1c-harness-validation`, off `origin/main`, with
 `origin/claude/redesign-p1c-rank-signals` merged in for `src/signal_engine.py`'s `rank_signals()`
@@ -44,6 +49,13 @@ change behavior based on order, for a specific, checkable reason:
   spend cash or count as exposure until it *fills*, at the *next* bar's open). So within one bar,
   every FLAT candidate sees the *identical* `open_positions_value`, regardless of processing order.
   Confirmed by instrumentation below — order doesn't need to matter here, and empirically never did.
+  **Architect-review caveat:** step 1's `quote_amount = min(payload, cash)` clip is also, in
+  principle, order-dependent (it still runs in plain `sorted(symbols)` order even when
+  `use_rank_order=True` on step 3 — only step 3 was reordered, see above), so "the only place order
+  can matter is the rate cap" is not strictly true as a general claim about this harness. Checked by
+  instrumentation across all four runs in this report: the cash clip never actually bound (zero
+  clips), so it has no effect on any number below — but a future run with a smaller starting equity
+  or a larger universe could make this a second, currently-latent order-dependent path.
 - `risk_engine`'s **GLOBAL `max_new_entries_per_window` cap** (`max_new_entries_per_window: 5`,
   `new_entry_window_minutes: 120`) is the only place order can actually matter. On daily bars
   (1440 minutes apart), an entry from a *previous* bar is always outside the 120-minute window by
@@ -95,7 +107,14 @@ the rate cap rejected at least one of them, `sorted(symbols)` run used to define
 | kraken_720 | 9 | **9** | 0 |
 | long | 23 | **23** | 0 |
 
-Every contested bar changed who got the slot. A few examples (kraken_720):
+**Architect-review caveat on this table:** only the *first* contested bar in each dataset is a
+clean, like-for-like comparison of the two orderings. From the second contested bar onward, the two
+runs' portfolios have already diverged (different cash/exposure state from the first bar's
+different winner), so a later bar's "different candidate set" partly reflects that earlier
+divergence cascading forward, not a fresh, independent order effect at that bar. The 9/9 and 23/23
+figures are real counts of bars where the realized winner set differed, but they should not be read
+as "9 and 23 independent tests of ranking vs. alphabetical" — it's closer to one real divergence
+per dataset that then propagates. A few examples (kraken_720):
 
 ```
 2024-11-13: sorted candidates=[ADA,ALGO,ATOM,AVAX,BTC,DOGE,DOT,ETH,SHIB,SOL,XRP,XTZ]
@@ -177,37 +196,88 @@ investigation's `sorted(symbols)` numbers exactly. **Sanity check passes against
 on-record baseline; the two `report_live_strategy_*.md` files should be regenerated separately
 (not part of this task) since they predate two real strategy changes.**
 
-## Verdict
+## Raw verdict (before the Architect review's deeper findings below)
 
 **(c) worse on `kraken_720`, (b) a wash on `long`.** Not a pure win anywhere, and clearly a net
-negative on the smaller, harder, already-marginal dataset:
+negative on the smaller, harder, already-marginal dataset — on the raw numbers above, taken at face
+value. Read the next section before treating this as the real answer: the Architect review found
+the experiment itself doesn't test what it was meant to.
 
-- The cap genuinely binds on both datasets (not a case of "N=16 too small to tell" — 38-78
-  rate-cap rejections and 9-23 genuinely contested bars per dataset, every contested bar producing
-  a different winner), so this test **can** distinguish the two orderings, and it did.
-- On `long` (4091 bars, far more trades, far more opportunities for the two orderings to average
-  out), the result is a wash: same 5/5 gate verdict, small moves in both directions on the
-  underlying metrics.
-- On `kraken_720` (719 bars, already the harder dataset — the live strategy's own baseline already
-  fails 1 of 5 gates here), `rank_signals` makes it worse by every single metric and flips a
-  second gate to FAIL. The mechanism isn't subtle: fewer trades survive at all (137 vs 154) because
-  early contested-bar winner swaps cascade into a different exposure/cash trajectory for the rest
-  of the run, and the trades that do happen are worse on average (avg R 0.11 vs 0.18).
-- Engine-score-first ranking is not obviously the wrong idea in principle, but nothing here
-  supports a claim that it's an improvement. The honest reading is: this specific ranking formula
-  (`-engine_score, -median_quote_volume_30d, symbol`), on this specific 16-symbol universe, at this
-  specific `max_new_entries_per_window: 5` cap, performs worse-or-even, not better.
+## What the Architect review found: this test doesn't actually test strength-first ranking
+
+Four independent findings, each one individually enough to make "worse on kraken_720, wash on
+long" an incomplete answer rather than the final word:
+
+**A. `engine_score` is maxed out at 1.0 for the large majority of signals, so `rank_signals` mostly
+ranked by liquidity, not by signal strength.** 66% of kraken_720 signals and 69% of long signals
+score exactly 1.0; on bars with 6+ competing signals, only ~40% of scores are even distinct from
+each other. An ordering by trailing liquidity *alone* (ignoring `engine_score` entirely) reproduces
+the exact same 137-trade kraken_720 result as `rank_signals`. **This run tested "prefer the most
+liquid coin when tied," not "prefer the strongest signal"** — because almost everything was tied.
+Any conclusion about strength-first ranking specifically needs `engine_score` to actually
+discriminate between signals first; it currently doesn't.
+
+**B. The `sorted(symbols)` baseline compared against isn't what the live bot does.** `src/bot.py`
+loops over `cfg.symbols` in **config order** (BTC, ETH, XRP, SOL, ADA, ...), never alphabetically.
+Re-running the comparison against the real live order:
+
+| | trades | avg R | return | Sharpe |
+|---|---|---|---|---|
+| kraken_720, live config order | 141 | 0.162 | 18.6% | 0.58 |
+| kraken_720, `rank_signals` | 137 | 0.114 | 16.2% | 0.52 |
+| long, live config order | 575 | 0.549 | 403% | 1.04 |
+| long, `rank_signals` | 572 | 0.532 | 327% | 0.94 |
+
+Against the order the live bot actually uses, `rank_signals` is worse on kraken_720 (smaller margin
+than vs. alphabetical) and **clearly worse on long** (not a wash at all against this baseline — live
+config order was the best-performing ordering tested on `long`, full stop).
+
+**C. Processing order alone moves results by more than the effect being measured, and the 5-gate
+methodology's bootstrap CI doesn't capture this source of variance.** 200 random orderings on
+kraken_720 (60 on long — fewer trials, rougher percentiles) span avg R 0.11 to 0.29 and return
+12.7% to 30.7% at the 5th/95th percentile on kraken_720 alone. Alphabetical order lands near the
+middle of that distribution; `rank_signals` lands low (6th percentile on avg R, 14th on return, 1st
+on trade count). **Reverse-alphabetical order would have passed the CI-low gate that the
+already-on-record kraken_720 baseline fails** (avg R 0.30, CI [0.01, 0.61]) — meaning the existing,
+already-recorded 4/5-gate baseline for the live strategy partly depends on processing happening to
+run in alphabetical order, which is itself a new finding independent of `rank_signals`, and the
+91st→86th percentile placebo drop reported above is within this same order-noise band, not
+necessarily a `rank_signals`-specific effect. On `long`, `rank_signals` sits at the 62nd percentile
+on avg R (unremarkable) but the 3rd percentile on return and Sharpe — "wash" correctly describes the
+gate verdict but understates how poor the underlying return/Sharpe figures are relative to the full
+distribution of possible orderings.
+
+**D. The live bot wouldn't even run what was tested here.** In today's static universe mode there is
+no liquidity data (`UniverseMember.median_quote_volume_30d` is always `None`), so `rank_signals` in
+production would fall back to `engine_score` then alphabetical — not the trailing-volume-computed
+version validated in this doc. Running that actual fallback behavior: kraken_720 158 trades / avg R
+0.165 / return 21.4%; long 550 trades / avg R 0.494 / return 375.5%. **The specific thing that would
+get deployed today, if `rank_signals` were wired in now, was not the specific thing tested above.**
+
+## Revised verdict
+
+Nothing in this investigation supports wiring `rank_signals` into `src/bot.py` as it stands — not
+because it's been proven harmful (most of the effect size sits within the ±0.09 avg-R band that
+processing order alone produces at random), but because:
+1. the ranking formula doesn't currently rank by the thing it's supposed to rank by (`engine_score`
+   saturates at 1.0 for most signals — finding A);
+2. it underperforms the live bot's actual processing order, not just an alphabetical strawman
+   (finding B);
+3. the version tested isn't the version that would actually run in production today (finding D).
+
+**Recommendation (the user's call, not decided here):** if a strength-based rule for scarce slots is
+still wanted, finding A says where to start — `engine_score`'s saturation needs its own fix (Market
+Analyst's module, `src/signal_engine.py`), with its own written reason and out-of-sample test,
+before a ranking-order experiment can say anything meaningful about ranking by strength. Separately,
+finding B/C suggest a standing follow-up regardless of `rank_signals`'s fate: the backtest harness's
+`sorted(symbols)`-as-baseline convention doesn't match live behavior, and order-sensitivity is large
+enough relative to the gate thresholds that it may be worth a hardening step (averaging across
+several processing orders, or deliberately testing the live config order as the baseline) before
+trusting close gate calls on this specific universe size. Neither change has been made here.
 
 This result should NOT be confounded with the planned universe expansion (P1d/P1e) — per the design
 doc's own framing, that's exactly why this ranking-only step was gated separately, on the existing
-data, first. A different, larger universe (where the rate cap would plausibly bind far more often
-and far more clearly) is a separate question with its own gate run.
-
-**This does not decide whether `rank_signals` gets wired toward `src/bot.py`.** That's a separate
-decision for the user, informed by: (a) this result (worse-or-wash, not a win, on the only data
-available to test it), (b) the Architect review this harness-semantics change still needs per
-`CLAUDE.md`'s roster note, and (c) whatever weight to give a result that's a wash on 4091 bars but
-a regression on 719.
+data, first.
 
 ## A real bug found (and fixed) while writing the unit tests
 
