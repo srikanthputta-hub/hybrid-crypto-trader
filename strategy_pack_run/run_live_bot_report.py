@@ -10,6 +10,12 @@ and its documented simplifications/limitations (read that before trusting these 
 Usage (run from strategy_pack_run/, matching run_report.py's own convention):
     python run_live_bot_report.py --data-dir data      --out report_live_strategy_kraken_720.md
     python run_live_bot_report.py --data-dir data_long --out report_live_strategy_long.md
+
+--timeframe (Phase 2.0, docs/system-redesign-2026-10.md §5.4, default "1d" preserves every
+existing invocation's behavior byte-for-byte): which `*_{timeframe}.csv` files to load out of
+--data-dir and which periods-per-year to annualize Sharpe with (run_report.py's own PPY/BPD
+convention, generalized the same way here). Used for the Phase 2.0 1h re-baseline:
+    python run_live_bot_report.py --data-dir data_15m --timeframe 1h --out report_live_strategy_1h_rebaseline.md
 """
 from __future__ import annotations
 
@@ -32,9 +38,13 @@ from run_report import fmt, split_stats, table  # noqa: E402
 from backtest_live_bot import build_enriched_and_signals, load_dir, placebo_run, simulate_portfolio  # noqa: E402
 from src.config import load_config  # noqa: E402
 
-PPY_1D = 365.0
+# Phase 2.0 generalization (docs/system-redesign-2026-10.md §5.4): same PPY convention run_report.py
+# already uses for its own (unrelated) engine, generalized here instead of a bare daily constant.
+# Kept under the old name too (PPY_1D = PPY_BY_TF["1d"]) so nothing importing that name breaks.
+PPY_BY_TF = {"1d": 365.0, "4h": 365.0 * 6, "1h": 365.0 * 24, "15m": 365.0 * 24 * 4}
+PPY_1D = PPY_BY_TF["1d"]
 
-LIMITATIONS = """\
+LIMITATIONS_DAILY = """\
 ## Important limits on what this report can tell you
 
 - **Daily bars, not the live 1h feed.** `config/config.yaml` runs `market.timeframe: "1h"`; only
@@ -58,32 +68,80 @@ LIMITATIONS = """\
   only. Coins that were delisted or collapsed are missing, which flatters results.
 """
 
+LIMITATIONS_1H = """\
+## Important limits on what this report can tell you
 
-def build_live_signals(data_dir: str, cfg) -> tuple[dict, dict, pd.DatetimeIndex]:
-    raw = load_dir(data_dir)
+- **1h bars, matching the live feed's own resolution (`config/config.yaml`'s `market.timeframe:
+  "1h"`) for the first time** -- this is the Phase 2.0 re-baseline
+  (docs/system-redesign-2026-10.md §5.4), not the earlier daily-bar diagnostic. The 1h candles
+  here are DERIVED by resampling Coinbase Exchange 15m history (see resample_ohlcv.py), not
+  separately fetched, so they're internally consistent but still a Coinbase replay, not a replay
+  of actual Kraken fills -- same caveat class as the daily `long` dataset.
+- **`risk.cooldown_minutes` and `risk.max_daily_loss_pct` are BINDING here, for the first time.**
+  At daily resolution both were structurally inert (see `backtest_live_bot.py`'s module
+  docstring); at 1h spacing, a cooldown can span multiple bars and a day can contain many
+  evaluations against one fixed daily-loss baseline, so this report is the first real test of
+  whether those two risk-engine gates behave sanely at the strategy's own live cadence.
+- **The risk engine's own R:R gate (`risk.min_risk_reward=1.5`) is never the binding constraint**,
+  here or live: `trade_planner.py` solves `take_profit` to hit exactly its OWN configured target
+  (`trade_planner.min_risk_reward=2.0`), so every plan's risk/reward comes out at essentially 2.0
+  by construction -- comfortably above the risk engine's 1.5 floor.
+- **Survivorship warning** (same as the strategy-pack reports): the universe is today's 16 coins
+  only. Coins that were delisted or collapsed are missing, which flatters results.
+- **No multi-timeframe change.** This is the SAME scanner/signal-engine/htf_filter/trade-planner/
+  risk-engine/monitor pipeline as every other live-strategy report, just replayed at 1h instead of
+  1d. It deliberately does not add or test any multi-timeframe confluence logic (that's a later,
+  separate phase, gated on this report's own result).
+"""
+
+
+def build_live_signals(data_dir: str, cfg, timeframe: str = "1d") -> tuple[dict, dict, pd.DatetimeIndex]:
+    raw = load_dir(data_dir, timeframe)
     if "BTC" not in raw:
-        raise SystemExit(f"BTC candles are required (expected BTC_USD_1d.csv under {data_dir})")
+        raise SystemExit(f"BTC candles are required (expected BTC_USD_{timeframe}.csv under {data_dir})")
     htf_enabled = bool(cfg.htf_filter.get("enabled", True))
-    return build_enriched_and_signals(raw, cfg.indicators, cfg.scanner, cfg.signal_engine, htf_enabled)
+
+    # Phase 2.0 (docs/system-redesign-2026-10.md §5.4): src/htf_filter.py's live wrapper ALWAYS
+    # fetches real "1d" candles, regardless of market.timeframe -- it is not the same frame the
+    # scanner runs on. At `timeframe == "1d"` those two frames are identical, so passing nothing
+    # extra preserves every prior report byte-for-byte (see
+    # backtest_live_bot.compute_symbol_signals' docstring). At any sub-daily timeframe, load the
+    # REAL daily closes out of the same --data-dir (resample_ohlcv.py always derives a genuine
+    # *_1d file alongside the sub-daily ones) and feed them in separately, so the htf gate checks
+    # an actual daily EMA trend instead of silently reusing the sub-daily window's own EMA cross.
+    daily_closes_by_symbol = None
+    if timeframe != "1d":
+        daily_raw = load_dir(data_dir, "1d")
+        daily_closes_by_symbol = {sym: df["close"] for sym, df in daily_raw.items()}
+
+    return build_enriched_and_signals(
+        raw, cfg.indicators, cfg.scanner, cfg.signal_engine, htf_enabled,
+        daily_closes_by_symbol=daily_closes_by_symbol,
+    )
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--timeframe", default="1d", choices=list(PPY_BY_TF),
+                     help="Phase 2.0: which *_{timeframe}.csv files to load and which PPY to annualize with.")
     ap.add_argument("--equity", type=float, default=10_000.0)
     ap.add_argument("--sims", type=int, default=200, help="time-shift placebo simulations")
     ap.add_argument("--cost", default="kraken_T3_taker", choices=list(COST_PRESETS))
     ap.add_argument("--out", default="report_live_strategy.md")
     a = ap.parse_args()
 
+    ppy = PPY_BY_TF[a.timeframe]
+    limitations = LIMITATIONS_1H if a.timeframe == "1h" else LIMITATIONS_DAILY
+
     cfg = load_config()
-    enriched_global, signals_by_symbol, idx = build_live_signals(a.data_dir, cfg)
+    enriched_global, signals_by_symbol, idx = build_live_signals(a.data_dir, cfg, a.timeframe)
     t0, t1 = idx[0], idx[-1]
     n_signals = sum(len(v) for v in signals_by_symbol.values())
 
     lines = [
         "# Live-strategy backtest report\n",
-        f"Data: {a.data_dir} ({len(enriched_global)} symbols, 1d bars). "
+        f"Data: {a.data_dir} ({len(enriched_global)} symbols, {a.timeframe} bars). "
         f"Bot pipeline: src/scanner.py -> src/signal_engine.py -> src/htf_filter.py "
         f"(enabled={bool(cfg.htf_filter.get('enabled', True))}) -> src/trade_planner.py -> "
         f"src/risk_engine.py -> src/monitor.py, imported read-only and unmodified. "
@@ -91,14 +149,14 @@ def main() -> None:
         f"\nWindow: {t0.date()} to {t1.date()} ({len(idx)} bars). "
         f"Raw bullish+HTF-confirmed signals detected across all symbols before any risk-engine "
         f"gating: {n_signals}.\n",
-        LIMITATIONS,
+        limitations,
     ]
 
     rows, results = [], {}
     for name, costs in COST_PRESETS.items():
         res = simulate_portfolio(
             enriched_global, signals_by_symbol, costs, cfg.risk, cfg.trade_planner,
-            a.equity, PPY_1D, _REPO_ROOT,
+            a.equity, ppy, _REPO_ROOT, timeframe=a.timeframe,
         )
         m = summarize(res)
         results[name] = (res, m)
@@ -111,8 +169,8 @@ def main() -> None:
     lines.append("\n## Results, by cost assumption\n")
     lines.append(table(rows, ["costs", "trades", "win%", "avg R", "avg R 95% CI", "PF", "return", "maxDD", "Sharpe", "exposure"]))
 
-    bh_all = buy_hold(enriched_global, list(enriched_global), a.equity, PPY_1D)
-    bh_btc = buy_hold(enriched_global, ["BTC"], a.equity, PPY_1D)
+    bh_all = buy_hold(enriched_global, list(enriched_global), a.equity, ppy)
+    bh_btc = buy_hold(enriched_global, ["BTC"], a.equity, ppy)
     lines.append("\n\nBenchmarks over the same window (no costs):\n")
     lines.append(table(
         [["BTC buy&hold", fmt(bh_btc["total_return"], True), fmt(bh_btc["max_drawdown"], True), fmt(bh_btc["sharpe"])],
@@ -130,7 +188,7 @@ def main() -> None:
 
     base = placebo_run(
         enriched_global, signals_by_symbol, COST_PRESETS[a.cost], cfg.risk, cfg.trade_planner,
-        a.equity, PPY_1D, _REPO_ROOT, n_sims=a.sims,
+        a.equity, ppy, _REPO_ROOT, n_sims=a.sims, timeframe=a.timeframe,
     )
     pr_ret = float((base["total_return"] < m["total_return"]).mean())
     pr_R = float((base["avg_R"].dropna() < m.get("avg_R", -9)).mean()) if m["trades"] else float("nan")

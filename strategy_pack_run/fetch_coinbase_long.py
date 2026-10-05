@@ -16,12 +16,24 @@ with Kraken's Data A inside the same symbol.
 Output: data_long/<BASE>_<QUOTE>_1d.csv, same CSV shape as fetch_kraken.py's output
 (timestamp = bar OPEN time, epoch ms; open, high, low, close, volume).
 
-Also writes data_sources.md: source, quote, first/last date, candle count, and any date-gaps
-found per coin, so a reader can judge how much history actually backs each coin's results.
+Also writes data_sources.md (or wherever --sources-out points): source, quote, first/last date,
+candle count, and any date-gaps found per coin, so a reader can judge how much history actually
+backs each coin's results.
+
+--since/--until (added for Phase 2.0's 15m intraday fetch, docs/system-redesign-2026-10.md §5.4):
+optional ISO8601 bounds on bar OPEN time. Both default to the original "fetch everything available"
+behavior (since=EARLIEST_SINCE, until=None i.e. page to the real current time) so every existing
+call site/usage of this script is unaffected. Example, 15m OHLCV over the same ~2-year window as
+strategy_pack_run/data's kraken_720 dataset:
+
+  python fetch_coinbase_long.py --timeframe 15m --quote USD --out data_15m \\
+      --since 2024-10-12T00:00:00Z --until 2026-09-30T00:00:00Z \\
+      --sources-out data_sources_15m.md
 """
 from __future__ import annotations
 
 import argparse
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -34,21 +46,60 @@ WATCHLIST = ["BTC", "ETH", "XRP", "SOL", "ADA", "DOGE", "AVAX", "LINK", "BNB", "
 # naturally once the exchange has no more history, so this just needs to be "early enough".
 EARLIEST_SINCE = "2014-01-01T00:00:00Z"
 
+# Added for the Phase 2.0 15m fetch (docs/system-redesign-2026-10.md §5.4): a 15m/2-year pull is
+# ~230 paginated requests PER COIN, and Coinbase Exchange's public candles endpoint enforces a
+# tighter rate limit in practice than ccxt's `enableRateLimit` throttle alone avoids (observed
+# 2026-10-05: a bare HTTP 429 "Public rate limit exceeded" partway through this exact fetch,
+# which an uncaught ccxt.RateLimitExceeded then crashed the whole run on -- the original 1d-only
+# fetch never ran long enough to hit this). Retry with exponential backoff rather than crashing;
+# this is the only behavior change on the success path (none -- a request that succeeds first try
+# is identical to before).
+MAX_FETCH_RETRIES = 6
+RETRY_BASE_SLEEP_S = 2.0
 
-def fetch_paginated(ex: ccxt.Exchange, symbol: str, timeframe: str, since_ms: int, batch_limit: int = 300) -> list[list]:
+
+def _fetch_ohlcv_with_retry(ex: ccxt.Exchange, symbol: str, timeframe: str, since: int, limit: int) -> list[list]:
+    for attempt in range(MAX_FETCH_RETRIES):
+        try:
+            return ex.fetch_ohlcv(symbol, timeframe, since=since, limit=limit)
+        except (ccxt.RateLimitExceeded, ccxt.NetworkError, ccxt.ExchangeNotAvailable) as exc:
+            if attempt == MAX_FETCH_RETRIES - 1:
+                raise
+            sleep_s = RETRY_BASE_SLEEP_S * (2 ** attempt)
+            print(f"  ... {type(exc).__name__} on {symbol} (attempt {attempt + 1}/{MAX_FETCH_RETRIES}), "
+                  f"retrying in {sleep_s:.0f}s", flush=True)
+            time.sleep(sleep_s)
+    raise AssertionError("unreachable")  # loop either returns or raises above
+
+
+def fetch_paginated(
+    ex: ccxt.Exchange,
+    symbol: str,
+    timeframe: str,
+    since_ms: int,
+    batch_limit: int = 300,
+    until_ms: int | None = None,
+) -> list[list]:
     """Coinbase's candle endpoint only returns bars inside [since, since + limit*timeframe] --
     it does NOT skip forward to the symbol's actual listing date on its own. A coin listed long
     after `since` (e.g. SOL, SHIB) legitimately returns an empty batch for every early window
     until the cursor finally reaches its real history, so an empty batch must advance the
     cursor by one full window and keep probing, not be treated as "no more data" -- the only
-    real stopping condition is the cursor reaching the current time."""
+    real stopping condition is the cursor reaching the current time (or `until_ms`, if given).
+
+    `until_ms` (added for the Phase 2.0 intraday fetch, docs/system-redesign-2026-10.md §5.4):
+    an optional upper bound, exclusive, on bar OPEN time -- lets a caller match a specific prior
+    dataset's window (e.g. `data/`'s `kraken_720` date range) instead of always paging all the way
+    to "now". `None` (default) preserves every existing caller's behavior byte-for-byte (pages to
+    the real current time, same as before this parameter existed)."""
     tf_ms = int(ex.parse_timeframe(timeframe) * 1000)
     now_ms = ex.milliseconds()
+    stop_ms = now_ms if until_ms is None else min(now_ms, until_ms)
     all_rows: list[list] = []
     cursor = since_ms
     seen_timestamps: set[int] = set()
-    while cursor < now_ms:
-        batch = ex.fetch_ohlcv(symbol, timeframe, since=cursor, limit=batch_limit)
+    while cursor < stop_ms:
+        batch = _fetch_ohlcv_with_retry(ex, symbol, timeframe, since=cursor, limit=batch_limit)
         if not batch:
             cursor += batch_limit * tf_ms  # no data in this window -- probe the next one
             continue
@@ -65,8 +116,10 @@ def fetch_paginated(ex: ccxt.Exchange, symbol: str, timeframe: str, since_ms: in
             break
         cursor = next_cursor
     all_rows.sort(key=lambda r: r[0])
-    # Drop the still-forming candle (its close time hasn't passed yet).
-    all_rows = [r for r in all_rows if r[0] + tf_ms <= ex.milliseconds()]
+    # Drop the still-forming candle (its close time hasn't passed yet) and anything at/after
+    # `until_ms` (a batch can legitimately overshoot the requested window, since Coinbase returns
+    # up to `batch_limit` bars from `since` regardless of where the caller wanted to stop).
+    all_rows = [r for r in all_rows if r[0] + tf_ms <= now_ms and (until_ms is None or r[0] < until_ms)]
     return all_rows
 
 
@@ -89,13 +142,42 @@ def main():
     ap.add_argument("--timeframe", default="1d")
     ap.add_argument("--quote", default="USD")
     ap.add_argument("--out", default="data_long")
+    ap.add_argument(
+        "--since", default=EARLIEST_SINCE,
+        help="ISO8601 lower bound on bar OPEN time (default: earlier than any watchlist coin's "
+             "real Coinbase listing date, i.e. fetch everything available).",
+    )
+    ap.add_argument(
+        "--until", default=None,
+        help="ISO8601 upper bound (exclusive) on bar OPEN time. Default: page all the way to the "
+             "real current time, same as before this flag existed. Set this to match a specific "
+             "prior dataset's window (e.g. Phase 2.0's 15m fetch matching data/'s kraken_720 "
+             "range -- see docs/system-redesign-2026-10.md §5.4) instead of always fetching "
+             "up to 'now'.",
+    )
+    ap.add_argument(
+        "--sources-out", default="data_sources.md",
+        help="Where to write the provenance/gap-report markdown. Default matches the original "
+             "behavior (data_sources.md in the cwd) -- override this for any --out other than "
+             "data_long so a second fetch run doesn't overwrite data_long's own provenance doc.",
+    )
+    ap.add_argument(
+        "--resume", action="store_true",
+        help="Skip any base whose output CSV already exists under --out, instead of refetching "
+             "and overwriting it. Added for the Phase 2.0 15m fetch (docs/system-redesign-2026-10.md "
+             "§5.4): a 16-coin x ~2-year x 15m pull is long enough to hit a transient rate-limit or "
+             "network failure partway through (see MAX_FETCH_RETRIES's docstring), so a rerun with "
+             "--resume only fetches what's still missing. Off by default -- every existing call site "
+             "(the original data_long fetch) is unaffected.",
+    )
     a = ap.parse_args()
 
     ex = ccxt.coinbaseexchange({"enableRateLimit": True})
     ex.session.trust_env = True  # see fetch_kraken.py for why this is needed in a proxied env
     ex.load_markets()
     tf_ms = int(ex.parse_timeframe(a.timeframe) * 1000)
-    since_ms = ex.parse8601(EARLIEST_SINCE)
+    since_ms = ex.parse8601(a.since)
+    until_ms = ex.parse8601(a.until) if a.until else None
 
     Path(a.out).mkdir(parents=True, exist_ok=True)
     skipped = []
@@ -106,8 +188,23 @@ def main():
         if sym not in ex.markets:
             skipped.append(sym)
             continue
+        path = Path(a.out) / f"{base}_{a.quote}_{a.timeframe}.csv"
+        if a.resume and path.exists():
+            print(f"{sym}: --resume, already fetched -> {path} (skipping)", flush=True)
+            existing = pd.read_csv(path)
+            timestamps = existing["timestamp"].tolist()
+            gaps = find_gaps(timestamps, tf_ms)
+            sources_rows.append(
+                dict(coin=base, source="Coinbase Exchange (ccxt coinbaseexchange, api.exchange.coinbase.com)",
+                     quote=a.quote,
+                     first_date=datetime.fromtimestamp(timestamps[0] / 1000, tz=timezone.utc).date().isoformat(),
+                     last_date=datetime.fromtimestamp(timestamps[-1] / 1000, tz=timezone.utc).date().isoformat(),
+                     candles=len(existing), gaps=len(gaps),
+                     gap_detail="; ".join(f"{s}..{e} ({n} missing)" for s, e, n in gaps[:10]) + (" ..." if len(gaps) > 10 else ""))
+            )
+            continue
         print(f"fetching {sym} ...", flush=True)
-        rows = fetch_paginated(ex, sym, a.timeframe, since_ms)
+        rows = fetch_paginated(ex, sym, a.timeframe, since_ms, until_ms=until_ms)
         if not rows:
             skipped.append(sym)
             continue
@@ -130,8 +227,9 @@ def main():
         print("Not available / no data on Coinbase Exchange under this quote (skipped):", ", ".join(skipped))
 
     lines = [
-        "# Data sources (Data B: long history)\n",
-        f"Fetched {datetime.now(timezone.utc).isoformat()}. Timeframe: {a.timeframe}. Quote: {a.quote}.\n",
+        "# Data sources (Data B: long history)\n" if a.timeframe == "1d" else f"# Data sources ({a.timeframe} intraday fetch -> {a.out})\n",
+        f"Fetched {datetime.now(timezone.utc).isoformat()}. Timeframe: {a.timeframe}. Quote: {a.quote}. "
+        f"Requested window: since={a.since}, until={a.until or 'now'}.\n",
         "Source for every coin below is Coinbase Exchange only -- never mixed with Kraken (Data A) within "
         "the same coin. Kraken's own downloadable historical files (support.kraken.com) and Binance (HTTP 451, "
         "geo-blocked from this environment) were tried first and were not usable; see fetch_coinbase_long.py's "
@@ -143,8 +241,8 @@ def main():
         lines.append(f"| {r['coin']} | {r['source']} | {r['quote']} | {r['first_date']} | {r['last_date']} | {r['candles']} | {r['gaps']} | {r['gap_detail'] or '—'} |")
     if skipped:
         lines.append(f"\nSkipped (no USD market or no data returned on Coinbase Exchange): {', '.join(skipped)}\n")
-    Path("data_sources.md").write_text("\n".join(lines), encoding="utf-8")
-    print("\nWrote data_sources.md")
+    Path(a.sources_out).write_text("\n".join(lines), encoding="utf-8")
+    print(f"\nWrote {a.sources_out}")
 
 
 if __name__ == "__main__":

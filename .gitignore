@@ -11,3 +11,10 @@ logs/*.csv
 venv/
 .DS_Store
 KILL_SWITCH
+
+# Phase 2.0 intraday dataset (docs/system-redesign-2026-10.md §5.4): 16 coins x ~2yr x 15m bars
+# (plus resampled 1h/4h/1d derivatives), stored as parquet. Unlike strategy_pack_run/data(_long)
+# (committed CSV), this is deliberately NOT committed -- large, regeneratable from
+# fetch_coinbase_long.py + resample_ohlcv.py, backtest-only.
+strategy_pack_run/data_15m/
+strategy_pack_run/data_15m_raw/
