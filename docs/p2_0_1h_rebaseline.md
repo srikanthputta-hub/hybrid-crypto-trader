@@ -1,19 +1,20 @@
 # P2.0 checkpoint: does the live strategy survive the 5-gate backtest at its OWN live
 resolution (1h), with no multi-timeframe change?
 
-**Status:** investigation complete, numbers below are real backtest output from this branch.
-**Not yet independently reviewed by the Architect role** — per this repo's CLAUDE.md
-(`strategy_pack_run/` is QA/Tester-owned, "Architect review of any harness-semantics change"),
-this doc and the diff behind it are reported back for that review before anything proceeds
-toward P2a (multi-timeframe confluence). **This is the design doc's (`docs/system-redesign-
-2026-10.md` §5.4, §8 `P2.0`) explicit stop-and-report checkpoint, and the verdict is FAIL: the
-live strategy does not clear the 5-gate bar at 1h, its own live resolution.** Per the design
-doc's own instruction — "If the live strategy fails the gates at its own live resolution, stop
-and bring it to the user before building MTF on top of it. That finding outranks Phase 2." — no
-attempt was made to fix, tune, or build anything on top of this result. **This does NOT mean
-multi-timeframe confluence (P2a) is itself invalidated** — it means the open question "is the
-live strategy fundamentally sound at its own real resolution" is now answered, and the answer is
-no, independent of MTF.
+**Status:** investigation complete, numbers below are real backtest output from this branch,
+**independently reproduced byte-for-byte by the Architect role** (full report matched exactly;
+the harness change and the `htf_filter` point-in-time fix were verified correct; a real test-rigor
+gap in one new test was found and has since been fixed on this branch — see §8). **This is the
+design doc's (`docs/system-redesign-2026-10.md` §5.4, §8 `P2.0`) explicit stop-and-report
+checkpoint, and the verdict is FAIL: the live strategy does not clear the 5-gate bar at 1h, its
+own live resolution.** The review also ran two independent sensitivity checks against the one real
+data-quality artifact it found (see §1) — **the FAIL verdict does not depend on that artifact**,
+removing it entirely still fails. Per the design doc's own instruction — "If the live strategy
+fails the gates at its own live resolution, stop and bring it to the user before building MTF on
+top of it. That finding outranks Phase 2." — no attempt was made to fix, tune, or build anything on
+top of this result. **This does NOT mean multi-timeframe confluence (P2a) is itself invalidated**
+— it means the open question "is the live strategy fundamentally sound at its own real resolution"
+is now answered, and the answer is no, independent of MTF.
 
 **Branch:** `claude/redesign-p2-0-intraday-rebaseline`, off `origin/main`, built in its own git
 worktree (not the shared checkout).
@@ -60,13 +61,24 @@ Stored gitignored as **parquet** (`strategy_pack_run/data_15m/`, `pyarrow` added
 output lives in `strategy_pack_run/data_15m_raw/` (also gitignored) as an intermediate artifact.
 Neither `strategy_pack_run/data/` nor `strategy_pack_run/data_long/` was touched.
 
+**Reproducibility caveat (Architect review):** the Architect review re-derived all 64 parquet files
+in `data_15m/` from the raw CSVs in `data_15m_raw/` and got zero differences, confirming the
+resampling step itself is deterministic and reproducible from the raw fetch. **The raw 15m CSVs
+themselves are not reproducible from anything committed to git** — they only come from a live
+Coinbase Exchange fetch, and Coinbase can backfill or revise its own history over time, so even
+re-running the same fetch command later isn't guaranteed to reproduce byte-identical raw data.
+Concretely: nobody without a copy of this task's actual `data_15m_raw/`/`data_15m/` directories can
+exactly reproduce `report_live_strategy_1h_rebaseline.md`'s precise numbers — only the code path
+and methodology, which the Architect review did independently verify by re-running the full report
+end-to-end inside this same worktree.
+
 **Per-symbol data quality, worth knowing before reading the results below:**
 
 | Symbol | 1d bars (this dataset) | Note |
 |---|---|---|
 | BNB | 340 (from 2025-10-23) | Not listed on Coinbase Exchange until Oct 2025 — real listing-date limit, same treatment `data_long` already gives late-listed coins (leading NaNs, reindexed onto the shared global axis). |
-| XTZ | 300 (from 2024-10-12, but only 300 of ~715 possible days survive) | 2319 gaps in the raw 15m fetch (vs 3-18 for most other symbols) — Coinbase Exchange's own API returned sparse/incomplete 15m history for XTZ over parts of this window. The "drop incomplete bins" rule (above) means XTZ's derived 1h/4h/1d series has real, if unusual, holes, not fabricated bars. |
-| ALGO, SHIB | 643 / 630 | More than most (3-18 gaps) but fewer than most (147 / 204 gaps) — same drop-incomplete-bins effect, smaller. |
+| XTZ | 300 (from 2024-10-12, but only 300 of ~715 possible days survive — **58% of daily bars missing**) | **Identified cause (Architect review): not "sparse/incomplete history" as originally characterized here — Coinbase Exchange's API simply omits a 15m candle entirely when zero volume traded in that window** (confirmed: zero rows anywhere in the raw 15m fetch have `volume == 0`; a true no-trade bar is absent rather than present-with-zero-volume). The "drop incomplete bins" rule (above) then drops any resampled bin missing even one of its expected 15m rows, which compounds this into whole missing 1h/4h/1d bars for a thinly-traded symbol like XTZ on Coinbase. This is a real property of Coinbase's data, not a fetch error or a harness bug — but it does mean XTZ's derived daily htf-gate series covers irregularly-spaced calendar days unlike a live Kraken fetch, which returns a bar for every day regardless of volume. **Two independent reruns confirm this artifact does not drive the FAIL verdict** (see §4/§9): filling the missing 15m rows as flat zero-volume candles before resampling gives `kraken_T3_taker` avg R -0.26 (vs -0.24 in §3); dropping XTZ, SHIB and ALGO entirely gives avg R -0.26 on the remaining 13 symbols. |
+| ALGO, SHIB | 643 / 630 (10-12% of daily bars missing) | Same zero-volume-omission effect as XTZ, smaller — ALGO and SHIB trade more often on Coinbase than XTZ does. |
 | All others | 714-715 | Essentially complete over the full window. |
 
 ## 2. Harness generalization (what changed in `strategy_pack_run/`)
@@ -164,11 +176,21 @@ avg R at the 100th percentile of the placebos.
 | strategy | >=100 trades | avg R CI low > 0 | later 30% avg R > 0 | beats placebo >=90th pct | net return > 0 and Sharpe > buy&hold |
 |---|---|---|---|---|---|
 | **1h re-baseline (this report)** | PASS | **FAIL** | **FAIL** | PASS | **FAIL** |
-| daily `kraken_720` (existing, committed `report_live_strategy_kraken_720.md`) | PASS | FAIL | PASS | FAIL | PASS |
+| daily, current config (Architect-reproduced; see correction below) | PASS | FAIL | PASS | PASS | PASS |
 
-**2 of 5 gates pass at 1h** (same count that failed at daily, coincidentally — but a different,
-and worse, set: the daily report at least had a positive, if not-significant, average edge and
-beat buy&hold's risk-adjusted return; the 1h report does not). **Verdict: FAIL.**
+**Correction (Architect review): the daily comparison above was originally the stale, committed
+`report_live_strategy_kraken_720.md` (189 trades, 3/5 — predates the `stop_atr_mult` 1.0→1.5 change
+and the 5/120 new-entry rate cap, neither caused by this branch, both already on `main`).** The
+Architect review re-ran `run_live_bot_report.py --data-dir data` (no `--timeframe` flag, i.e. the
+actual current-config daily replay) directly and confirmed it reproduces this repo's already-
+on-record current baseline exactly: **154 trades, avg R 0.18 [-0.08, 0.46], return 22.5%, Sharpe
+0.68, 4/5 gates** (fails only CI-low; beats placebo at the 98th/91st percentile). The table above
+now uses that correct, current-config comparison.
+
+**Only 2 of 5 gates pass at 1h, against 4 of 5 at daily — a larger drop than this doc originally
+reported**, and in the worse direction: the daily replay has a positive, if not-yet-statistically-
+significant, average edge (+0.18R) and clearly beats buy&hold's risk-adjusted return; the 1h replay
+has a *negative* average edge and loses to buy&hold. **Verdict: FAIL.**
 
 ## 4. Why — characterized, not fixed
 
@@ -199,12 +221,32 @@ a re-derived approximation):
 | `take_profit` | 335 | 34.9% | **+2.02** |
 | `end` (data window closed while still open) | 7 | 0.7% | -0.35 |
 
-Stop-outs average **-1.47R, not -1.0R** — losses routinely run past the nominal 1-R stop distance
-rather than being capped at it, which the daily-bar replay's own R accounting would not surface the
-same way (a stop computed from a daily ATR is wide relative to daily noise; the same stop, unchanged
-in `config.yaml`, is comparatively tight against hour-to-hour noise). Take-profits, when they do
-land, are healthy (+2.02R, above the configured `min_risk_reward: 2.0` floor as expected) — the
-imbalance is in how often and how badly the stop side loses, not in the win side being too small.
+**Correction (Architect review): stop-outs averaging -1.47R is NOT mainly "losses running past the
+nominal stop"** — that was this doc's original, incorrect explanation. The review split each
+trade's R into the price move itself ("gross", before costs) versus fees/slippage, and compared
+directly against the current-config daily replay:
+
+| | daily (current config) | 1h |
+|---|---|---|
+| median stop distance (% of entry price) | 10.1% | 3.05% |
+| stop-out R, **before costs** | -1.14 | -1.16 |
+| cost drag per trade | -0.09R | **-0.33R** |
+| avg R, **before costs** (all trades) | +0.28 | +0.09 |
+
+**Stop overshoot past the nominal -1.0R is essentially identical at both resolutions** (-1.14 vs
+-1.16, before costs) — that part of the original explanation doesn't hold up. What actually
+changed, two genuine and distinct effects of running at 1h: **(a)** this strategy's stops are
+~3.3x tighter in percentage terms at 1h (3.05% vs 10.1% of entry — expected, since
+`trade_planner.py`'s ATR-based stop sizing reacts to the much smaller ATR of an hourly bar), so the
+*same* fixed-percentage trading costs eat roughly 3.5x more of each trade's R (-0.33R vs -0.09R);
+**(b)** independent of costs, the strategy's own pre-cost edge is smaller at 1h (+0.09R vs +0.28R
+avg R before costs) — entries/exits that work reasonably well judged day-to-day are closer to
+breakeven judged hour-to-hour. Both are real, already-present properties of this strategy running
+at its own real resolution, not a harness bug and not newly introduced by this task — practically,
+**(a) means the live-vs-paper cost gap matters more at 1h than it looked like at daily**, since a
+fixed percentage cost is a much bigger bite out of a proportionally tighter stop. Take-profits, when
+they do land, are healthy (+2.02R, above the configured `min_risk_reward: 2.0` floor as expected) —
+the imbalance is in how often and how costly the stop side is, not in the win side being too small.
 
 Per-symbol (sorted, avg R): only **2 of 16 symbols are net positive** — XRP (+0.26R, 47 trades) and
 ALGO (+0.22R, 69 trades). The other 14 are all negative, led by SHIB (-0.59R), ATOM (-0.55R), BCH
@@ -214,8 +256,10 @@ behaving differently against 1h noise generally, rather than a symbol-specific d
 issue (BNB and XTZ, the two symbols flagged for real data gaps in §1, are mid-pack, not the worst).
 
 `bars_held`: median 27 bars (~27h), mean 50.4 bars (~50h) — the mean-over-median gap is a real
-right skew, with a max of 1630 bars (~68 days), plausibly among the 7 `end`-reason trades still open
-when the data window closed.
+right skew. **Correction (Architect review): the max of 1630 bars (~68 days) is a single LTC
+`stop_loss` trade, not one of the 7 `end`-reason trades** (the longest `end`-reason trade is only
+227 bars) — a genuine case of a position sitting well inside both the stop and target for a long
+stretch before the stop eventually caught it, not a data-window artifact.
 
 Overall: avg R -0.24 (matches §3's `kraken_T3_taker` row exactly, as it should — same run), median R
 **-1.23** — more than half of all trades lose at or beyond a full R, which is the same signal as the
@@ -237,11 +281,13 @@ a QA/Tester harness-validation one.
   confluence (P2a) on top of a foundation that doesn't itself clear the bar would mean validating
   an addition to a strategy whose own base case is unproven at its real resolution.
 - **Does NOT mean:** that multi-timeframe confluence itself is bad — MTF was never built or
-  tested here, by design. It also does not mean the EARLIER daily-bar findings
-  (`report_live_strategy_kraken_720.md`'s 3/5, `report_live_strategy_long.md`) are wrong — they
-  are a different, coarser replay of the same logic, and this result doesn't retroactively
-  invalidate them, it just answers a question they structurally could not: whether the SAME logic
-  holds up once replayed at its actual intraday cadence.
+  tested here, by design. It also does not mean the EARLIER daily-bar findings (the current-config
+  daily replay's own 4/5, `report_live_strategy_long.md`) are wrong — they are a different, coarser
+  replay of the same logic, and this result doesn't retroactively invalidate them, it just answers
+  a question they structurally could not: whether the SAME logic holds up once replayed at its
+  actual intraday cadence. (The committed `report_live_strategy_kraken_720.md` specifically is
+  separately stale on `main` — see the correction in §3 — but that staleness predates this branch
+  and is unrelated to this checkpoint's own verdict.)
 - **Does NOT mean:** the harness itself is broken. The same pipeline functions
   (`scanner.scan`, `signal_engine.evaluate`, `htf_filter.daily_trend_confirmed_from_df`,
   `trade_planner.build_plan`, `RiskEngine.check_new_trade`, `monitor.check_pending`/`check_open`)
@@ -272,10 +318,19 @@ something else — is the user's call once the review is in hand.
 - `strategy_pack_run/requirements-backtest.txt` — `pyarrow` added.
 - `.gitignore` — `strategy_pack_run/data_15m/`, `strategy_pack_run/data_15m_raw/` (parquet/CSV
   intraday data, deliberately not committed, unlike `data/`/`data_long/`).
-- `strategy_pack_run/test_resample_ohlcv.py` — new (9 tests: boundary alignment, completeness,
+- `strategy_pack_run/test_resample_ohlcv.py` — new (11 tests: boundary alignment, completeness,
   OHLCV aggregation, truncation invariance, CSV/parquet round trip).
 - `strategy_pack_run/test_backtest_live_bot.py` — new tests for timeframe/parquet-aware
-  `load_csv`/`load_dir`, `liquidity_window_bars`, and the htf point-in-time fix (9 new tests).
+  `load_csv`/`load_dir`, `liquidity_window_bars`, and the htf point-in-time fix (12 new tests,
+  after the Architect-review fix below: the original look-ahead test used a gradual ramp whose
+  first future value coincided with the flat past, so a one-day look-ahead leak was invisible to
+  it; rebuilt with one decisive, unmistakable value instead, plus a new positive-control test
+  proving the same value, moved to be visible, flips the result).
+- `src/htf_filter.py` is **not** touched by this branch — the fix is entirely harness-side in
+  `backtest_live_bot.compute_symbol_signals`/`build_enriched_and_signals` (a stricter, opt-in
+  per-symbol check: once a caller passes `daily_closes_by_symbol` at all, a symbol silently
+  missing from it now raises instead of quietly falling back to the sub-daily window for just
+  that symbol — closing exactly the failure mode the point-in-time fix exists to prevent).
 - `strategy_pack_run/data_15m/`, `strategy_pack_run/data_15m_raw/` — new datasets, gitignored,
   not committed (confirmed via `git status` before every commit on this branch).
 - `strategy_pack_run/data_sources_15m.md` — provenance/gap report for the new 15m fetch (does
@@ -284,13 +339,25 @@ something else — is the user's call once the review is in hand.
   same file whose tables are reproduced in §3 above.
 - This file.
 
-## 8. Validation run
+## 8. Validation run (after the Architect-review fixes applied directly to this branch)
+
+The Architect review found two things worth fixing before this goes further, both applied to this
+branch directly (same commit history, no separate round-trip): (1) the look-ahead test described
+above rebuilt with a decisive value + a new positive control, since the original would not have
+caught the exact mutation it was meant to catch; (2) `build_enriched_and_signals` now raises if a
+symbol is missing from an explicitly-passed `daily_closes_by_symbol`, instead of silently falling
+back to the sub-daily window for that one symbol (which would quietly reintroduce the bug the
+point-in-time fix exists to close). Both fixes were verified by temporarily reintroducing the
+original bug and confirming the strengthened/new test actually fails, then reverting.
 
 - `PYTHONPATH=. python3 -m pytest -q` (repo root) — 352 passed (unchanged vs `origin/main`;
   `tests/` doesn't import anything under `strategy_pack_run/`).
-- `PYTHONPATH=..:. python3 -m pytest -q .` (run from `strategy_pack_run/`) — **44 passed** (22
-  pre-existing on `origin/main` + 22 new: 11 in `test_resample_ohlcv.py`, new file, and 11 new in
-  `test_backtest_live_bot.py` — confirmed by diffing against `origin/main` directly, not
-  estimated).
+- `PYTHONPATH=..:. python3 -m pytest -q .` (run from `strategy_pack_run/`) — **45 passed** (22
+  pre-existing on `origin/main` + 23 new: 11 in `test_resample_ohlcv.py` + 12 in
+  `test_backtest_live_bot.py`, confirmed by diffing against `origin/main` directly, not estimated).
 - `PYTHONPATH=. python3 scripts/validate_invariants.py` — 5/5 passed.
 - Zero `anthropic`/`claude_advisor`/LLM imports in any new or changed file (grepped explicitly).
+- Independently reproduced by the Architect review: the full `report_live_strategy_1h_rebaseline.md`
+  re-run matched the committed file byte-for-byte; the daily re-run (no `--timeframe` flag) matched
+  this repo's current on-record baseline byte-for-byte; the diagnostic breakdown in §4 was
+  recomputed independently from `_diag_1h_trades.csv` and matched exactly.

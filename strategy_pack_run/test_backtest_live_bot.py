@@ -550,33 +550,69 @@ def test_compute_symbol_signals_daily_closes_overrides_window_trend():
     assert signals_new == {}, f"a real daily downtrend must block every signal, got:\n{signals_new}"
 
 
+def _flat_then_one_decisive_bar(flat_periods: int, decisive_date: pd.Timestamp) -> pd.Series:
+    """Flat 100.0 history, then exactly ONE decisive 10,000.0 bar dated `decisive_date`. Used
+    by both halves of the test below: a single, unmistakable value (not a gradual ramp starting
+    back at 100.0) so that leaking even that one extra day, were it placed in the future, could
+    never be mistaken for "no visible change" -- the Architect review of this branch found the
+    original version used a ramp whose first future value equaled the flat past (both 100.0), so
+    a one-day look-ahead leak was silently invisible to the old assertion; it passed a mutation
+    that genuinely broke the point-in-time cut. This version is built so that mutation fails."""
+    past_idx = pd.date_range("2024-01-01", periods=flat_periods, freq="1D", tz="UTC")
+    return pd.concat([
+        pd.Series(100.0, index=past_idx),
+        pd.Series([10_000.0], index=[decisive_date]),
+    ])
+
+
 def test_compute_symbol_signals_daily_closes_excludes_forming_daily_bar():
     """Point-in-time check (the design doc's §5.4 look-ahead hazard, applied to the existing
     htf_filter gate rather than the not-yet-built MTF confluence): a daily bar whose own close
     time is AFTER the hourly bar being evaluated must never be visible to the gate -- proven here
-    by putting the only bullish-trend daily bars in the FUTURE relative to the signal bar, with a
-    flat/bearish real history available up to that point, and confirming the signal is blocked."""
+    by putting the one decisive (unmistakably trend-confirming) daily bar in the FUTURE relative
+    to the signal bar, with flat history available up to that point, and confirming the signal is
+    blocked. Paired with the positive control below: the identical decisive bar, moved to be
+    visible at-or-before the signal bar, must flip the result -- proving this test's mechanism
+    actually depends on the cut, rather than always blocking regardless of what's fed in."""
     df, n_warm = _breakout_frame_hourly()
     enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
     breakout_bar_time = enriched.index[n_warm]
 
-    # Daily history up to and including the breakout bar's own date is FLAT (no confirmed
-    # uptrend); a sharp uptrend only starts the day AFTER -- which must not be visible yet.
-    past_idx = pd.date_range("2024-01-01", periods=60, freq="1D", tz="UTC")
-    future_idx = pd.date_range(breakout_bar_time.normalize() + pd.Timedelta(days=1), periods=10, freq="1D", tz="UTC")
-    daily_closes = pd.concat([
-        pd.Series(100.0, index=past_idx),
-        pd.Series(np.linspace(100.0, 500.0, len(future_idx)), index=future_idx),
-    ])
-    assert past_idx[-1] <= breakout_bar_time  # sanity: "past" really is at/before the signal bar
-    assert future_idx[0] > breakout_bar_time  # sanity: "future" really is strictly after it
+    future_date = breakout_bar_time.normalize() + pd.Timedelta(days=1)
+    daily_closes_future = _flat_then_one_decisive_bar(60, future_date)
+    assert daily_closes_future.index[-2] <= breakout_bar_time  # sanity: flat history is at/before
+    assert future_date > breakout_bar_time  # sanity: the decisive bar really is strictly after it
 
     signals = compute_symbol_signals(
         enriched, SCANNER_CFG, SIGNAL_CFG, htf_enabled=True, fast_ema=12, slow_ema=26,
-        daily_closes=daily_closes,
+        daily_closes=daily_closes_future,
     )
     assert signals == {}, (
-        f"the future uptrend must not be visible at the breakout bar's own close time, got:\n{signals}"
+        f"the future decisive bar must not be visible at the breakout bar's own close time, got:\n{signals}"
+    )
+
+
+def test_compute_symbol_signals_daily_closes_positive_control_decisive_bar_at_or_before_confirms():
+    """Positive control for the look-ahead test above: move the SAME decisive bar from strictly
+    AFTER the signal bar to AT it (same date as the breakout bar itself, which `.loc[:as_of]`
+    includes), with everything else identical. This must flip blocked -> confirmed, proving the
+    gate genuinely reads whatever daily data is visible at the cut, rather than the prior test
+    passing merely because nothing in the daily series was ever capable of confirming at all."""
+    df, n_warm = _breakout_frame_hourly()
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+    breakout_bar_time = enriched.index[n_warm]
+
+    visible_date = breakout_bar_time.normalize()
+    daily_closes_visible = _flat_then_one_decisive_bar(60, visible_date)
+    assert visible_date <= breakout_bar_time  # sanity: now at/before, not after
+
+    signals = compute_symbol_signals(
+        enriched, SCANNER_CFG, SIGNAL_CFG, htf_enabled=True, fast_ema=12, slow_ema=26,
+        daily_closes=daily_closes_visible,
+    )
+    assert len(signals) >= 1, (
+        "the SAME decisive bar, now visible at-or-before the signal bar, must confirm -- "
+        "if this still blocks, the gate isn't actually reading the cut daily series"
     )
 
 

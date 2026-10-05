@@ -286,6 +286,19 @@ def build_enriched_and_signals(
     for sym, raw in raw_frames.items():
         enr = add_indicators(raw, fast_ema, slow_ema, rsi_period)
         enriched_native[sym] = enr
+        # Once a caller opts into the sub-daily-aware path at all (daily_closes_by_symbol is not
+        # None), a symbol silently missing from it must raise, not fall back to reusing `enriched`
+        # for just that one symbol -- a per-symbol gap here would quietly reintroduce the exact
+        # bug this generalization exists to fix (Architect review, P2.0: "quietly brings back the
+        # exact bug being fixed"). Callers passing nothing (today's daily-only harness) are
+        # unaffected -- `daily_closes_by_symbol is None` entirely skips this check.
+        if daily_closes_by_symbol is not None and sym not in daily_closes_by_symbol:
+            raise ValueError(
+                f"build_enriched_and_signals: {sym!r} has sub-daily data but no entry in "
+                f"daily_closes_by_symbol -- the htf gate would silently fall back to the "
+                f"sub-daily window for this symbol only. Fix the daily-series loader, don't "
+                f"pass a partial dict."
+            )
         daily_closes = (daily_closes_by_symbol or {}).get(sym)
         signals_by_symbol[sym] = compute_symbol_signals(
             enr, scanner_cfg, signal_cfg, htf_enabled, fast_ema, slow_ema, daily_closes=daily_closes
