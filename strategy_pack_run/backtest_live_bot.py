@@ -95,7 +95,12 @@ from src.risk_engine import RiskEngine  # noqa: E402
 from src.signal_engine import Signal  # noqa: E402
 from src.trade_plan_store import PlanRecord  # noqa: E402
 
-TF_SECONDS = {"1d": 86400}
+# Phase 2.0 (docs/system-redesign-2026-10.md §5.4): generalized from {"1d": 86400} so this
+# harness can replay 15m/1h/4h data derived by resample_ohlcv.py, not just the original daily
+# datasets. Same literal values as strategies.py's own TF_SECONDS (duplicated, not imported --
+# this module is deliberately independent of engine.py/strategies.py's unrelated
+# trend_ensemble/tsmom backtester, see the module docstring).
+TF_SECONDS = {"15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
 # Point-in-time trailing-volume window for `rank_signals`' liquidity tie-break (P1c, see
 # docs/system-redesign-2026-10.md §4.1/§4.4 rule 2). Same 30-day definition already named by
@@ -103,28 +108,52 @@ TF_SECONDS = {"1d": 86400}
 # doc's `universe.min_median_quote_volume_usd` -- this harness does not invent a new formula,
 # it just computes the one that's already specified, since no universe/liquidity module exists
 # yet to supply it (that lands in a later phase, §4.1's src/universe.py).
+#
+# This is a CALENDAR-day window, not a bar-count one -- at 1d resolution those are the same
+# number (30 bars = 30 days), which is why a bare bar-count constant was correct until now.
+# liquidity_window_bars() below converts it to the right bar count for any timeframe (Phase 2.0
+# generalization: at 1h, 30 calendar days is 720 bars, not 30).
 LIQUIDITY_WINDOW_DAYS = 30
+
+
+def liquidity_window_bars(timeframe: str = "1d") -> int:
+    """How many `timeframe` bars span LIQUIDITY_WINDOW_DAYS calendar days. 30 at "1d" (unchanged
+    from before this function existed -- every daily-dataset report's numbers are byte-identical),
+    720 at "1h", 180 at "4h", 2880 at "15m"."""
+    return LIQUIDITY_WINDOW_DAYS * 86400 // TF_SECONDS[timeframe]
+
 
 # Pure performance bound: every indicator column (ema/rsi/atr/adx) was already computed
 # causally over each symbol's FULL history (see add_indicators -- all rolling/ewm, no
 # look-ahead), and every scanner/htf_filter lookback actually used below (breakout_lookback=20,
 # trend_confirm_bars+consolidation_bars=18, reversal_swing_lookback=10, htf slow_ema=26, plus a
-# couple of bars of margin) is well under this. Slicing a bounded tail therefore produces
-# byte-identical detector output to passing the full growing history -- the same
-# truncation-invariance property strategy_pack_run/test_pack.py's test_truncation_no_lookahead
-# already checks for the strategy-pack strategies -- it just avoids re-materializing a
-# thousands-of-rows DataFrame slice on every single bar.
+# couple of bars of margin) is well under this. These lookbacks are all configured in BAR COUNTS,
+# not calendar time, so this bound is already timeframe-agnostic -- 150 bars of margin is just as
+# valid at 1h as at 1d; nothing here needed to change for Phase 2.0's 1h replay
+# (docs/system-redesign-2026-10.md §5.4). Slicing a bounded tail therefore produces byte-identical
+# detector output to passing the full growing history -- the same truncation-invariance property
+# strategy_pack_run/test_pack.py's test_truncation_no_lookahead already checks for the
+# strategy-pack strategies -- it just avoids re-materializing a thousands-of-rows DataFrame slice
+# on every single bar.
 SCAN_TAIL_BARS = 150
 
 
 # --------------------------------------------------------------------------- #
 # Data loading
 # --------------------------------------------------------------------------- #
-def load_csv(path: str | Path) -> pd.DataFrame:
-    """CSV columns: timestamp (bar OPEN time, epoch ms or ISO), open, high, low, close, volume.
+def load_csv(path: str | Path, timeframe: str = "1d") -> pd.DataFrame:
+    """Columns: timestamp (bar OPEN time, epoch ms or ISO), open, high, low, close, volume.
     Returns a float DataFrame indexed by bar CLOSE time (UTC) -- same convention as
-    strategy_pack_run/strategies.py's load_csv, so dates line up with the existing reports."""
-    raw = pd.read_csv(path)
+    strategy_pack_run/strategies.py's load_csv, so dates line up with the existing reports.
+    Despite the name, reads CSV or parquet based on `path`'s own suffix -- Phase 2.0's intraday
+    dataset is parquet (docs/system-redesign-2026-10.md §5.4: "stored gitignored as parquet, not
+    as CSV"; see resample_ohlcv.py), everything before it is CSV; both land in the same shape here.
+
+    `timeframe` (Phase 2.0 generalization, default "1d" preserves every existing caller's
+    behavior byte-for-byte): which TF_SECONDS entry to add to the file's bar-OPEN timestamps to
+    get the bar-CLOSE index this harness actually walks on."""
+    path = Path(path)
+    raw = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path)
     ts = raw["timestamp"]
     open_time = (
         pd.to_datetime(ts, unit="ms", utc=True)
@@ -132,15 +161,23 @@ def load_csv(path: str | Path) -> pd.DataFrame:
         else pd.to_datetime(ts, utc=True)
     )
     df = raw[["open", "high", "low", "close", "volume"]].astype(float).copy()
-    df.index = open_time + pd.Timedelta(seconds=TF_SECONDS["1d"])
+    df.index = open_time + pd.Timedelta(seconds=TF_SECONDS[timeframe])
     df.index.name = "close_time"
     return df[~df.index.duplicated(keep="last")].sort_index()
 
 
-def load_dir(data_dir: str | Path) -> dict[str, pd.DataFrame]:
+def load_dir(data_dir: str | Path, timeframe: str = "1d") -> dict[str, pd.DataFrame]:
+    """`timeframe` (Phase 2.0 generalization, default "1d" preserves every existing caller's
+    behavior byte-for-byte): globs `*_{timeframe}.csv` instead of always `*_1d.csv`, so this can
+    also load the 1h files resample_ohlcv.py derives from the new 15m Coinbase fetch, out of the
+    SAME directory as the 1d/4h files (they don't collide, since the glob is suffix-specific).
+    Also globs `*_{timeframe}.parquet` (Phase 2.0's actual on-disk format for the intraday
+    dataset, see load_csv) -- a directory with only `.csv` files behaves exactly as before this
+    was added."""
     out = {}
-    for p in sorted(Path(data_dir).glob("*_1d.csv")):
-        out[p.stem.split("_")[0].upper()] = load_csv(p)
+    paths = sorted(Path(data_dir).glob(f"*_{timeframe}.csv")) + sorted(Path(data_dir).glob(f"*_{timeframe}.parquet"))
+    for p in paths:
+        out[p.stem.split("_")[0].upper()] = load_csv(p, timeframe)
     return out
 
 
@@ -151,6 +188,10 @@ def trailing_quote_volume(enriched: pd.DataFrame, window: int = LIQUIDITY_WINDOW
     same point-in-time discipline as every other lookback in this harness (see the module
     docstring's SCAN_TAIL_BARS note). Used only as `rank_signals`' liquidity tie-break input
     (`src.signal_engine.rank_signals`'s second argument); never affects sizing or costs.
+
+    `window` is a BAR count, not a calendar-day count -- pass `liquidity_window_bars(timeframe)`
+    for any non-daily timeframe (see that function's docstring); the bare LIQUIDITY_WINDOW_DAYS
+    default here only means "30 bars" (= 30 calendar days at 1d, Phase 2.0 generalization note).
     """
     return (enriched["close"] * enriched["volume"]).rolling(window=window, min_periods=1).median()
 
@@ -158,6 +199,14 @@ def trailing_quote_volume(enriched: pd.DataFrame, window: int = LIQUIDITY_WINDOW
 # --------------------------------------------------------------------------- #
 # Stage A: pure per-symbol signal detection (scanner -> signal_engine -> htf_filter)
 # --------------------------------------------------------------------------- #
+# How many trailing daily bars src/htf_filter.py's LIVE wrapper (daily_trend_confirmed) actually
+# fetches, regardless of market.timeframe: `exchange.fetch_ohlcv_df(symbol, "1d", max(slow_ema + 5,
+# 30))`. Mirrored here (not reimplemented as a different formula) so the point-in-time daily-trend
+# check below sees the same bounded window live does, not the symbol's full daily history.
+def _htf_fetch_bars(slow_ema: int) -> int:
+    return max(slow_ema + 5, 30)
+
+
 def compute_symbol_signals(
     enriched: pd.DataFrame,
     scanner_cfg: dict[str, Any],
@@ -166,23 +215,46 @@ def compute_symbol_signals(
     fast_ema: int,
     slow_ema: int,
     tail: int = SCAN_TAIL_BARS,
+    daily_closes: pd.Series | None = None,
 ) -> dict[pd.Timestamp, Signal]:
     """For every bar (on a trailing window ending at that bar -- no look-ahead), run the real
     scanner -> signal_engine -> (optional) HTF gate. Returns only the bars where a BULLISH,
     HTF-confirmed Signal exists -- i.e. exactly the bars src/bot.py would go on to call
     trade_planner.build_plan() for. The plan itself is built later, at simulate time (see
     simulate_portfolio), so the exact same code path also works for a time-shifted placebo
-    signal (see placebo_run)."""
+    signal (see placebo_run).
+
+    `daily_closes` (Phase 2.0 generalization, docs/system-redesign-2026-10.md §5.4 -- default
+    None preserves every existing daily-harness caller's behavior byte-for-byte): a close-time
+    indexed Series of REAL daily closes for this symbol, separate from `enriched` (which is at
+    whatever `market.timeframe` this replay uses). Why this matters: src/htf_filter.py's LIVE
+    wrapper (daily_trend_confirmed) always fetches real "1d" candles no matter what
+    market.timeframe is -- it is NOT the same frame the scanner runs on. The daily-only harness
+    got away with reusing `window` (the scan-timeframe frame) for both, because at daily
+    resolution those two frames are identical; at 1h they are NOT, and reusing the hourly window
+    would silently check an hourly EMA cross and call it "the daily gate" -- a real behavior
+    divergence from src/bot.py, not a harmless simplification. When `daily_closes` is given, the
+    gate instead uses only daily bars whose own CLOSE TIME is at or before this bar's close time
+    (`.loc[:as_of]` -- the forming daily bar is excluded, the same rule live's
+    `fetch_ohlcv_df`/`market_data.py` apply), tailed to `_htf_fetch_bars(slow_ema)` bars, exactly
+    matching what a live fetch at that moment would have returned."""
     n = len(enriched)
     signals: dict[pd.Timestamp, Signal] = {}
+    htf_bars = _htf_fetch_bars(slow_ema)
     for i in range(3, n):
         window = enriched.iloc[max(0, i - tail + 1) : i + 1]
         candidates = scanner.scan(window, scanner_cfg)
         sig = signal_engine.evaluate(candidates, **signal_cfg)
         if sig is None or sig.direction != "bullish":
             continue
-        if htf_enabled and not htf_filter.daily_trend_confirmed_from_df(window, fast_ema, slow_ema):
-            continue
+        if htf_enabled:
+            if daily_closes is not None:
+                as_of = enriched.index[i]
+                eligible_daily = pd.DataFrame({"close": daily_closes.loc[:as_of].tail(htf_bars)})
+                if not htf_filter.daily_trend_confirmed_from_df(eligible_daily, fast_ema, slow_ema):
+                    continue
+            elif not htf_filter.daily_trend_confirmed_from_df(window, fast_ema, slow_ema):
+                continue
         signals[enriched.index[i]] = sig
     return signals
 
@@ -193,11 +265,17 @@ def build_enriched_and_signals(
     scanner_cfg: dict[str, Any],
     signal_cfg: dict[str, Any],
     htf_enabled: bool,
+    daily_closes_by_symbol: dict[str, pd.Series] | None = None,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, dict[pd.Timestamp, Signal]], pd.DatetimeIndex]:
     """Computes indicators + Stage A signals per symbol on each symbol's own native (gap-free)
     history, then reindexes the enriched frames onto the shared global axis (union of all
     symbols' dates) -- late-listed coins get leading NaNs, exactly like engine.py's own
-    `idx = pd.DatetimeIndex(sorted(set().union(...)))` / `.reindex(idx)` pattern."""
+    `idx = pd.DatetimeIndex(sorted(set().union(...)))` / `.reindex(idx)` pattern.
+
+    `daily_closes_by_symbol` (Phase 2.0 generalization, default None preserves every existing
+    caller's behavior byte-for-byte): forwarded per-symbol to compute_symbol_signals as
+    `daily_closes` -- see that function's docstring for why a sub-daily replay needs a real,
+    separately-loaded daily series rather than reusing `enriched`."""
     fast_ema, slow_ema, rsi_period = (
         indicators_cfg["fast_ema"],
         indicators_cfg["slow_ema"],
@@ -208,8 +286,22 @@ def build_enriched_and_signals(
     for sym, raw in raw_frames.items():
         enr = add_indicators(raw, fast_ema, slow_ema, rsi_period)
         enriched_native[sym] = enr
+        # Once a caller opts into the sub-daily-aware path at all (daily_closes_by_symbol is not
+        # None), a symbol silently missing from it must raise, not fall back to reusing `enriched`
+        # for just that one symbol -- a per-symbol gap here would quietly reintroduce the exact
+        # bug this generalization exists to fix (Architect review, P2.0: "quietly brings back the
+        # exact bug being fixed"). Callers passing nothing (today's daily-only harness) are
+        # unaffected -- `daily_closes_by_symbol is None` entirely skips this check.
+        if daily_closes_by_symbol is not None and sym not in daily_closes_by_symbol:
+            raise ValueError(
+                f"build_enriched_and_signals: {sym!r} has sub-daily data but no entry in "
+                f"daily_closes_by_symbol -- the htf gate would silently fall back to the "
+                f"sub-daily window for this symbol only. Fix the daily-series loader, don't "
+                f"pass a partial dict."
+            )
+        daily_closes = (daily_closes_by_symbol or {}).get(sym)
         signals_by_symbol[sym] = compute_symbol_signals(
-            enr, scanner_cfg, signal_cfg, htf_enabled, fast_ema, slow_ema
+            enr, scanner_cfg, signal_cfg, htf_enabled, fast_ema, slow_ema, daily_closes=daily_closes
         )
 
     global_idx = pd.DatetimeIndex(sorted(set().union(*[f.index for f in enriched_native.values()])))
@@ -247,12 +339,19 @@ def simulate_portfolio(
     periods_per_year: float,
     project_root: Path,
     use_rank_order: bool = False,
+    timeframe: str = "1d",
 ) -> Result:
     """Walks the shared global date axis one bar at a time, for every symbol in lockstep, with
     ONE RiskEngine instance and ONE cash/position pool for the whole run -- mirroring how
     src/bot.py runs a single continuous process against a single continuous portfolio. Accepts
     `signals_by_symbol` as an argument (rather than recomputing it) so the identical simulation
     code can be reused for both the real run and a time-shifted placebo run (see placebo_run).
+
+    `timeframe` (Phase 2.0 generalization, default "1d" preserves every existing caller's
+    behavior byte-for-byte): only used to pick the right bar count for `trailing_quote_volume`'s
+    30-CALENDAR-day liquidity window when `use_rank_order=True` (see liquidity_window_bars) --
+    every other part of this function is already timeframe-agnostic (it only ever counts bars,
+    never calendar time).
 
     `use_rank_order` (default False, preserving every existing caller's behavior byte-for-byte --
     run_live_bot_report.py, hyperopt_param.py, every test in this file never pass it): when a
@@ -269,7 +368,12 @@ def simulate_portfolio(
     idx = next(iter(enriched_global.values())).index
     T = len(idx)
     liquidity_arr = (
-        {s: trailing_quote_volume(enriched_global[s]).to_numpy() for s in symbols} if use_rank_order else {}
+        {
+            s: trailing_quote_volume(enriched_global[s], window=liquidity_window_bars(timeframe)).to_numpy()
+            for s in symbols
+        }
+        if use_rank_order
+        else {}
     )
 
     risk_engine = RiskEngine(
@@ -552,6 +656,7 @@ def placebo_run(
     n_sims: int = 100,
     seed: int = 0,
     use_rank_order: bool = False,
+    timeframe: str = "1d",
 ) -> pd.DataFrame:
     """Time-shift placebo, adapted from engine.placebo_baseline's pattern: circularly shift WHEN
     each symbol's real signals fired by one random offset shared by every symbol (so clustering/
@@ -562,7 +667,9 @@ def placebo_run(
 
     `use_rank_order` is forwarded to `simulate_portfolio` unchanged (default False, matching
     every existing caller) so a placebo comparison uses the SAME per-bar processing order as
-    whatever real run it's being compared against."""
+    whatever real run it's being compared against. `timeframe` (Phase 2.0 generalization, default
+    "1d" preserves every existing caller's behavior byte-for-byte) is forwarded the same way, for
+    the same liquidity-window reason documented on simulate_portfolio."""
     idx = next(iter(enriched_global.values())).index
     T = len(idx)
     dense = {s: _dense_signal_array(sig_map, idx) for s, sig_map in signals_by_symbol.items()}
@@ -584,7 +691,7 @@ def placebo_run(
             shifted[s] = sym_map
         res = simulate_portfolio(
             enriched_global, shifted, costs, risk_cfg, planner_cfg, start_equity, periods_per_year, project_root,
-            use_rank_order=use_rank_order,
+            use_rank_order=use_rank_order, timeframe=timeframe,
         )
         from engine import summarize  # local import: avoids a module-level cycle with run_live_bot_report
 
