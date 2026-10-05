@@ -738,6 +738,138 @@
       "config_value": 0.6,
       "promoted_at": null,
       "promoted_pr_url": null
+    },
+    {
+      "id": "dalio-smooth-trend-20261005-1659",
+      "tested_at": "2026-10-05T17:50:00Z",
+      "name": "Dalio-inspired trend-smoothness filter on the trend pack",
+      "description": "Dalio-inspired trend-consistency filter: the existing trend_ensemble entry (Donchian ensemble + BTC SMA200 regime, ATR chandelier) but only when the trend is a SMOOTH grind -- R^2 of a linear fit of log-price over the last 60 bars >= 0.80 with positive slope. Distinct from the BTC SMA(200) gate, which checks direction not smoothness. Code: strategy_pack_run/investor_inspired.py.",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 223,
+      "win_rate_pct": 30.5,
+      "avg_r": -0.01,
+      "avg_r_ci": [
+        -0.16,
+        0.16
+      ],
+      "return_pct": -2.4,
+      "max_dd_pct": -28.0,
+      "sharpe": 0.0,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "FAIL",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "FAIL",
+        "overall": "FAIL"
+      },
+      "notes": "kraken_T3_taker costs, 200 placebo sims, 70/30 split; parameters a-priori, ONE gated run each (no tuning). This is this project's OWN mechanical translation of Ray Dalio's general philosophy into something testable -- NOT a reproduction of anything they actually did; the investor's name is motivation for trying the mechanic, not evidence it works in crypto. Unfiltered trend_ensemble on the same data/costs for comparison: 682 trades, avg R 0.21, return 154%, maxDD -30.6%, Sharpe 0.62. Long set: FAIL 1/5. Smoothness filter cut 682 -> 223 trades and destroyed the edge: avg R -0.01 (CI [-0.16,0.16]), later-30% avg R -0.15 (73 trades), placebo at the 17.5th/18th pct (worse than random date-shifts). Requiring smooth trends removed the winners -- the unfiltered ensemble's edge lives in the choppy-then-explosive moves.",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "dalio-smooth-trend-20261005-1659",
+      "tested_at": "2026-10-05T17:50:00Z",
+      "name": "Dalio-inspired trend-smoothness filter on the trend pack",
+      "description": "Dalio-inspired trend-consistency filter: the existing trend_ensemble entry (Donchian ensemble + BTC SMA200 regime, ATR chandelier) but only when the trend is a SMOOTH grind -- R^2 of a linear fit of log-price over the last 60 bars >= 0.80 with positive slope. Distinct from the BTC SMA(200) gate, which checks direction not smoothness. Code: strategy_pack_run/investor_inspired.py.",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 19,
+      "win_rate_pct": 42.1,
+      "avg_r": 0.07,
+      "avg_r_ci": [
+        -0.23,
+        0.39
+      ],
+      "return_pct": 1.0,
+      "max_dd_pct": -2.9,
+      "sharpe": 0.17,
+      "gates": {
+        "min_100_trades": "FAIL",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "FAIL"
+      },
+      "notes": "kraken_T3_taker costs, 200 placebo sims, 70/30 split; parameters a-priori, ONE gated run each (no tuning). This is this project's OWN mechanical translation of Ray Dalio's general philosophy into something testable -- NOT a reproduction of anything they actually did; the investor's name is motivation for trying the mechanic, not evidence it works in crypto. Unfiltered trend_ensemble on the same data/costs for comparison: 81 trades, avg R 0.24, return 16%, maxDD -8.9%, Sharpe 0.83. 2-year set: FAIL -- only 19 trades (<100 gate, smoke test only), avg R 0.07 CI [-0.23,0.39], later-30% slice 6 trades, placebo ~50th pct. Consistent with the long set: the filter removes signal rather than noise.",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "druck-concentrated-20261005-1659",
+      "tested_at": "2026-10-05T17:50:00Z",
+      "name": "Druckenmiller-inspired concentrated top-1 conviction on the trend pack",
+      "description": "Druckenmiller-inspired concentrated conviction: of all symbols with a qualifying trend_ensemble entry on a bar, only the single highest-ranked one (votes + trailing 60-bar momentum tie-break) may enter, with more aggressive sizing (risk_pct 0.02 vs 0.0075, max position 30% vs 10%, max total 60% vs 40%). Selection and sizing were changed TOGETHER (so the numbers below are not a clean selection-only test); trail unchanged at 3xATR. Code: strategy_pack_run/investor_inspired.py.",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 227,
+      "win_rate_pct": 39.2,
+      "avg_r": 0.22,
+      "avg_r_ci": [
+        0.03,
+        0.45
+      ],
+      "return_pct": 140.6,
+      "max_dd_pct": -32.1,
+      "sharpe": 0.58,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "FAIL",
+        "overall": "FAIL"
+      },
+      "notes": "kraken_T3_taker costs, 200 placebo sims, 70/30 split; parameters a-priori, ONE gated run each (no tuning). This is this project's OWN mechanical translation of Stanley Druckenmiller's general philosophy into something testable -- NOT a reproduction of anything they actually did; the investor's name is motivation for trying the mechanic, not evidence it works in crypto. Same-sizing comparison -- unfiltered trend_ensemble at the SAME aggressive sizing: 568 trades, avg R 0.23, return 334%, maxDD -48.3%, Sharpe 0.62; at default sizing: 682 trades, avg R 0.21, return 154%, maxDD -30.6%, Sharpe 0.62. Long set: FAIL 3/5 (passes 100 trades, CI low > 0 (0.03), later-30% > 0 (0.26); fails placebo (82nd/81st pct) and net-return/Sharpe vs buy&hold (Sharpe 0.58 vs 0.81)). Concentrating into the top-1 signal kept a positive edge (avg R 0.22 CI [0.03,0.45]) but did not improve on diversification: return 141% vs 334% for the same-sizing unfiltered ensemble, with a similar drawdown (-32% vs -48%) and Sharpe (0.58 vs 0.62).",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "druck-concentrated-20261005-1659",
+      "tested_at": "2026-10-05T17:50:00Z",
+      "name": "Druckenmiller-inspired concentrated top-1 conviction on the trend pack",
+      "description": "Druckenmiller-inspired concentrated conviction: of all symbols with a qualifying trend_ensemble entry on a bar, only the single highest-ranked one (votes + trailing 60-bar momentum tie-break) may enter, with more aggressive sizing (risk_pct 0.02 vs 0.0075, max position 30% vs 10%, max total 60% vs 40%). Selection and sizing were changed TOGETHER (so the numbers below are not a clean selection-only test); trail unchanged at 3xATR. Code: strategy_pack_run/investor_inspired.py.",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 32,
+      "win_rate_pct": 34.4,
+      "avg_r": -0.13,
+      "avg_r_ci": [
+        -0.38,
+        0.13
+      ],
+      "return_pct": -6.7,
+      "max_dd_pct": -17.4,
+      "sharpe": -0.33,
+      "gates": {
+        "min_100_trades": "FAIL",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "FAIL",
+        "overall": "FAIL"
+      },
+      "notes": "kraken_T3_taker costs, 200 placebo sims, 70/30 split; parameters a-priori, ONE gated run each (no tuning). This is this project's OWN mechanical translation of Stanley Druckenmiller's general philosophy into something testable -- NOT a reproduction of anything they actually did; the investor's name is motivation for trying the mechanic, not evidence it works in crypto. Same-sizing comparison -- unfiltered trend_ensemble at the SAME aggressive sizing: 61 trades, avg R 0.24, return 25%, maxDD -19.2%, Sharpe 0.83; at default sizing: 81 trades, avg R 0.24, return 16%, maxDD -8.9%, Sharpe 0.83. 2-year set: FAIL -- only 32 trades (<100, smoke test only), avg R -0.13 CI [-0.38,0.13], return -6.7%, Sharpe -0.33, later-30% slice 7 trades, placebo ~45th pct. Concentration is worse than spreading here (the unfiltered ensemble at the same sizing returned +24.6%).",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
     }
   ]
 }
