@@ -540,6 +540,138 @@
       "config_value": 0.04,
       "promoted_at": null,
       "promoted_pr_url": null
+    },
+    {
+      "id": "min-strength-0p4-20261003-1659",
+      "tested_at": "2026-10-03T17:40:00Z",
+      "name": "signal_engine.min_strength = 0.4",
+      "description": "Parameter variant of the live strategy: signal engine's minimum candidate strength changed from 0.5 to 0.4.",
+      "kind": "parameter_variant",
+      "based_on": "live_strategy",
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 563,
+      "win_rate_pct": 48.0,
+      "avg_r": 0.52,
+      "avg_r_ci": [
+        0.36,
+        0.67
+      ],
+      "return_pct": 385.1,
+      "max_dd_pct": -29.2,
+      "sharpe": 1.0,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "PASS",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "PASS"
+      },
+      "notes": "Manual sweep (signal_engine.* is outside hyperopt_param's scope): tested signal_engine.min_strength at 0.4 and 0.6 vs live 0.5, scanner/trade_planner/risk unchanged; signals rebuilt per value. Fresh 200-sim placebo, 70/30 split. Baseline 0.5: 562 trades, avg R 0.52 [0.36,0.68], return 387%, Sharpe 1.00, maxDD -29.2% (5/5). Result: 5/5, essentially identical to baseline (threshold barely binds).",
+      "config_key": "signal_engine.min_strength",
+      "config_value": 0.4,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "min-strength-0p4-20261003-1659",
+      "tested_at": "2026-10-03T17:40:00Z",
+      "name": "signal_engine.min_strength = 0.4",
+      "description": "Parameter variant of the live strategy: signal engine's minimum candidate strength changed from 0.5 to 0.4.",
+      "kind": "parameter_variant",
+      "based_on": "live_strategy",
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 155,
+      "win_rate_pct": 40.6,
+      "avg_r": 0.19,
+      "avg_r_ci": [
+        -0.08,
+        0.47
+      ],
+      "return_pct": 24.7,
+      "max_dd_pct": -23.2,
+      "sharpe": 0.73,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "PASS",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "FAIL"
+      },
+      "notes": "Manual sweep (signal_engine.* is outside hyperopt_param's scope): tested signal_engine.min_strength at 0.4 and 0.6 vs live 0.5, scanner/trade_planner/risk unchanged; signals rebuilt per value. Fresh 200-sim placebo, 70/30 split. Baseline 0.5: 154 trades, avg R 0.18 [-0.08,0.46], return 22.5%, Sharpe 0.68, maxDD -24.1% (4/5). Result: 4/5 FAIL on avg R CI low (-0.08, same as live); return 24.7% and Sharpe 0.73 are marginally above baseline -- within noise.",
+      "config_key": "signal_engine.min_strength",
+      "config_value": 0.4,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "min-strength-0p6-20261003-1659",
+      "tested_at": "2026-10-03T17:40:00Z",
+      "name": "signal_engine.min_strength = 0.6",
+      "description": "Parameter variant of the live strategy: signal engine's minimum candidate strength changed from 0.5 to 0.6.",
+      "kind": "parameter_variant",
+      "based_on": "live_strategy",
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 555,
+      "win_rate_pct": 46.7,
+      "avg_r": 0.46,
+      "avg_r_ci": [
+        0.31,
+        0.62
+      ],
+      "return_pct": 333.5,
+      "max_dd_pct": -34.4,
+      "sharpe": 0.93,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "PASS",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "PASS"
+      },
+      "notes": "Manual sweep (signal_engine.* is outside hyperopt_param's scope): tested signal_engine.min_strength at 0.4 and 0.6 vs live 0.5, scanner/trade_planner/risk unchanged; signals rebuilt per value. Fresh 200-sim placebo, 70/30 split. Baseline 0.5: 562 trades, avg R 0.52 [0.36,0.68], return 387%, Sharpe 1.00, maxDD -29.2% (5/5). Result: 5/5 but worse than baseline: avg R 0.46, return 333%, Sharpe 0.93, maxDD -34.4%.",
+      "config_key": "signal_engine.min_strength",
+      "config_value": 0.6,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "min-strength-0p6-20261003-1659",
+      "tested_at": "2026-10-03T17:40:00Z",
+      "name": "signal_engine.min_strength = 0.6",
+      "description": "Parameter variant of the live strategy: signal engine's minimum candidate strength changed from 0.5 to 0.6.",
+      "kind": "parameter_variant",
+      "based_on": "live_strategy",
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 154,
+      "win_rate_pct": 40.3,
+      "avg_r": 0.19,
+      "avg_r_ci": [
+        -0.08,
+        0.47
+      ],
+      "return_pct": 19.6,
+      "max_dd_pct": -25.9,
+      "sharpe": 0.62,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "PASS",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "FAIL"
+      },
+      "notes": "Manual sweep (signal_engine.* is outside hyperopt_param's scope): tested signal_engine.min_strength at 0.4 and 0.6 vs live 0.5, scanner/trade_planner/risk unchanged; signals rebuilt per value. Fresh 200-sim placebo, 70/30 split. Baseline 0.5: 154 trades, avg R 0.18 [-0.08,0.46], return 22.5%, Sharpe 0.68, maxDD -24.1% (4/5). Result: 4/5 FAIL on avg R CI low (-0.08); return 19.6% and Sharpe 0.62 below baseline.",
+      "config_key": "signal_engine.min_strength",
+      "config_value": 0.6,
+      "promoted_at": null,
+      "promoted_pr_url": null
     }
   ]
 }
