@@ -97,6 +97,14 @@ from src.trade_plan_store import PlanRecord  # noqa: E402
 
 TF_SECONDS = {"1d": 86400}
 
+# Point-in-time trailing-volume window for `rank_signals`' liquidity tie-break (P1c, see
+# docs/system-redesign-2026-10.md §4.1/§4.4 rule 2). Same 30-day definition already named by
+# `src.signal_engine.rank_signals`'s docstring (`median_quote_volume_30d`) and by the design
+# doc's `universe.min_median_quote_volume_usd` -- this harness does not invent a new formula,
+# it just computes the one that's already specified, since no universe/liquidity module exists
+# yet to supply it (that lands in a later phase, §4.1's src/universe.py).
+LIQUIDITY_WINDOW_DAYS = 30
+
 # Pure performance bound: every indicator column (ema/rsi/atr/adx) was already computed
 # causally over each symbol's FULL history (see add_indicators -- all rolling/ewm, no
 # look-ahead), and every scanner/htf_filter lookback actually used below (breakout_lookback=20,
@@ -134,6 +142,17 @@ def load_dir(data_dir: str | Path) -> dict[str, pd.DataFrame]:
     for p in sorted(Path(data_dir).glob("*_1d.csv")):
         out[p.stem.split("_")[0].upper()] = load_csv(p)
     return out
+
+
+def trailing_quote_volume(enriched: pd.DataFrame, window: int = LIQUIDITY_WINDOW_DAYS) -> pd.Series:
+    """Point-in-time trailing MEDIAN dollar volume (`close * volume`, `window`-bar median).
+
+    Bar t's value only uses bars up to and including t (`min_periods=1`, no look-ahead) -- the
+    same point-in-time discipline as every other lookback in this harness (see the module
+    docstring's SCAN_TAIL_BARS note). Used only as `rank_signals`' liquidity tie-break input
+    (`src.signal_engine.rank_signals`'s second argument); never affects sizing or costs.
+    """
+    return (enriched["close"] * enriched["volume"]).rolling(window=window, min_periods=1).median()
 
 
 # --------------------------------------------------------------------------- #
@@ -227,15 +246,31 @@ def simulate_portfolio(
     start_equity: float,
     periods_per_year: float,
     project_root: Path,
+    use_rank_order: bool = False,
 ) -> Result:
     """Walks the shared global date axis one bar at a time, for every symbol in lockstep, with
     ONE RiskEngine instance and ONE cash/position pool for the whole run -- mirroring how
     src/bot.py runs a single continuous process against a single continuous portfolio. Accepts
     `signals_by_symbol` as an argument (rather than recomputing it) so the identical simulation
-    code can be reused for both the real run and a time-shifted placebo run (see placebo_run)."""
+    code can be reused for both the real run and a time-shifted placebo run (see placebo_run).
+
+    `use_rank_order` (default False, preserving every existing caller's behavior byte-for-byte --
+    run_live_bot_report.py, hyperopt_param.py, every test in this file never pass it): when a
+    bar has more than one FLAT symbol with a fresh signal competing for the same scarce
+    new-entry slot (the GLOBAL `max_new_entries_per_window` cap in src/risk_engine.py -- the
+    only place per-bar processing order can actually change which symbol wins; see
+    docs/p1c_rank_signals_validation.md for why `max_total_exposure_pct` does NOT depend on this
+    order), those symbols are visited in `src.signal_engine.rank_signals` order (highest
+    engine_score first, tie-broken by `trailing_quote_volume` then symbol) instead of
+    `sorted(symbols)`. Symbols without a fresh signal this bar (OPEN/PENDING monitor-only, or
+    FLAT with nothing new) are visited afterward in the original `sorted(symbols)` order --
+    their processing order never matters since they don't compete for anything."""
     symbols = sorted(enriched_global)  # fixed, deterministic per-bar processing order
     idx = next(iter(enriched_global.values())).index
     T = len(idx)
+    liquidity_arr = (
+        {s: trailing_quote_volume(enriched_global[s]).to_numpy() for s in symbols} if use_rank_order else {}
+    )
 
     risk_engine = RiskEngine(
         starting_cash_usd=risk_cfg["starting_cash_usd"],
@@ -248,6 +283,21 @@ def simulate_portfolio(
         cooldown_minutes=risk_cfg["cooldown_minutes"],
         kill_switch_path=project_root / risk_cfg.get("kill_switch_file", "KILL_SWITCH"),
         symbol_whitelist=symbols,
+        # Optional keys: only passed when present, so RiskEngine's own defaults (and its own
+        # bounds validation) stay the single source of truth when omitted -- same pattern
+        # src/bot.py's own RiskEngine construction uses. Found while writing this module's
+        # use_rank_order tests: this harness previously silently dropped any risk_cfg override
+        # of these two keys (always falling back to RiskEngine's class defaults of 5 / 120
+        # regardless of what config/risk_cfg actually said) -- a real live-bot/harness parity
+        # gap, fixed here. It happened not to affect any committed report/gate result so far:
+        # config/config.yaml's values (5, 120) are numerically identical to RiskEngine's class
+        # defaults, and no recorded parameter_variant candidate in scripts/backtest_summary.json
+        # has ever swept either key (see docs/p1c_rank_signals_validation.md).
+        **{
+            key: risk_cfg[key]
+            for key in ("max_new_entries_per_window", "new_entry_window_minutes")
+            if key in risk_cfg
+        },
     )
 
     cash = float(start_equity)
@@ -351,7 +401,32 @@ def simulate_portfolio(
         exposure[t] = inv / equity[t] if equity[t] > 0 else 0.0
 
         # ---- 3) decide the NEXT trigger for every symbol, from THIS bar's close ----
-        for s in symbols:
+        # Processing order only matters for symbols that are FLAT with a fresh signal this bar
+        # (the ones that could newly compete for risk_engine's GLOBAL max_new_entries_per_window
+        # slot) -- OPEN/PENDING monitor checks and FLAT-with-no-signal symbols never compete for
+        # anything, so their relative order is left exactly as before (`sorted(symbols)`).
+        if use_rank_order:
+            signals_t: dict[str, Signal] = {}
+            for s in symbols:
+                if state[s].status != "FLAT":
+                    continue
+                sig = signals_by_symbol.get(s, {}).get(idx[t])
+                if sig is not None:
+                    signals_t[s] = sig
+            if signals_t:
+                liquidity_t = {
+                    s: float(liquidity_arr[s][t])
+                    for s in symbols
+                    if not math.isnan(liquidity_arr[s][t])
+                }
+                ranked = signal_engine.rank_signals(signals_t, liquidity_t)
+                order_t = ranked + [s for s in symbols if s not in signals_t]
+            else:
+                order_t = symbols
+        else:
+            order_t = symbols
+
+        for s in order_t:
             c = close[s][t]
             if math.isnan(c):
                 continue
@@ -476,13 +551,18 @@ def placebo_run(
     project_root: Path,
     n_sims: int = 100,
     seed: int = 0,
+    use_rank_order: bool = False,
 ) -> pd.DataFrame:
     """Time-shift placebo, adapted from engine.placebo_baseline's pattern: circularly shift WHEN
     each symbol's real signals fired by one random offset shared by every symbol (so clustering/
     frequency/cross-coin structure survives the shift), rebuild same-recipe plans anchored to
     whatever REAL price/ATR prevailed at each shifted landing bar (see _placebo_signal_at), and
     rerun the exact same simulate_portfolio(). If the real signals' TIMING carries information,
-    the real run should beat most of these shifted copies."""
+    the real run should beat most of these shifted copies.
+
+    `use_rank_order` is forwarded to `simulate_portfolio` unchanged (default False, matching
+    every existing caller) so a placebo comparison uses the SAME per-bar processing order as
+    whatever real run it's being compared against."""
     idx = next(iter(enriched_global.values())).index
     T = len(idx)
     dense = {s: _dense_signal_array(sig_map, idx) for s, sig_map in signals_by_symbol.items()}
@@ -503,7 +583,8 @@ def placebo_run(
                     sym_map[idx[i]] = placebo_sig
             shifted[s] = sym_map
         res = simulate_portfolio(
-            enriched_global, shifted, costs, risk_cfg, planner_cfg, start_equity, periods_per_year, project_root
+            enriched_global, shifted, costs, risk_cfg, planner_cfg, start_equity, periods_per_year, project_root,
+            use_rank_order=use_rank_order,
         )
         from engine import summarize  # local import: avoids a module-level cycle with run_live_bot_report
 
