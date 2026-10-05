@@ -10,6 +10,13 @@ deliberately flip two independent safety switches.
 ## Architecture
 
 ```
+universe               src/universe.py   (infrastructure, not a stage)
+   Which symbols the bot may open NEW plans on. `universe.mode: static`
+   (the only implemented mode) is exactly `market.symbols`. Symbols with an
+   active plan or position are always walked too, even if they've left the
+   universe, so they keep being monitored (but never get a new plan).
+   |
+   v
 market data (ccxt)
    |
    v
@@ -49,7 +56,8 @@ market data (ccxt)
    |
    v
 5. 24/7 MONITOR        src/monitor.py
-   Every cycle, for every active plan: fills a PENDING plan once price
+   Every cycle, for every active plan (in or out of the current universe):
+   fills a PENDING plan once price
    re-enters the entry zone, discards it if price breaches invalidation
    first, and closes an OPEN position at its stop loss or take-profit
    target. This bot executes automatically — there's no separate human
@@ -101,7 +109,8 @@ it**.
 |---|---|
 | `mode` | `paper` (default) or `live` |
 | `exchange.id` / `exchange.testnet` | any ccxt exchange id; use its sandbox where supported |
-| `market.symbols` | whitelist — the bot only ever looks at / trades these |
+| `market.symbols` | whitelist — the bot only ever opens new plans on these (it keeps monitoring an existing plan until it closes, even if you remove its symbol here). At most one active plan per base asset (e.g. `BTC/USD` and `BTC/USDT` can't both be held) |
+| `universe.*` | where the tradeable symbol list comes from; only `mode: static` (= `market.symbols`) is implemented, other keys are reserved for `discover` mode |
 | `indicators` | EMA fast/slow periods, RSI period (shared by scanner + planner) |
 | `scanner.*` | per-pattern thresholds — lookback windows, volume multiplier, momentum threshold, consolidation range, RSI extremes |
 | `signal_engine.*` | minimum candidate strength, confluence bonus, pattern tie-break priority |
@@ -146,6 +155,7 @@ Before you do this:
 
 ```
 config/config.yaml           settings for every pipeline stage
+src/universe.py               which symbols are tradeable (static mode = market.symbols) + held-symbol tagging
 src/exchange.py               ccxt wrapper (market data + live order placement)
 src/indicators.py             EMA / RSI / ATR
 src/scanner.py                stage 1: Breakout/Pullback/Momentum/Trend/Reversal detectors

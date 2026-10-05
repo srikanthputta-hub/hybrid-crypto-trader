@@ -15,12 +15,14 @@ rest of the pipeline is allowed to look at. It contains no pattern, signal,
 risk, or sizing logic, and (in static mode) makes no exchange calls at all --
 it never even touches the `exchange` argument today. That argument and the
 `cfg`/`held_symbols` signature already match what `mode: "discover"` will
-need later, so this function's call sites (src/bot.py, once wired up in a
-later change) don't have to change shape again when discover mode lands.
+need later, so this function's call sites in src/bot.py don't have to change
+shape again when discover mode lands.
 
-Nothing in this repo calls `refresh()` yet -- the per-base one-plan rule and
-held-symbol monitoring in src/bot.py, and RiskEngine.set_symbol_whitelist(),
-are sibling pieces of P1b being built separately and wired together later.
+Called from src/bot.py: once at startup in build_components() (no held
+symbols, so a config error fails fast), and every cycle in run_cycle() with
+the currently-held symbols, whose non-"held" members become the risk engine's
+whitelist (RiskEngine.set_symbol_whitelist) and whose full member list is what
+the cycle fetches and walks.
 """
 from __future__ import annotations
 
