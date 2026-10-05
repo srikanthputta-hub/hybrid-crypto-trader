@@ -408,6 +408,118 @@ def gate_eval(ds, cfg, planner_cfg, n_sims=200, workers=4) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
+# 5. Report tables (pure post-processing of the cached outputs above)
+# --------------------------------------------------------------------------- #
+def sequential_non_overlapping(iso: pd.DataFrame) -> pd.DataFrame:
+    """Per symbol, keep a signal only if the previous kept one has already EXITED (its exit fill
+    bar <= this signal's bar) -- the same one-plan-per-symbol rule simulate_portfolio applies, minus
+    the cross-symbol risk caps. Removes the heavy overlap in the all-signals set (one long trend =
+    many consecutive signals with near-identical outcomes)."""
+    keep = []
+    for _, d in iso[iso.reason != "nofill"].sort_values("bar").groupby("symbol"):
+        free_from = -1
+        for i, r in d.iterrows():
+            if r.bar >= free_from:
+                keep.append(i)
+                free_from = r.bar + 1 + r.bars_held
+    return iso.loc[keep]
+
+
+def _boot_ci(x, n=5000, seed=0):
+    x = np.asarray(x, float)
+    m = np.random.default_rng(seed).choice(x, (n, len(x))).mean(axis=1)
+    return float(np.percentile(m, 2.5)), float(np.percentile(m, 97.5))
+
+
+def _gross_return(entry_raw, exit_raw):
+    return exit_raw / entry_raw - 1
+
+
+def report(cache: Path) -> None:
+    hours = {"1h": 1, "1d_cb": 24, "1d_kraken": 24}
+    pd.set_option("display.width", 250)
+    pd.set_option("display.max_columns", 40)
+    T = {n: pd.read_pickle(cache / f"trades_{n}_{GATE_COST}.pkl") for n in DATASETS}
+    D = {n: pd.read_pickle(cache / f"decisions_{n}_{GATE_COST}.pkl") for n in DATASETS}
+    ISO = {n: pd.read_pickle(cache / f"iso_signals_{n}.pkl") for n in DATASETS}
+    BASE = {n: pd.read_pickle(cache / f"iso_baseline_{n}.pkl") for n in DATASETS}
+    slip = COST_PRESETS[GATE_COST].slippage
+
+    print("\n## A. Portfolio trades (kraken_T3_taker), overall")
+    for n, tr in T.items():
+        ret = _gross_return(tr.entry_px / (1 + slip), tr.exit_px / (1 - slip))
+        held_h = tr.bars_held * hours[n]
+        lo, hi = _boot_ci(tr.R_gross)
+        print(f"{n:10s} n={len(tr)} R={tr.R.mean():+.3f} R_gross={tr.R_gross.mean():+.3f} [{lo:+.2f},{hi:+.2f}] "
+              f"drag={tr.cost_drag_R.mean():+.3f} stop%med={tr.stop_pct.median()*100:.2f} risk_atr_med={tr.risk_atr.median():.2f} "
+              f"hold_mean={held_h.mean():.0f}h gross_ret/trade={ret.mean()*100:.2f}% gross_ret/24h_held={ret.sum()/held_h.sum()*2400:.3f}%")
+
+    print("\n## B. Portfolio trades by pattern")
+    for n, tr in T.items():
+        g = tr.groupby("pattern").agg(
+            n=("R", "size"), win_net=("R", lambda x: (x > 0).mean()), R_gross=("R_gross", "mean"),
+            drag=("cost_drag_R", "mean"), R=("R", "mean"), stop_pct_med=("stop_pct", "median"),
+            risk_atr_med=("risk_atr", "median"), hold_med_bars=("bars_held", "median"))
+        print(f"-- {n}\n{g.round(3)}")
+        mid = tr.entry_time.min() + (tr.entry_time.max() - tr.entry_time.min()) / 2
+        h = tr.assign(half=np.where(tr.entry_time < mid, "H1", "H2")).pivot_table(
+            index="pattern", columns="half", values="R_gross", aggfunc=["size", "mean"])
+        print(f"   R_gross by calendar half:\n{h.round(3)}")
+
+    print("\n## C. Isolated signals: htf confirmation and quality (R_gross, all overlapping signals)")
+    for n, iso in ISO.items():
+        iso = iso[iso.reason != "nofill"]
+        g = iso.groupby(["pattern", "htf"]).agg(n=("R", "size"), R_gross=("R_gross", "mean"), R=("R", "mean"))
+        print(f"-- {n}: {len(iso)} bullish signals, htf-confirmed {iso.htf.mean():.3f}\n"
+              f"{iso.groupby('htf').agg(n=('R','size'), R_gross=('R_gross','mean')).round(3)}\n{g.round(3)}")
+        print(f"   confirmation rate by pattern: {iso.groupby('pattern').htf.mean().round(3).to_dict()}")
+
+    print("\n## D. Non-overlapping (per-symbol sequential) htf-confirmed signals vs random-timing baseline")
+    seq = {}
+    for n in DATASETS:
+        s = sequential_non_overlapping(ISO[n][ISO[n].htf])
+        seq[n] = s
+        b = BASE[n][(BASE[n].reason != "nofill")]
+        lo, hi = _boot_ci(s.R_gross)
+        print(f"{n:10s} seq n={len(s)} R_gross={s.R_gross.mean():+.3f} [{lo:+.2f},{hi:+.2f}] | "
+              f"baseline htf-up R_gross={b[b.htf].R_gross.mean():+.3f} htf-down={b[~b.htf].R_gross.mean():+.3f} "
+              f"(n={len(b)})")
+    for d in ("1d_kraken", "1d_cb"):
+        rng = np.random.default_rng(3)
+        a, b = seq[d].R_gross.to_numpy(), seq["1h"].R_gross.to_numpy()
+        diffs = np.array([rng.choice(a, len(a)).mean() - rng.choice(b, len(b)).mean() for _ in range(5000)])
+        a2, b2 = T[d].R_gross.to_numpy(), T["1h"].R_gross.to_numpy()
+        diffs2 = np.array([rng.choice(a2, len(a2)).mean() - rng.choice(b2, len(b2)).mean() for _ in range(5000)])
+        print(f"   R_gross {d} - 1h: non-overlapping {a.mean()-b.mean():+.3f} P(<=0)={np.mean(diffs<=0):.3f}; "
+              f"portfolio {a2.mean()-b2.mean():+.3f} [{np.percentile(diffs2,2.5):+.2f},{np.percentile(diffs2,97.5):+.2f}] "
+              f"P(<=0)={np.mean(diffs2<=0):.3f}")
+
+    print("\n## E. R/R mechanics + risk-engine rejection mix")
+    for n, tr in T.items():
+        dec = D[n]
+        rej = dec[~dec.allowed].reason.str.extract(
+            r"^(cooldown|new-entry rate cap|daily loss|market volatility|risk/reward|no room|kill)")[0].fillna("other")
+        tp, sl = tr[tr.reason == "take_profit"], tr[tr.reason == "stop_loss"]
+        w = tr.qty * (tr.entry_high - tr.stop)
+        print(f"{n:10s} plans={len(dec)} approved={int(dec.allowed.sum())} trades={len(tr)} rejections={rej.value_counts().to_dict()}")
+        for lab, col in (("gross", "R_gross"), ("net", "R")):
+            a, b = tp[col].mean(), sl[col].mean()
+            print(f"   {lab}: TP {a:+.3f} SL {b:+.3f} breakeven TP-share {abs(b)/(abs(b)+a):.3f}; actual {len(tp)/(len(tp)+len(sl)):.3f}")
+        print(f"   fill gap vs entry_high: {tr.fill_gap_R.mean():+.3f}R; ADX-bonus share {tr.adx_confirmed.mean():.3f}; "
+              f"positions with <$20 at risk: {(w<20).mean():.2f}; $risk-weighted R {np.average(tr.R, weights=w):+.3f}")
+
+    print("\n## F. stop_atr_mult variants at 1h (full gate evals)")
+    for p in sorted(cache.glob("gates_1h_stop*.pkl"), key=lambda q: float(q.stem.split("stop")[1])):
+        ev = pickle.loads(p.read_bytes())
+        print(f"-- {p.stem}: gates {sum(ev['gates'].values())}/5 {ev['gates']} placebo pct (ret, avgR)={ev['placebo_pct']} "
+              f"split={ev['split']} eq-weight b&h Sharpe={ev['bh_sharpe']:.3f}")
+        for c, m in ev["by_cost"].items():
+            print(f"   {c:18s} n={m['trades']} win={m['win_rate']*100:.1f}% avgR={m['avg_R']:+.3f} "
+                  f"CI=[{m['avg_R_ci_low']:+.3f},{m['avg_R_ci_high']:+.3f}] PF={m['profit_factor']:.2f} "
+                  f"ret={m['total_return']*100:.1f}% maxDD={m['max_drawdown']*100:.1f}% Sharpe={m['sharpe']:.2f}")
+
+
+# --------------------------------------------------------------------------- #
 # CLI: cache signal sets (the expensive step) once, then every analysis reads the cache
 # --------------------------------------------------------------------------- #
 DATASETS = {
@@ -432,7 +544,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cache-dir", required=True, help="where to cache signal sets / outputs (keep out of git)")
     ap.add_argument("--workers", type=int, default=4)
-    ap.add_argument("--step", choices=["signals", "replay", "isolated", "variants"], required=True)
+    ap.add_argument("--step", choices=["signals", "replay", "isolated", "variants", "mechanism", "report"], required=True)
     ap.add_argument("--stop-mults", default="", help="comma-separated stop_atr_mult values for --step variants")
     ap.add_argument("--datasets", default="1h,1d_cb,1d_kraken")
     ap.add_argument("--sims", type=int, default=200)
@@ -477,6 +589,29 @@ def main() -> None:
                 print(f"[{n}] stop_atr_mult={mult}: {sum(g.values())}/5 {g} "
                       f"T3taker avg_R={ev['by_cost'][GATE_COST]['avg_R']:.3f} placebo={ev['placebo_pct']} "
                       f"({time.time()-t:.0f}s)", flush=True)
+    elif a.step == "mechanism":
+        # Attributed replay per stop_atr_mult: WHY each variant's avg R moved (pre-cost R, cost
+        # drag, hold time, gross return per day held, $-risk-weighted R, random-timing baseline).
+        mults = [float(x) for x in a.stop_mults.split(",") if x]
+        ds = load_or_build("1h", cache, cfg, a.workers)
+        slip = COST_PRESETS[GATE_COST].slippage
+        for mult in mults:
+            pc = dict(cfg.trade_planner)
+            pc["stop_atr_mult"] = mult
+            _, tr, _ = replay_attributed(ds, cfg, COST_PRESETS[GATE_COST], pc)
+            ret = _gross_return(tr.entry_px / (1 + slip), tr.exit_px / (1 - slip))
+            w = tr.qty * (tr.entry_high - tr.stop)
+            b = isolated_baseline(ds, cfg, COST_PRESETS[GATE_COST], every=4, planner_cfg=pc)
+            b = b[b.reason != "nofill"]
+            print(f"stop_atr_mult={mult}: n={len(tr)} R={tr.R.mean():+.3f} R_gross={tr.R_gross.mean():+.3f} "
+                  f"drag={tr.cost_drag_R.mean():+.3f} stop%med={tr.stop_pct.median()*100:.2f} "
+                  f"hold_mean={tr.bars_held.mean():.0f}h gross_ret/trade={ret.mean()*100:.2f}% "
+                  f"per_24h_held={ret.sum()/tr.bars_held.sum()*2400:.3f}% $risk-weighted R={np.average(tr.R, weights=w):+.3f} "
+                  f"| random-timing htf-up baseline R_gross={b[b.htf].R_gross.mean():+.3f} R={b[b.htf].R.mean():+.3f}", flush=True)
+            print("   by pattern:", tr.groupby("pattern").agg(n=("R", "size"), R_gross=("R_gross", "mean"), R=("R", "mean"))
+                  .round(3).to_dict("index"), flush=True)
+    elif a.step == "report":
+        report(cache)
 
 
 if __name__ == "__main__":
