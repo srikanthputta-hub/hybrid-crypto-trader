@@ -30,7 +30,10 @@ Checks, matching the risk-engine design this bot follows:
 Plus the account-level guards from before: symbol whitelist, daily loss limit,
 per-symbol cooldown, and a kill switch file. Selling (closing an existing
 position) is never blocked by any of this — closing risk should always be
-possible, even during a kill switch or a daily-loss halt.
+possible, even during a kill switch or a daily-loss halt. The whitelist starts
+as the constructor's symbol_whitelist and can be replaced at runtime with
+set_symbol_whitelist() (e.g. on a universe refresh); either way it only gates
+NEW buys.
 
 Plus a GLOBAL new-entry rate cap: no more than max_new_entries_per_window new
 entries (across ALL symbols combined) may be approved within any rolling
@@ -142,6 +145,30 @@ class RiskEngine:
         self._recent_entry_times: list[datetime] = []
         self._day_start_equity: float | None = None
         self._day_start_date = None
+
+    def set_symbol_whitelist(self, symbols: Iterable[str]) -> None:
+        """Replace the symbol whitelist wholesale (e.g. on every universe refresh).
+
+        Same meaning as the constructor's symbol_whitelist: the symbols this engine
+        may approve NEW buys on. It never resizes a trade, never blocks a sell, and
+        leaves per-symbol cooldowns and the global new-entry window untouched — a
+        held position whose symbol drops out of the whitelist can still be closed.
+
+        Replaces, never merges. An empty iterable is valid and blocks every new
+        buy. Fails closed on nonsense rather than guessing: a bare str/bytes (which
+        would otherwise become a whitelist of single characters), a non-iterable,
+        or any non-string/blank entry raises, and the previous whitelist stays in
+        effect unchanged (the new set is fully built before it is swapped in).
+        """
+        if isinstance(symbols, (str, bytes, bytearray)):
+            raise TypeError(f"symbols must be an iterable of symbol strings, not a bare {type(symbols).__name__}")
+        new_whitelist = frozenset(symbols)
+        for symbol in new_whitelist:
+            if not isinstance(symbol, str):
+                raise TypeError(f"whitelist entries must be strings, got {symbol!r}")
+            if not symbol.strip():
+                raise ValueError(f"whitelist entries must be non-blank, got {symbol!r}")
+        self.symbol_whitelist = new_whitelist
 
     def _refresh_daily_baseline(self, current_equity: float, now: datetime) -> None:
         today = now.date()

@@ -56,6 +56,28 @@ market:
   timeframe: "1h"           # ccxt timeframe string: 1m, 5m, 15m, 1h, 4h, 1d
   history_bars: 200         # bars of OHLCV history fetched each cycle for indicators/scanner
 
+# Phase 1b of docs/system-redesign-2026-10.md (§4.2): the symbol-universe
+# source of truth. Only `mode` does anything right now -- src/universe.py's
+# refresh() in `static` mode just wraps market.symbols above verbatim, making
+# zero exchange calls. The other keys below are documented here so the shape
+# is visible and ready for Phase 1e's separately-gated "discover" mode
+# (full Kraken USD/USDT universe, point-in-time liquidity ranking) -- none of
+# them are read yet, and `mode: discover` currently raises NotImplementedError
+# rather than doing anything undefined.
+universe:
+  mode: static              # "static" = exactly today's behavior (market.symbols) | "discover" (not implemented yet)
+  quotes: ["USD", "USDT"]   # NOT YET USED (discover mode only)
+  prefer_quote: "USD"       # one pair per base asset when discovering; NOT YET USED
+  min_median_quote_volume_usd: 1000000   # 30-day MEDIAN daily quote volume floor; NOT YET USED
+  exit_volume_ratio: 0.5    # hysteresis so membership doesn't churn at the floor; NOT YET USED
+  min_listing_age_days: 60  # NOT YET USED
+  max_symbols: 150          # NOT YET USED
+  include_symbols: []       # pins beyond discovery; NOT YET USED
+  exclude_bases: []         # e.g. stablecoins/wrapped assets to always drop in discover mode; NOT YET USED
+  exclude_symbols: {}       # "SYMBOL": "reason + date" -- human-maintained structural exclusions; NOT YET USED
+  quarantine_after_failures: 3   # consecutive fetch failures -> temporary exclusion; NOT YET USED
+  refresh_utc: "00:15"      # NOT YET USED
+
 # EMA/RSI/ATR settings, shared by the scanner, the pullback/trend detectors, and the trade planner.
 indicators:
   fast_ema: 12
@@ -195,6 +217,11 @@ logging:
   trade_log_path: "logs/trades.csv"
   trade_plan_current_path: "logs/trade_plans_current.json"
   trade_plan_history_path: "logs/trade_plans_history.jsonl"
+  # Written by src/market_data.py (MarketDataCache) after every refresh pass:
+  # current price (last closed bar's close) + recent candles per symbol.
+  # scripts/export_dashboard_data.py reads this instead of making its own
+  # independent exchange calls -- see docs/system-redesign-2026-10.md §4.1/§4.3.
+  market_snapshot_path: "logs/market_snapshot.json"
   # Only used by scripts/run_live.py (the 24/7 VM loop), once a day: rows
   # older than this many days are pruned from audit_log_path and
   # trade_plan_history_path, so a long-running host's disk doesn't fill up
