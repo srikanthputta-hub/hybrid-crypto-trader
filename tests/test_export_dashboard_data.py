@@ -1,6 +1,13 @@
+import json
 from datetime import datetime, timedelta, timezone
 
-from scripts.export_dashboard_data import _backtester_role, _signal_history, _visible_candidates
+from scripts.export_dashboard_data import (
+    MARKET_SNAPSHOT_STALE_SECONDS,
+    _backtester_role,
+    _load_market_snapshot,
+    _signal_history,
+    _visible_candidates,
+)
 
 NOW = datetime(2026, 9, 29, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -191,3 +198,79 @@ def test_visible_candidates_does_not_mutate_input():
     summary = {"candidates": [stale_fail, keep_pass]}
     _visible_candidates(summary, NOW)
     assert summary["candidates"] == [stale_fail, keep_pass]
+
+
+# --- _load_market_snapshot: P1a's "export makes zero exchange calls" switch ---
+# (src/market_data.py's MarketDataCache writes logs/market_snapshot.json;
+# this function is the read side, see docs/system-redesign-2026-10.md §4.1/§4.3) ---
+
+
+def _snapshot_payload(generated_at: str) -> dict:
+    return {
+        "generated_at": generated_at,
+        "timeframe": "1h",
+        "symbols": {
+            "BTC/USDT": {
+                "price": 50000.0,
+                "updated_at": generated_at,
+                "candles": [{"time": 1000, "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5}],
+            },
+            "ETH/USDT": {
+                "price": None,  # e.g. a symbol that's never successfully fetched yet
+                "updated_at": generated_at,
+                "candles": [],
+            },
+        },
+    }
+
+
+def test_load_market_snapshot_missing_file_warns_and_returns_empty(tmp_path, capsys):
+    prices, charts = _load_market_snapshot(tmp_path / "does_not_exist.json", NOW)
+    assert prices == {}
+    assert charts == {}
+    assert "no market snapshot" in capsys.readouterr().err
+
+
+def test_load_market_snapshot_fresh_file_returns_prices_and_charts(tmp_path, capsys):
+    path = tmp_path / "market_snapshot.json"
+    path.write_text(json.dumps(_snapshot_payload(NOW.isoformat())))
+
+    prices, charts = _load_market_snapshot(path, NOW)
+
+    assert prices == {"BTC/USDT": 50000.0}  # ETH/USDT omitted -- no price yet
+    assert charts["BTC/USDT"]["candles"] == [{"time": 1000, "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5}]
+    assert "ETH/USDT" not in charts  # no candles yet
+    assert "stale" not in capsys.readouterr().err.lower()
+
+
+def test_load_market_snapshot_stale_file_still_returns_data_but_warns(tmp_path, capsys):
+    stale_time = NOW - timedelta(seconds=MARKET_SNAPSHOT_STALE_SECONDS + 1)
+    path = tmp_path / "market_snapshot.json"
+    path.write_text(json.dumps(_snapshot_payload(stale_time.isoformat())))
+
+    prices, charts = _load_market_snapshot(path, NOW)
+
+    # Still used (better than a blank dashboard) -- but must be loudly flagged, never silent.
+    assert prices == {"BTC/USDT": 50000.0}
+    err = capsys.readouterr().err
+    assert "STALE" in err
+
+
+def test_load_market_snapshot_fresh_file_just_under_threshold_does_not_warn(tmp_path, capsys):
+    fresh_time = NOW - timedelta(seconds=MARKET_SNAPSHOT_STALE_SECONDS - 1)
+    path = tmp_path / "market_snapshot.json"
+    path.write_text(json.dumps(_snapshot_payload(fresh_time.isoformat())))
+
+    _load_market_snapshot(path, NOW)
+    assert "STALE" not in capsys.readouterr().err
+
+
+def test_load_market_snapshot_corrupt_file_warns_and_returns_empty(tmp_path, capsys):
+    path = tmp_path / "market_snapshot.json"
+    path.write_text("{not valid json")
+
+    prices, charts = _load_market_snapshot(path, NOW)
+
+    assert prices == {}
+    assert charts == {}
+    assert "couldn't read market snapshot" in capsys.readouterr().err

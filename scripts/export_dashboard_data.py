@@ -32,7 +32,6 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import load_config
-from src.exchange import ExchangeClient
 from src.pnl import build_pnl_report
 from src.risk_analytics import build_risk_report
 from src.portfolio import reconstruct_cash
@@ -41,6 +40,14 @@ from src.trade_plan_store import TradePlanStore
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUT_PATH = PROJECT_ROOT / "web" / "data.json"
 BACKTEST_SUMMARY_PATH = PROJECT_ROOT / "scripts" / "backtest_summary.json"
+
+# How old logs/market_snapshot.json's generated_at can be before this export
+# treats it as stale rather than live -- 3x the bot's default 300s poll
+# interval (src/market_data.py's MarketDataCache is refreshed once per
+# run_cycle, i.e. normally every poll_interval_seconds). Missing this just
+# means "no --once/continuous bot cycle has run yet" or the loop has stalled;
+# either way the export must say so, not quietly show old data as current.
+MARKET_SNAPSHOT_STALE_SECONDS = 900
 
 
 def _load_backtest_summary() -> dict[str, Any] | None:
@@ -59,6 +66,52 @@ def _load_backtest_summary() -> dict[str, Any] | None:
     except Exception as exc:  # noqa: BLE001 — a bad summary file shouldn't break the live export
         print(f"warning: couldn't read {BACKTEST_SUMMARY_PATH}, Testing panel will show empty: {exc}", file=sys.stderr)
         return None
+
+
+def _load_market_snapshot(
+    path: Path, now: datetime, stale_after_seconds: float = MARKET_SNAPSHOT_STALE_SECONDS
+) -> tuple[dict[str, float], dict[str, dict[str, Any]]]:
+    """Reads current prices + chart candles from logs/market_snapshot.json
+    (written by src/market_data.py's MarketDataCache every run_cycle) instead
+    of this script making its own exchange calls -- see
+    docs/system-redesign-2026-10.md §4.1/§4.3. Returns ({}, {}) with a clear
+    stderr warning if the file is missing or unreadable, same "degrade, don't
+    crash" contract the old direct-fetch fallback had. A present-but-stale
+    snapshot is still used (better than a blank dashboard) but gets its own
+    loud warning -- this must never present old data as if it were fresh."""
+    if not path.exists():
+        print(
+            f"warning: no market snapshot at {path} yet -- dashboard prices/charts will be empty "
+            "until the bot runs a cycle (python -m src.bot --once, or the live loop)",
+            file=sys.stderr,
+        )
+        return {}, {}
+    try:
+        snapshot = json.loads(path.read_text())
+    except Exception as exc:  # noqa: BLE001 — a bad/partially-written snapshot must not crash the export
+        print(f"warning: couldn't read market snapshot at {path}, dashboard prices/charts will be empty: {exc}", file=sys.stderr)
+        return {}, {}
+
+    generated_at = _parse_iso(snapshot.get("generated_at"))
+    if generated_at is None:
+        print(f"warning: market snapshot at {path} has no valid generated_at timestamp -- treating as stale", file=sys.stderr)
+    else:
+        age_seconds = (now - generated_at).total_seconds()
+        if age_seconds > stale_after_seconds:
+            print(
+                f"warning: market snapshot at {path} is {age_seconds / 60:.1f} min old "
+                f"(stale threshold {stale_after_seconds / 60:.0f} min) -- dashboard will show STALE prices/charts, not live ones",
+                file=sys.stderr,
+            )
+
+    current_prices: dict[str, float] = {}
+    charts: dict[str, dict[str, Any]] = {}
+    for symbol, entry in (snapshot.get("symbols") or {}).items():
+        if entry.get("price") is not None:
+            current_prices[symbol] = entry["price"]
+        if entry.get("candles"):
+            charts[symbol] = {"candles": entry["candles"]}
+    return current_prices, charts
 
 # Which audit-event key marks each role as "working" this cycle, and a short
 # label for the dashboard's office view. Order here is left-to-right/desk order.
@@ -486,45 +539,18 @@ def main() -> None:
 
     records = store.all_current()
 
-    # Ticker prices for equity/unrealized-P&L, plus OHLCV candles for every
-    # symbol with an active signal (OPEN or PENDING). The dashboard's chart
-    # is a live TradingView widget by default, but TradingView's free widget
-    # has no JS API for drawing custom price lines -- so for a symbol with an
-    # active plan, the dashboard swaps in its own annotated chart (built from
-    # these candles) that can actually show the entry/stop/target/
-    # invalidation levels. A candle-fetch failure for one symbol falls back
-    # to that symbol just not having an annotated chart (still has its
-    # TradingView view) rather than dropping the whole export.
-    current_prices: dict[str, float] = {}
-    charts: dict[str, dict[str, Any]] = {}
-    try:
-        exchange = ExchangeClient(cfg.exchange_id, testnet=False)
-        for symbol in cfg.symbols:
-            try:
-                current_prices[symbol] = exchange.fetch_ticker_price(symbol)
-            except Exception:
-                pass
-
-        for symbol in records:
-            try:
-                ohlcv = exchange.fetch_ohlcv_df(symbol, cfg.timeframe, 150)
-            except Exception as exc:  # noqa: BLE001 — one bad symbol shouldn't drop the rest of the charts
-                print(f"warning: candle fetch failed for {symbol}, it'll show the TradingView view instead: {exc}", file=sys.stderr)
-                continue
-            charts[symbol] = {
-                "candles": [
-                    {
-                        "time": int(row.timestamp.timestamp()),
-                        "open": round(row.open, 8),
-                        "high": round(row.high, 8),
-                        "low": round(row.low, 8),
-                        "close": round(row.close, 8),
-                    }
-                    for row in ohlcv.itertuples()
-                ],
-            }
-    except Exception as exc:  # noqa: BLE001 — a network hiccup shouldn't stop the rest of the export
-        print(f"warning: live price/candle fetch failed, dashboard will show stale/partial data: {exc}", file=sys.stderr)
+    # Current prices (last closed bar's close) + OHLCV candles, read from the
+    # snapshot src/market_data.py's MarketDataCache already wrote this cycle
+    # -- this script makes zero exchange calls of its own now (previously an
+    # independent fetch_ticker/fetch_ohlcv path with its own, uncoordinated
+    # ccxt rate limiter; see docs/system-redesign-2026-10.md §4.1/§4.3). The
+    # dashboard's chart is a live TradingView widget by default, but
+    # TradingView's free widget has no JS API for drawing custom price lines
+    # -- so for a symbol with an active plan, the dashboard swaps in its own
+    # annotated chart (built from these candles) that can actually show the
+    # entry/stop/target/invalidation levels.
+    snapshot_path = PROJECT_ROOT / log_cfg.get("market_snapshot_path", "logs/market_snapshot.json")
+    current_prices, charts = _load_market_snapshot(snapshot_path, now)
 
     positions = [_record_view(sym, rec, current_prices.get(sym)) for sym, rec in records.items() if rec.status == "OPEN"]
     pending = [_record_view(sym, rec, current_prices.get(sym)) for sym, rec in records.items() if rec.status == "PENDING"]

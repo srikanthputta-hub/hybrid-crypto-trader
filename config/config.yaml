@@ -195,6 +195,11 @@ logging:
   trade_log_path: "logs/trades.csv"
   trade_plan_current_path: "logs/trade_plans_current.json"
   trade_plan_history_path: "logs/trade_plans_history.jsonl"
+  # Written by src/market_data.py (MarketDataCache) after every refresh pass:
+  # current price (last closed bar's close) + recent candles per symbol.
+  # scripts/export_dashboard_data.py reads this instead of making its own
+  # independent exchange calls -- see docs/system-redesign-2026-10.md §4.1/§4.3.
+  market_snapshot_path: "logs/market_snapshot.json"
   # Only used by scripts/run_live.py (the 24/7 VM loop), once a day: rows
   # older than this many days are pruned from audit_log_path and
   # trade_plan_history_path, so a long-running host's disk doesn't fill up
