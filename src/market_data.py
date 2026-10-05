@@ -19,6 +19,14 @@ returned at that moment, so every downstream stage (scanner, signal_engine,
 trade_planner, risk_engine) sees the same inputs it always has and makes the
 same decisions from them. See tests/test_market_data.py's parity test.
 
+A symbol that's due for a refetch but fails (exchange error, or skipped
+because a `call_budget` ran out) is simply omitted from `refresh()`'s result
+for that pass -- never served from a stale cache entry. Silently feeding an
+old DataFrame into the decision pipeline would be a real behavior change
+(no audit trail, no age limit), not the pure efficiency swap this phase is
+scoped to; see `refresh()`'s docstring and `is_stale()` for the (currently
+unused-by-decisions) introspection this cache still tracks internally.
+
 Also writes a per-refresh-pass snapshot to `logs/market_snapshot.json`
 (current price -- the last closed bar's close -- plus recent candles per
 symbol) that `scripts/export_dashboard_data.py` reads directly instead of
@@ -109,10 +117,13 @@ class MarketDataCache:
 
     def is_stale(self, symbol: str, max_age_seconds: float) -> bool:
         """True if `symbol` has no cached entry, or its entry's last actual
-        fetch (wall-clock) is older than `max_age_seconds`. This is how a
-        caller tells cached-fresh apart from cached-stale-but-served-anyway
-        (e.g. a refetch was due but failed and the cache fell back to the
-        last good data, or a call-budget cap skipped it this pass)."""
+        fetch (wall-clock) is older than `max_age_seconds`. Pure introspection
+        -- refresh() itself never uses this to decide what to serve (a failed
+        or budget-skipped due fetch is simply omitted from refresh()'s result,
+        not served stale; see refresh()'s docstring). This exists so a caller
+        that genuinely wants to know "how old is what I've got cached" (e.g.
+        a future dashboard/monitoring surface) can ask, without that
+        information silently feeding today's trade decisions."""
         entry = self._cache.get(symbol)
         if entry is None:
             return True
@@ -136,13 +147,18 @@ class MarketDataCache:
 
     def refresh(self, symbols: list[str], active_symbols: Iterable[str] = ()) -> dict[str, pd.DataFrame]:
         """Returns {symbol: DataFrame} for every symbol in `symbols` that has
-        usable data (freshly fetched, or served from cache). A symbol that
-        isn't due for refetch is served straight from the cache with zero
-        exchange calls. A symbol whose fetch fails is logged and falls back
-        to its last cached DataFrame if one exists, otherwise it's simply
-        omitted from the result -- matching today's behavior of a failed
-        symbol being skipped for the cycle when there's nothing to fall back
-        on."""
+        usable data this pass. A symbol that isn't due for refetch is served
+        straight from the cache with zero exchange calls (the entire point of
+        this cache). A symbol that IS due but fails to fetch (exception, or
+        skipped because `call_budget` ran out) is simply omitted from the
+        result for this pass -- matching today's direct-fetch behavior of a
+        failed symbol being skipped for the cycle. It is deliberately NOT
+        served from a stale cache entry: run_cycle's decisions must come from
+        data that's actually current for this pass, not silently-aged data
+        with no audit trail or age limit -- see the "except" branch below.
+        The stale entry (if any) is left in self._cache for introspection
+        (is_stale()/last_updated()) but is never handed back from refresh()
+        for a symbol that was due and couldn't be refreshed."""
         ordered = self._priority_order(list(symbols), active_symbols)
         calls_made = 0
         fetched: list[str] = []
@@ -154,9 +170,14 @@ class MarketDataCache:
         for symbol in ordered:
             due = self._is_due(symbol)
             budget_exhausted = self.call_budget is not None and calls_made >= self.call_budget
+
             if due and budget_exhausted:
+                # Due for a refetch but this pass's budget is already spent --
+                # NOT served into the result (see the "not served" note below).
                 budget_skipped.append(symbol)
-            elif due:
+                continue
+
+            if due:
                 try:
                     df = self.exchange.fetch_ohlcv_df(symbol, self.timeframe, self.history_bars)
                     calls_made += 1
@@ -169,16 +190,32 @@ class MarketDataCache:
                         next_due_ms=last_open_ms + 2 * self._timeframe_ms(),
                     )
                     fetched.append(symbol)
+                    result[symbol] = df
                 except Exception:
+                    # Deliberately NOT falling back to the stale cache entry here
+                    # (even though one may still exist internally, see below):
+                    # feeding a failed-due symbol's old data into run_cycle's
+                    # decision pipeline would be a real decision-logic change
+                    # (candidates/signals/risk/monitor all acting on data that's
+                    # silently out of date, no audit trail, no age limit), not
+                    # the pure efficiency swap this phase is scoped to. A
+                    # failed-due symbol is simply omitted from this pass's
+                    # result, same as a direct fetch_ohlcv_df failure is today
+                    # (run_cycle logs "market data unavailable this cycle" and
+                    # moves on). The old DataFrame, if any, is left in self._cache
+                    # untouched (still available via is_stale()/last_updated()
+                    # for introspection/future phases) -- it's just not handed
+                    # to a caller as if it were this cycle's data.
                     logger.exception("failed to fetch market data for %s", symbol)
                     failed.append(symbol)
-                    # falls through to serve the stale cache entry below, if any
+                continue
 
+            # Not due: genuinely fresh-enough cache, safe to serve -- this is
+            # the whole point of the cache, not a failure fallback.
             entry = self._cache.get(symbol)
             if entry is not None:
                 result[symbol] = entry.df
-                if symbol not in fetched:
-                    served_from_cache.append(symbol)
+                served_from_cache.append(symbol)
 
         self.last_refresh_stats = {
             "calls_made": calls_made,

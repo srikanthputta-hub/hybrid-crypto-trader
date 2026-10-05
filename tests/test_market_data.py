@@ -164,7 +164,7 @@ def test_priority_order_fetches_active_symbols_first():
     assert multi.order == ["BTC/USDT", "ETH/USDT"]
 
 
-def test_call_budget_caps_fetches_and_serves_stale_for_the_rest():
+def test_call_budget_caps_fetches_and_omits_the_rest():
     rows_a = _flat_rows(25, start_price=100.0)
     now_ms = 24 * TF_MS
 
@@ -200,7 +200,46 @@ def test_call_budget_caps_fetches_and_serves_stale_for_the_rest():
     assert cache.last_refresh_stats["budget_skipped"] == ["ETH/USDT", "SOL/USDT"]
 
 
-def test_failed_refetch_serves_stale_cache_and_is_flagged_stale():
+def test_call_budget_skip_omits_symbol_even_with_a_prior_stale_entry():
+    # Same budget-skip path as above, but for a symbol that DOES already have
+    # a cached (now-due-for-refetch) entry -- must still be omitted from the
+    # result, not served stale, exactly like a failed fetch (see
+    # test_failed_refetch_omits_symbol_from_result_not_served_stale).
+    rows = _flat_rows(25)
+    now_ms = 24 * TF_MS
+    fake = FakeCcxtClient(rows, now_ms)
+    exchange = ExchangeClient(exchange_id="kraken", testnet=False)
+    exchange.client = fake
+    cache = MarketDataCache(exchange, "1h", history_bars=50, call_budget=1)
+
+    first = cache.refresh(["BTC/USDT"])
+    assert "BTC/USDT" in first
+    assert fake.fetch_calls == 1
+
+    fake.now_ms = 26 * TF_MS  # BTC/USDT now due again
+    result = cache.refresh(["BTC/USDT", "ETH/USDT"])  # budget=1, ETH/USDT also due (first-ever)
+    # Priority order is config order here (neither is "active"), so BTC/USDT
+    # (listed first) spends the one call this pass; ETH/USDT is budget-skipped
+    # outright. BTC/USDT itself is refetched successfully (not the scenario
+    # under test) -- rerun with BTC/USDT budget-skipped specifically below.
+    assert fake.fetch_calls == 2
+    assert "ETH/USDT" not in result
+
+    # Now force BTC/USDT itself to be the one skipped despite having a stale entry.
+    fake.now_ms = 28 * TF_MS
+    result2 = cache.refresh(["ETH/USDT", "BTC/USDT"])  # ETH/USDT spends the only call
+    assert "BTC/USDT" not in result2
+    assert "BTC/USDT" in cache.last_refresh_stats["budget_skipped"]
+
+
+def test_failed_refetch_omits_symbol_from_result_not_served_stale():
+    # A failed DUE refetch must NOT fall back to silently serving the old
+    # cached DataFrame into a caller's decisions -- that would be a real
+    # decision-logic change (no audit trail, no age limit), not the pure
+    # efficiency swap this phase is scoped to. The symbol is simply absent
+    # from refresh()'s result this pass, same as today's direct-fetch
+    # failure. The stale entry stays in the cache internally (is_stale()/
+    # last_updated() can still see it) -- it's just never handed back.
     rows = _flat_rows(25)
     cache, fake = _make_cache(rows, now_ms=24 * TF_MS)
     cache.refresh(["BTC/USDT"])
@@ -209,9 +248,12 @@ def test_failed_refetch_serves_stale_cache_and_is_flagged_stale():
     fake.now_ms = 26 * TF_MS  # due for refetch...
     fake.fail_next = True  # ...but the exchange call fails
     result = cache.refresh(["BTC/USDT"])
-    assert "BTC/USDT" in result  # served from the stale cache rather than dropped
+    assert "BTC/USDT" not in result  # omitted, not served from the stale cache
     assert cache.last_refresh_stats["failed"] == ["BTC/USDT"]
     assert cache.last_refresh_stats["fetched"] == []
+    # The old entry is still there internally, just not served -- this is
+    # what makes it meaningfully different from "no entry ever existed."
+    assert cache.last_updated("BTC/USDT") is not None
 
 
 def test_is_stale_true_for_unknown_symbol():
@@ -371,3 +413,35 @@ def test_cache_mediated_run_cycle_matches_direct_fetch_run_cycle(tmp_path):
     # refetches when a bar has genuinely closed (ticks 1 and 4 here).
     assert legacy_fake.fetch_calls == 4
     assert aligned_fake.fetch_calls == 2
+
+
+def test_run_cycle_market_data_unavailable_on_fetch_failure_matches_direct_fetch(tmp_path):
+    # Regression test for the exact divergence an independent review caught:
+    # a failed exchange call used to (origin/main) produce
+    # {"action": "none", "error": "market data unavailable this cycle"} --
+    # MarketDataCache.refresh() must omit a failed-due symbol from its result
+    # (not silently serve stale data) so run_cycle's existing
+    # "symbol not in enriched_by_symbol" branch still fires identically,
+    # cache-mediated or not.
+    rows = _breakout_rows(n_flat=30)
+    breakout_open_ms = 30 * TF_MS
+    t1 = breakout_open_ms + TF_MS + 100_000
+
+    for bar_close_aligned in (False, True):
+        tick, events, fake = _run_pipeline(
+            rows, t1, tmp_path / f"fail-{bar_close_aligned}", bar_close_aligned=bar_close_aligned
+        )
+        fake.fail_next = True
+        tick(t1)
+
+        assert len(events) == 1
+        event = events[0]
+        assert event["symbol"] == "BTC/USDT"
+        assert event["action"] == "none"
+        assert event["error"] == "market data unavailable this cycle"
+        # None of the downstream pipeline fields are present -- the symbol
+        # never reached the scanner at all this cycle, same as today.
+        assert "candidates" not in event
+        assert "signal" not in event
+        assert "plan" not in event
+        assert "risk_decision" not in event

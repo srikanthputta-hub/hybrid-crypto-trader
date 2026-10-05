@@ -215,7 +215,13 @@ def run_cycle(
     active_symbols = {symbol for symbol in cfg.symbols if store.get(symbol) is not None}
     ohlcv_by_symbol = market_data.refresh(cfg.symbols, active_symbols=active_symbols)
     log_cfg = cfg.logging_cfg
-    market_data.write_snapshot(PROJECT_ROOT / log_cfg.get("market_snapshot_path", "logs/market_snapshot.json"))
+    try:
+        market_data.write_snapshot(PROJECT_ROOT / log_cfg.get("market_snapshot_path", "logs/market_snapshot.json"))
+    except Exception:
+        # Display-only (scripts/export_dashboard_data.py reads this) -- must
+        # never be able to abort the cycle before the monitor below gets to
+        # check every OPEN position's stop-loss/take-profit.
+        logger.exception("failed to write market data snapshot")
 
     for symbol in cfg.symbols:
         if symbol not in ohlcv_by_symbol:
