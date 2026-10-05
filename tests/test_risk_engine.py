@@ -459,3 +459,157 @@ def test_future_seed_is_clamped_to_now(tmp_path):
     engine.seed_recent_entries([datetime(2099, 1, 1, tzinfo=timezone.utc)], now=T0)
     assert not _buy(engine, "ETH/USDT", T0 + timedelta(minutes=119)).allowed
     assert _buy(engine, "ETH/USDT", T0 + timedelta(minutes=120)).allowed
+
+
+# --- runtime symbol whitelist replacement (set_symbol_whitelist, redesign P1b) ---
+#
+# The constructor's symbol_whitelist stays the starting whitelist (make_engine uses
+# ["BTC/USDT", "ETH/USDT"]). set_symbol_whitelist() replaces it wholesale, e.g. on a
+# universe refresh. It only gates whether a NEW position may be opened on a symbol:
+# sells, sizing, cooldowns and the global new-entry window are untouched by it.
+
+def _sized_buy(engine, symbol, **overrides):
+    # A buy that exercises every sizing input, so any change to sizing would show up.
+    params = dict(portfolio_equity=10000, cash_available=10000, entry_price=50000, stop_loss=49000,
+                  risk_reward=2.0, open_positions_value=1000, atr_pct=0.06, now=T0)
+    params.update(overrides)
+    return engine.check_new_trade(symbol, "buy", **params)
+
+
+def test_set_whitelist_rejects_symbol_not_in_new_whitelist(tmp_path):
+    engine = make_engine(tmp_path)
+    engine.set_symbol_whitelist(["SOL/USD"])
+    decision = _sized_buy(engine, "BTC/USDT")  # was allowed by the constructor whitelist
+    assert not decision.allowed
+    assert decision.max_quote_amount is None
+    assert decision.reason == "BTC/USDT is not in the configured symbol whitelist"
+
+
+def test_set_whitelist_rejection_is_classified_as_whitelist_not_sizing(tmp_path):
+    # The audit trail / counterfactual replay groups rejections by reason substring;
+    # a runtime-whitelist rejection must land in the same bucket as the constructor's.
+    from src.risk_counterfactual import classify_reason
+
+    engine = make_engine(tmp_path)
+    engine.set_symbol_whitelist(["SOL/USD"])
+    assert classify_reason(_sized_buy(engine, "BTC/USDT").reason) == "symbol_whitelist"
+    assert classify_reason(make_engine(tmp_path).check_new_trade("DOGE/USDT", "buy", 10000, 10000).reason) \
+        == "symbol_whitelist"
+
+
+def test_set_whitelist_member_decides_exactly_as_without_runtime_whitelist(tmp_path):
+    # Same trade, same state: an engine whose whitelist came from set_symbol_whitelist
+    # gives the identical RiskDecision (allowed, reason AND size) as one constructed
+    # with that whitelist directly. The whitelist must never touch sizing.
+    # max_position_pct=0.99 so the (volatility-scaled) risk-sized spend is what binds.
+    reference = make_engine(tmp_path, max_position_pct=0.99, symbol_whitelist=["SOL/USD", "BTC/USDT"])
+    engine = make_engine(tmp_path, max_position_pct=0.99)
+    engine.set_symbol_whitelist(["SOL/USD", "BTC/USDT"])
+    for symbol in ("SOL/USD", "BTC/USDT"):
+        for overrides in ({}, dict(atr_pct=None), dict(open_positions_value=4900), dict(atr_pct=0.079)):
+            expected = _sized_buy(reference, symbol, **overrides)
+            actual = _sized_buy(engine, symbol, **overrides)
+            assert actual == expected, (symbol, overrides)
+    assert _sized_buy(engine, "SOL/USD").allowed
+    # 1% of 10000 = 100 risk budget, scaled by atr_pct 0.06 (frac 0.5 -> 0.75) = 75, / 2% stop = 3750;
+    # min(flat 9900, cash 10000, risk 3750, exposure room 5000 - 1000 = 4000) = 3750
+    assert _sized_buy(engine, "SOL/USD").max_quote_amount == pytest.approx(3750.0, rel=1e-9)
+
+
+def test_set_whitelist_replaces_rather_than_merges(tmp_path):
+    engine = make_engine(tmp_path)  # constructor whitelist: BTC/USDT, ETH/USDT
+    engine.set_symbol_whitelist(["SOL/USD", "ADA/USD"])
+    assert not _sized_buy(engine, "BTC/USDT").allowed  # constructor-only symbol now refused
+    assert _sized_buy(engine, "SOL/USD").allowed
+    engine.set_symbol_whitelist(["ADA/USD", "XRP/USD"])
+    old_only = _sized_buy(engine, "SOL/USD")
+    assert not old_only.allowed and "symbol whitelist" in old_only.reason
+    assert _sized_buy(engine, "ADA/USD").allowed  # in both
+    assert _sized_buy(engine, "XRP/USD").allowed  # new-only
+    assert engine.symbol_whitelist == frozenset({"ADA/USD", "XRP/USD"})
+
+
+def test_set_whitelist_accepts_one_shot_iterables(tmp_path):
+    engine = make_engine(tmp_path)
+    engine.set_symbol_whitelist(sym for sym in ["SOL/USD", "ADA/USD"])
+    assert engine.symbol_whitelist == frozenset({"SOL/USD", "ADA/USD"})
+    assert _sized_buy(engine, "ADA/USD").allowed
+
+
+def test_empty_whitelist_blocks_every_new_buy_but_never_a_sell(tmp_path):
+    engine = make_engine(tmp_path)
+    engine.set_symbol_whitelist([])
+    for symbol in ("BTC/USDT", "ETH/USDT", "SOL/USD"):
+        assert not _sized_buy(engine, symbol).allowed
+        sell = engine.check_new_trade(symbol, "sell", 10000, 0, now=T0)
+        assert sell.allowed and sell.reason == "ok"
+
+
+def test_symbol_dropped_from_whitelist_can_still_be_sold(tmp_path):
+    # A held position whose symbol leaves the universe must always be closable,
+    # including while the kill switch is engaged.
+    engine = make_engine(tmp_path)
+    engine.set_symbol_whitelist(["SOL/USD"])
+    assert engine.check_new_trade("BTC/USDT", "sell", 10000, 0, now=T0).allowed
+    engine.kill_switch_path.touch()
+    assert engine.check_new_trade("BTC/USDT", "sell", 10000, 0, now=T0).allowed
+
+
+def test_kill_switch_still_takes_precedence_over_runtime_whitelist(tmp_path):
+    engine = make_engine(tmp_path)
+    engine.set_symbol_whitelist(["SOL/USD"])
+    engine.kill_switch_path.touch()
+    for symbol in ("SOL/USD", "BTC/USDT"):
+        decision = _sized_buy(engine, symbol)
+        assert not decision.allowed and "kill switch" in decision.reason
+
+
+def test_dropping_and_readding_a_symbol_does_not_reset_its_cooldown(tmp_path):
+    # Fail closed: churning a symbol out of and back into the whitelist must not hand
+    # it a fresh cooldown, nor free its slot in the global new-entry window.
+    engine = make_engine(tmp_path, cooldown_minutes=60, max_new_entries_per_window=2)
+    engine.record_trade("BTC/USDT", now=T0)
+    engine.record_trade("ETH/USDT", now=T0)
+    engine.set_symbol_whitelist(["SOL/USD"])
+    engine.set_symbol_whitelist(["BTC/USDT", "ETH/USDT", "SOL/USD"])
+    cooldown = _sized_buy(engine, "BTC/USDT", now=T0 + timedelta(minutes=5))
+    assert not cooldown.allowed and "cooldown" in cooldown.reason
+    capped = _sized_buy(engine, "SOL/USD", now=T0 + timedelta(minutes=5))
+    assert not capped.allowed and "new-entry rate cap" in capped.reason
+
+
+def test_whitelist_rejection_has_no_side_effects(tmp_path):
+    # A whitelist-refused check must not start a cooldown or consume a cap slot.
+    engine = make_engine(tmp_path, max_new_entries_per_window=1)
+    engine.set_symbol_whitelist(["SOL/USD"])
+    for _ in range(5):
+        assert not _sized_buy(engine, "BTC/USDT").allowed
+    assert _sized_buy(engine, "SOL/USD").allowed
+    engine.set_symbol_whitelist(["BTC/USDT"])
+    assert _sized_buy(engine, "BTC/USDT").allowed
+
+
+def test_held_off_whitelist_position_still_counts_toward_exposure(tmp_path):
+    # Removing a held symbol from the whitelist must not free up total-exposure room:
+    # open_positions_value is whatever the caller passes, independent of the whitelist.
+    engine = make_engine(tmp_path, max_position_pct=0.99)
+    engine.set_symbol_whitelist(["SOL/USD"])  # BTC/USDT (held, worth 4500) dropped
+    decision = engine.check_new_trade("SOL/USD", "buy", portfolio_equity=10000, cash_available=10000,
+                                      open_positions_value=4500, now=T0)
+    assert decision.allowed
+    assert decision.max_quote_amount == pytest.approx(500.0, rel=1e-9)  # 50% of 10000 - 4500
+
+
+@pytest.mark.parametrize("bad", ["BTC/USDT", b"BTC/USDT", None, 42, ["BTC/USDT", None], ["BTC/USDT", 7],
+                                 ["BTC/USDT", ""], ["  "], [["BTC/USDT"]]])
+def test_nonsensical_whitelist_is_rejected_and_previous_one_kept(tmp_path, bad):
+    # A bare string would otherwise become a whitelist of its characters; None or
+    # non-string/blank entries mean the caller is confused. Refuse rather than guess,
+    # and leave the previously set whitelist intact (the replacement is all-or-nothing).
+    engine = make_engine(tmp_path)
+    engine.set_symbol_whitelist(["SOL/USD"])
+    with pytest.raises((TypeError, ValueError)):
+        engine.set_symbol_whitelist(bad)
+    assert engine.symbol_whitelist == frozenset({"SOL/USD"})
+    assert _sized_buy(engine, "SOL/USD").allowed
+    assert not _sized_buy(engine, "BTC/USDT").allowed
