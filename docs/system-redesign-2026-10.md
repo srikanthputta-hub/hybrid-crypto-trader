@@ -285,9 +285,10 @@ two changes aren't confounded.
   pair (e.g. SHIB/USD `amount.min` = 770,000). Recommend a separate Risk Officer ticket (Opus) for
   `risk.min_order_quote_usd`. It's **required before any live mode**, since `broker_live.py` would reject
   below-minimum orders.
-- **Manual-trading venue mismatch.** XMR, XAUT and FARTCOIN were removed on 2026-09-27 because the user couldn't
-  trade them on Revolut X. A Kraken-wide universe will produce many signals for coins Revolut X doesn't list. See
-  Open Questions.
+- ~~Manual-trading venue mismatch~~ — **resolved 2026-10-05.** The user is moving manual execution from Revolut X
+  to Kraken itself, which is also the scan/backtest venue. The XMR/XAUT/FARTCOIN-style venue-mismatch problem this
+  risk described no longer applies: the universe the bot scans is the same universe the user can actually trade.
+  No `notify_only_bases` filtering is needed. Telegram alerts fire for the whole resolved universe.
 - **Quote migration.** Today's 16 symbols are `/USDT`. With `prefer_quote: USD`, new plans use `/USD`. Existing
   `/USDT` plans are monitored to completion as `source="held"`. The per-base one-plan rule stops a double
   position. Per-symbol cooldowns don't carry across quotes, which is acceptable.
@@ -527,16 +528,16 @@ start **now**, ahead of Phases 1-2, once the user has a CryptoPanic token. Every
 less waiting in §6.5 and a month more history for step 4. This doesn't change the phase order. It only starts
 the clock.
 
-### 6.6 Failure behavior: an explicit exception to "fail closed", needs the user's decision
+### 6.6 Failure behavior: an explicit exception to "fail closed" — **decided 2026-10-05: fail open**
 
-Every other gate in this pipeline fails closed. For sentiment, this doc recommends **`on_unavailable: pass`**
-(gate skipped, loudly logged, surfaced on the dashboard) for a specific, documented reason. On 2026-09-27 the
-advisor failed closed on a **missing API key** and silently vetoed every trade for days (`config/config.yaml`,
-`advisor.enabled` comment). A free-tier sentiment source with quota exhaustion, outages or an expired token would
-recreate exactly that failure. Sentiment is an *extra* filter on a strategy that is validated without it, so
-skipping it degrades to the validated baseline, not to something unvalidated. **MTF keeps failing closed**,
-because it replaces `htf_filter`, which is part of the validated baseline. This is listed as an open question
-rather than decided here.
+Every other gate in this pipeline fails closed. Sentiment is the one deliberate exception:
+**`on_unavailable: pass`** (gate skipped, loudly logged, surfaced on the dashboard), confirmed by the user. On
+2026-09-27 the advisor failed closed on a **missing API key** and silently vetoed every trade for days
+(`config/config.yaml`, `advisor.enabled` comment). A free-tier sentiment source with quota exhaustion, outages or
+an expired token would recreate exactly that failure. Sentiment is an *extra* filter on a strategy that is
+validated without it, so skipping it degrades to the validated baseline, not to something unvalidated. **MTF
+keeps failing closed**, because it replaces `htf_filter`, which is part of the validated baseline — this
+exception applies only to `sentiment.fear_greed` and `sentiment.cryptopanic`.
 
 ---
 
@@ -629,17 +630,21 @@ No phase needs a new exchange key. No phase changes `EXCHANGE_API_*` usage or `L
 
 ## 11. Open questions for the user
 
-1. **Universe floor vs "full universe".** About 630 USD pairs exist, but only about 65 clear a $1M median daily
-   volume and about 176 clear $100k. With no floor the scan can't fit the cycle (§4.3). OK to test $1M and $100k
-   as the two candidates, with `max_symbols: 150`?
-2. **Revolut X.** You trade these signals manually on Revolut X, and three coins were dropped on 2026-09-27
-   because Revolut X lacked them. Should the universe be intersected with a Revolut X availability list you
-   maintain (for example `universe.notify_only_bases`), so Telegram BUY alerts only fire for coins you can
-   actually trade? Or should the paper bot trade the whole Kraken universe regardless?
+**Decided 2026-10-05:**
+1. **Universe floor.** ✅ Test both $1M and $100k as separate candidates, `max_symbols: 150`, per §4.4(d).
+2. **Revolut X.** ✅ Moot — the user is moving manual execution to Kraken itself. No venue-intersection filter
+   needed; see the updated §4.5. Telegram alerts fire for the whole resolved universe.
+4. **Promotion rule.** ✅ Confirmed directly from the Daily Backtester Routine's stored prompt: eligibility
+   requires `gates.overall == "PASS"` on **both** `kraken_720` and `long` for the same candidate id-prefix. §7's
+   assumption was correct; new stages use the same rule.
+8. **Sentiment failure mode.** ✅ Fail open (`on_unavailable: pass`) for both sentiment gates, confirmed. See the
+   updated §6.6.
+10. **Start the sentiment archive collector early (P0)?** ✅ Yes. Needs the user to obtain a `CRYPTOPANIC_API_TOKEN`
+    (free tier, cryptopanic.com) before the collector can run live.
+
+**Still open:**
 3. **Audit-log granularity.** OK to change "one audit line per symbol per cycle" to "per symbol per bar-close
    scan, plus one summary line per cycle" (§4.3)? It's documented in the README as a property.
-4. **Promotion rule.** The Routine's exact pass/fail rule isn't in the repo. Is it "all 5 gates on both
-   `kraken_720` and `long`"? Should new stages use exactly that rule (§7)?
 5. **If the live strategy fails the gates at 1h (P2.0)**, is that a stop-everything finding (fix the base
    strategy first), or do you want Phase 2 to proceed on the daily-bar evidence?
 6. **Phase 2 dataset scope if Phase 1 is promoted.** A universe-wide 15m history is about 10x the 16-coin set.
@@ -647,14 +652,15 @@ No phase needs a new exchange key. No phase changes `EXCHANGE_API_*` usage or `L
    the full universe over 11 years?
 7. **F&G hypothesis.** H1 (block at Extreme Greed >= 80) is the pre-registered default. Do you want H2 (Extreme
    Fear) tested as well, knowing a second test raises the false-pass chance?
-8. **Sentiment failure mode.** Accept `on_unavailable: pass` for both sentiment gates (§6.6), as a deliberate
-   exception to fail-closed? Or keep fail-closed and accept that a CryptoPanic outage or quota exhaustion halts
-   new entries?
 9. **CryptoPanic free-tier facts to confirm on signup:** request quota (per day/month), how far back `posts`
    paginates, whether vote counts are included, and whether the ToS allows automated use in a trading tool. The
    §6.3 score and §6.5 timeline depend on all four.
-10. **Start the sentiment archive collector early (P0)?** It has no trade impact, and every month it runs before
-    Phase 3 shortens the shadow wait.
 11. **Minimum order notional** (§4.5): OK to open a separate Risk Officer (Opus) ticket for
     `risk.min_order_quote_usd` as a Phase 1 prerequisite? The universe expansion makes dust fills much more
     common.
+
+**New, from implementation (2026-10-05):** `api.alternative.me` (Fear & Greed) is also blocked by this sandbox's
+egress proxy (403), same as CryptoPanic was. The Oracle VM running the live bot already reaches Kraken fine and
+is the more natural place to fetch the F&G historical snapshot and run the archive collector — or the user can
+widen this session's environment network policy to allow `api.alternative.me` / `cryptopanic.com` if the work
+should happen from here instead.
