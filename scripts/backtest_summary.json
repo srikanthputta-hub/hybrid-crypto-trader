@@ -870,6 +870,72 @@
       "config_value": null,
       "promoted_at": null,
       "promoted_pr_url": null
+    },
+    {
+      "id": "mtf-weekly-confirm-20261005-2259",
+      "tested_at": "2026-10-05T23:50:00Z",
+      "name": "Multi-timeframe (daily + weekly) trend confirmation on the trend pack",
+      "description": "Multi-timeframe trend confirmation: take a daily trend_ensemble entry (Donchian ensemble + BTC SMA200 regime, ATR chandelier) only when the WEEKLY trend agrees -- latest completed weekly close above its 20-week SMA and that SMA rising. Daily and weekly both derived from the daily bars; exits unchanged. Code: strategy_pack_run/mtf_confirm.py. The live bot's htf_filter already confirms 1h signals against the DAILY trend; docs/p2_0_1h_rebaseline.md (on main) found the live strategy fails the gates at its own 1h resolution, so daily-bar results are only a proxy.",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 504,
+      "win_rate_pct": 32.5,
+      "avg_r": 0.19,
+      "avg_r_ci": [
+        0.06,
+        0.35
+      ],
+      "return_pct": 84.5,
+      "max_dd_pct": -30.3,
+      "sharpe": 0.48,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "FAIL",
+        "overall": "FAIL"
+      },
+      "notes": "SOURCE: the 'multi-timeframe trend confirmation' concept on this routine's shortlist (originally from the awesome-systematic-trading crypto catalog; its claimed Sharpe 3.39 was NOT trusted or used). This is this project's OWN mechanical implementation of the general idea, not a reproduction of any paper's system or results. kraken_T3_taker costs, 200 placebo sims, 70/30 split; parameter (20-week SMA) a-priori, ONE gated run, no tuning. Unfiltered trend_ensemble on the same data/costs for comparison: 682 trades, avg R 0.21, return 154%, maxDD -30.6%, Sharpe 0.62. Long set: FAIL 3/5 (passes 100 trades, CI low > 0 (0.06), later-30% avg R 0.22; misses placebo (return 82nd, avg R 90.5th pct) and Sharpe vs buy&hold 0.81). The weekly filter cut 682 -> 504 trades and made the strategy WORSE than unfiltered (avg R 0.19 vs 0.21, return 85% vs 154%, Sharpe 0.48 vs 0.62): the weekly confirmation removed more winners than losers.",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "mtf-weekly-confirm-20261005-2259",
+      "tested_at": "2026-10-05T23:50:00Z",
+      "name": "Multi-timeframe (daily + weekly) trend confirmation on the trend pack",
+      "description": "Multi-timeframe trend confirmation: take a daily trend_ensemble entry (Donchian ensemble + BTC SMA200 regime, ATR chandelier) only when the WEEKLY trend agrees -- latest completed weekly close above its 20-week SMA and that SMA rising. Daily and weekly both derived from the daily bars; exits unchanged. Code: strategy_pack_run/mtf_confirm.py. The live bot's htf_filter already confirms 1h signals against the DAILY trend; docs/p2_0_1h_rebaseline.md (on main) found the live strategy fails the gates at its own 1h resolution, so daily-bar results are only a proxy.",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 64,
+      "win_rate_pct": 32.8,
+      "avg_r": -0.07,
+      "avg_r_ci": [
+        -0.26,
+        0.13
+      ],
+      "return_pct": -0.6,
+      "max_dd_pct": -10.2,
+      "sharpe": 0.02,
+      "gates": {
+        "min_100_trades": "FAIL",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "FAIL",
+        "overall": "FAIL"
+      },
+      "notes": "SOURCE: the 'multi-timeframe trend confirmation' concept on this routine's shortlist (originally from the awesome-systematic-trading crypto catalog; its claimed Sharpe 3.39 was NOT trusted or used). This is this project's OWN mechanical implementation of the general idea, not a reproduction of any paper's system or results. kraken_T3_taker costs, 200 placebo sims, 70/30 split; parameter (20-week SMA) a-priori, ONE gated run, no tuning. Unfiltered trend_ensemble on the same data/costs for comparison: 81 trades, avg R 0.24, return 16%, maxDD -8.9%, Sharpe 0.83. 2-year set: FAIL -- 64 trades (<100, smoke test only), avg R -0.07 CI [-0.26,0.13], return -0.6%, later-30% slice 10 trades, placebo 61st/53rd pct. Worse than the unfiltered ensemble on every metric.",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
     }
   ]
 }
