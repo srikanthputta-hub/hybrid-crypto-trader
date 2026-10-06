@@ -341,6 +341,11 @@ class TestRiskConfigBounds:
             ("new_entry_window_minutes", float("inf"), "not a finite number > 0"),
             ("new_entry_window_minutes", 1e-12, "not a finite number > 0"),  # rounds to timedelta(0)
             ("new_entry_window_minutes", 1e15, "not a finite number > 0"),  # overflows timedelta
+            ("min_order_quote_usd", -1, "not a finite number >= 0"),
+            ("min_order_quote_usd", float("inf"), "not a finite number >= 0"),
+            ("min_order_quote_usd", float("nan"), "not a finite number >= 0"),
+            ("min_order_quote_usd", True, "not a finite number >= 0"),
+            ("min_order_quote_usd", "10", "not a finite number >= 0"),
         ],
     )
     def test_risk_bounds_fail_if_new_entry_cap_out_of_range(self, key, bad_value, expected) -> None:

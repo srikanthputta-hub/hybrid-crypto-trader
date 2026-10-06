@@ -613,3 +613,174 @@ def test_nonsensical_whitelist_is_rejected_and_previous_one_kept(tmp_path, bad):
     assert engine.symbol_whitelist == frozenset({"SOL/USD"})
     assert _sized_buy(engine, "SOL/USD").allowed
     assert not _sized_buy(engine, "BTC/USDT").allowed
+
+
+# --- minimum order / notional size floor (risk.min_order_quote_usd, issue #81) ---
+#
+# After every sizing cap has been applied, a buy whose final spend is below
+# min_order_quote_usd is REJECTED -- never resized up to the floor. 0 (the
+# default) disables the check entirely, preserving pre-#81 behaviour.
+#
+# Shared scenario: max_position_pct=0.99, max_total_exposure_pct=0.50, equity=10000,
+# so remaining exposure room = 5000 - open_positions_value, and (with no entry/stop
+# passed) that room is the binding cap. This makes the final spend easy to pin.
+
+def _floor_buy(engine, symbol="BTC/USDT", **overrides):
+    params = dict(portfolio_equity=10000, cash_available=10000, now=T0)
+    params.update(overrides)
+    return engine.check_new_trade(symbol, "buy", **params)
+
+
+def _floor_engine(tmp_path, **overrides):
+    kwargs = dict(max_position_pct=0.99, max_total_exposure_pct=0.50)
+    kwargs.update(overrides)
+    return make_engine(tmp_path, **kwargs)
+
+
+def test_order_sized_below_min_order_floor_is_rejected(tmp_path):
+    # Exposure room = 5000 - 4500 = $500 < $1000 floor -> rejected outright.
+    engine = _floor_engine(tmp_path, min_order_quote_usd=1000)
+    decision = _floor_buy(engine, open_positions_value=4500)
+    assert not decision.allowed
+    assert decision.max_quote_amount is None  # never resized up to the floor
+    assert "minimum order size" in decision.reason
+
+
+def test_order_just_below_min_order_floor_is_rejected(tmp_path):
+    engine = _floor_engine(tmp_path, min_order_quote_usd=10)
+    decision = _floor_buy(engine, open_positions_value=4990.01)  # room ~= $9.99
+    assert not decision.allowed
+    assert decision.max_quote_amount is None
+    assert "minimum order size" in decision.reason
+
+
+def test_order_sized_exactly_at_min_order_floor_is_allowed(tmp_path):
+    # Room = 5000 - 4990 = exactly $10.00 == floor -> allowed (floor is inclusive).
+    engine = _floor_engine(tmp_path, min_order_quote_usd=10)
+    decision = _floor_buy(engine, open_positions_value=4990)
+    assert decision.allowed
+    assert decision.reason == "ok"
+    assert decision.max_quote_amount == 10.0
+
+
+@pytest.mark.parametrize("overrides", [
+    dict(),                                              # flat cap binds ($5000 exposure room)
+    dict(open_positions_value=4000),                     # exposure cap binds ($1000)
+    dict(cash_available=250),                            # cash binds ($250)
+    dict(entry_price=50000, stop_loss=49000),            # risk-sized spend binds ($5000 -> capped)
+    dict(entry_price=50000, stop_loss=49000, atr_pct=0.07, open_positions_value=1000),
+])
+def test_order_above_min_order_floor_is_decided_exactly_as_without_floor(tmp_path, overrides):
+    # The floor only ever rejects: above it, allowed/reason/size are identical to an
+    # engine with no floor at all -- it never changes the size of an allowed trade.
+    reference = _floor_engine(tmp_path)
+    engine = _floor_engine(tmp_path, min_order_quote_usd=100)
+    expected = _floor_buy(reference, **overrides)
+    assert expected.allowed and expected.max_quote_amount >= 100  # precondition: above floor
+    assert _floor_buy(engine, **overrides) == expected
+
+
+def test_min_order_floor_defaults_to_disabled(tmp_path):
+    engine = make_engine(tmp_path)
+    assert engine.min_order_quote_usd == 0.0
+
+
+def test_default_config_floor_decides_exactly_as_before(tmp_path):
+    # The value shipped in config/config.yaml must leave every decision identical to an
+    # engine built without the key (pre-#81 behaviour) -- including dust-sized spends,
+    # which were allowed before this change and must still be allowed by default.
+    import yaml
+
+    repo_root = Path(__file__).resolve().parent.parent
+    risk_cfg = yaml.safe_load((repo_root / "config" / "config.yaml").read_text())["risk"]
+    assert "min_order_quote_usd" in risk_cfg
+    shipped = make_engine(tmp_path, max_position_pct=0.99,
+                          min_order_quote_usd=risk_cfg["min_order_quote_usd"])
+    before = make_engine(tmp_path, max_position_pct=0.99)
+    for overrides in (
+        dict(),
+        dict(open_positions_value=4999.99),       # $0.01 dust spend
+        dict(open_positions_value=4990),          # $10 spend
+        dict(cash_available=0.5),                 # $0.50 spend
+        dict(open_positions_value=5000),          # zero room -> "no room left" rejection
+        dict(entry_price=50000, stop_loss=49000, atr_pct=0.06, open_positions_value=1000),
+    ):
+        assert _floor_buy(shipped, **overrides) == _floor_buy(before, **overrides), overrides
+    assert _floor_buy(shipped, open_positions_value=4999.99).allowed
+
+
+def test_min_order_floor_rejects_when_exposure_cap_trims_spend_below_it(tmp_path):
+    # The exposure cap is applied first; the floor must not "rescue" a trimmed trade by
+    # sizing it back up past the cap -- the only outcomes are the trimmed size or no trade.
+    engine = _floor_engine(tmp_path, min_order_quote_usd=600)
+    trimmed = _floor_buy(engine, open_positions_value=4500)   # room $500 < $600
+    assert not trimmed.allowed and trimmed.max_quote_amount is None
+    roomy = _floor_buy(engine, open_positions_value=4300)     # room $700 >= $600
+    assert roomy.allowed
+    assert roomy.max_quote_amount == pytest.approx(700.0, rel=1e-12)  # still capped by exposure
+
+
+def test_exhausted_exposure_keeps_no_room_reason_with_floor_enabled(tmp_path):
+    # spend == 0 is still reported as "no room left to size", not as a min-order rejection,
+    # so the audit trail keeps distinguishing the two.
+    from src.risk_counterfactual import classify_reason
+
+    engine = _floor_engine(tmp_path, min_order_quote_usd=10)
+    decision = _floor_buy(engine, open_positions_value=5000)
+    assert not decision.allowed
+    assert classify_reason(decision.reason) == "no_sizing_room"
+
+
+def test_min_order_rejection_is_classified_distinctly(tmp_path):
+    from src.risk_counterfactual import classify_reason
+
+    engine = _floor_engine(tmp_path, min_order_quote_usd=1000)
+    assert classify_reason(_floor_buy(engine, open_positions_value=4500).reason) == "min_order_size"
+
+
+def test_whitelist_rejection_takes_precedence_over_min_order_floor(tmp_path):
+    from src.risk_counterfactual import classify_reason
+
+    engine = _floor_engine(tmp_path, min_order_quote_usd=1000)
+    decision = _floor_buy(engine, "DOGE/USDT", open_positions_value=4500)  # off-whitelist AND dust
+    assert not decision.allowed
+    assert classify_reason(decision.reason) == "symbol_whitelist"
+
+
+def test_min_order_floor_applies_to_runtime_whitelisted_symbols(tmp_path):
+    engine = _floor_engine(tmp_path, min_order_quote_usd=1000)
+    engine.set_symbol_whitelist(["SOL/USD"])
+    dust = _floor_buy(engine, "SOL/USD", open_positions_value=4500)
+    assert not dust.allowed and "minimum order size" in dust.reason
+    ok = _floor_buy(engine, "SOL/USD", open_positions_value=3000)
+    assert ok.allowed and ok.max_quote_amount == pytest.approx(2000.0, rel=1e-12)
+    # Dropped from the runtime whitelist -> whitelist reason, regardless of size.
+    assert "whitelist" in _floor_buy(engine, "BTC/USDT").reason
+
+
+def test_min_order_floor_never_blocks_sells(tmp_path):
+    engine = _floor_engine(tmp_path, min_order_quote_usd=1_000_000)
+    assert engine.check_new_trade("BTC/USDT", "sell", 10000, 0).allowed
+
+
+def test_min_order_floor_rejects_nan_spend(tmp_path):
+    # A NaN equity propagates to a NaN spend; with the floor enabled that must be a
+    # rejection (NaN >= floor is False), never an approval of an unknown size.
+    engine = _floor_engine(tmp_path, min_order_quote_usd=10)
+    decision = engine.check_new_trade("BTC/USDT", "buy", portfolio_equity=float("nan"),
+                                      cash_available=10000, now=T0)
+    assert not decision.allowed
+    assert decision.max_quote_amount is None
+
+
+def test_min_order_rejection_has_no_side_effects(tmp_path):
+    # A min-order rejection must not start a cooldown or take a global cap slot.
+    engine = _floor_engine(tmp_path, min_order_quote_usd=1000, max_new_entries_per_window=1)
+    assert not _floor_buy(engine, open_positions_value=4500).allowed
+    assert _floor_buy(engine, open_positions_value=1000).allowed
+
+
+@pytest.mark.parametrize("bad_floor", [-0.01, -100, float("nan"), float("inf"), True, "10", None])
+def test_nonsensical_min_order_quote_usd_is_rejected(tmp_path, bad_floor):
+    with pytest.raises(ValueError):
+        make_engine(tmp_path, min_order_quote_usd=bad_floor)

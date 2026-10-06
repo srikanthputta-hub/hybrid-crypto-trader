@@ -261,6 +261,24 @@ def test_build_components_uses_engine_defaults_when_cap_keys_absent(tmp_path, mo
     assert risk_engine.new_entry_window_minutes == 120
 
 
+def test_build_components_passes_min_order_quote_usd(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.bot.PROJECT_ROOT", tmp_path)
+    _exchange, risk_engine, *_ = build_components(_cap_config(min_order_quote_usd=25))
+    assert risk_engine.min_order_quote_usd == 25.0
+
+
+def test_build_components_min_order_floor_disabled_when_key_absent(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.bot.PROJECT_ROOT", tmp_path)
+    _exchange, risk_engine, *_ = build_components(_cap_config())
+    assert risk_engine.min_order_quote_usd == 0.0
+
+
+def test_build_components_refuses_nonsensical_min_order_quote_usd(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.bot.PROJECT_ROOT", tmp_path)
+    with pytest.raises(ValueError):
+        build_components(_cap_config(min_order_quote_usd=-5))
+
+
 def test_build_components_refuses_nonsensical_cap_config(tmp_path, monkeypatch):
     monkeypatch.setattr("src.bot.PROJECT_ROOT", tmp_path)
     with pytest.raises(ValueError):
