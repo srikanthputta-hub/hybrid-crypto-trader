@@ -18,3 +18,12 @@ KILL_SWITCH
 # fetch_coinbase_long.py + resample_ohlcv.py, backtest-only.
 strategy_pack_run/data_15m/
 strategy_pack_run/data_15m_raw/
+
+# Phase 1d universe datasets (docs/p1d_universe_datasets.md): raw per-symbol OHLCV CSVs
+# (~38MB: 658 Kraken 720-bar files + 308 Coinbase long-history files). Deliberately NOT committed
+# (same precedent as data_15m above): regeneratable via fetch_kraken.py / fetch_coinbase_long.py.
+# Committed instead: manifest.csv, data_sources.md, the calibration report and SHA256SUMS.txt, so a
+# regenerated snapshot can be compared against the one the gate numbers were produced from.
+strategy_pack_run/data_universe/raw_kraken/*.csv
+!strategy_pack_run/data_universe/raw_kraken/manifest.csv
+strategy_pack_run/data_universe/raw_long/*.csv

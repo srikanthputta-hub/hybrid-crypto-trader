@@ -29,10 +29,27 @@ strategy_pack_run/data's kraken_720 dataset:
   python fetch_coinbase_long.py --timeframe 15m --quote USD --out data_15m \\
       --since 2024-10-12T00:00:00Z --until 2026-09-30T00:00:00Z \\
       --sources-out data_sources_15m.md
+
+--universe discover (added for P1d, docs/system-redesign-2026-10.md §4.4/§8 "P1d universe
+datasets"): instead of the hardcoded 16-coin WATCHLIST, fetch every base listed in a Kraken
+discover-mode manifest (see fetch_kraken.py --universe discover's manifest.csv) that Coinbase
+Exchange ALSO lists under --quote -- "the Coinbase bases that are also in the Kraken universe",
+per the design doc's `long_universe` definition, not "every base Coinbase lists" (Coinbase's own
+full listing isn't the relevant universe here; Kraken is the live/scan venue). Bases Kraken
+excluded (stablecoins/fiat/wrapped) are therefore already excluded here too, since they're absent
+from the manifest's included rows. Reuses fetch_paginated/_fetch_ohlcv_with_retry unchanged -- the
+only difference from the watchlist path is where the base list comes from and that --resume/
+--since/--until all apply per-base exactly as before.
+
+  python fetch_coinbase_long.py --universe discover \\
+      --kraken-manifest data_universe/raw_kraken/manifest.csv \\
+      --quote USD --out data_universe/raw_long --resume \\
+      --sources-out data_universe/raw_long/data_sources.md
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -41,6 +58,25 @@ import ccxt
 import pandas as pd
 
 WATCHLIST = ["BTC", "ETH", "XRP", "SOL", "ADA", "DOGE", "AVAX", "LINK", "BNB", "LTC", "DOT", "ATOM", "ALGO", "BCH", "XTZ", "SHIB"]
+
+
+def bases_from_kraken_manifest(path: str | Path) -> list[str]:
+    """Reads fetch_kraken.py --universe discover's manifest.csv and returns the INCLUDED bases
+    (status=anything, included=True -- stablecoin/fiat/wrapped exclusions already applied there),
+    sorted, deduplicated. Raises if the file doesn't look like that manifest shape, rather than
+    silently fetching an empty/wrong universe."""
+    path = Path(path)
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    if not rows or "base" not in rows[0] or "included" not in rows[0]:
+        raise ValueError(
+            f"{path}: doesn't look like a fetch_kraken.py --universe discover manifest.csv "
+            f"(expected columns including 'base' and 'included')"
+        )
+    bases = sorted({r["base"] for r in rows if r["included"] in ("True", "true", "1")})
+    if not bases:
+        raise ValueError(f"{path}: manifest has zero included bases -- check the file")
+    return bases
 
 # Earlier than any of these coins' real listing date on Coinbase -- fetch_paginated stops
 # naturally once the exchange has no more history, so this just needs to be "early enough".
@@ -170,7 +206,22 @@ def main():
              "--resume only fetches what's still missing. Off by default -- every existing call site "
              "(the original data_long fetch) is unaffected.",
     )
+    ap.add_argument(
+        "--universe", choices=["watchlist", "discover"], default="watchlist",
+        help='"watchlist" (default): the original hardcoded 16-coin WATCHLIST, byte-identical to '
+             'every existing caller. "discover": every base in --kraken-manifest (a fetch_kraken.py '
+             "--universe discover manifest.csv) that Coinbase Exchange also lists under --quote -- "
+             'this is the P1d "long_universe" (Coinbase bases that are also in the Kraken universe), '
+             "not Coinbase's full listing.",
+    )
+    ap.add_argument(
+        "--kraken-manifest", default=None,
+        help="Path to fetch_kraken.py --universe discover's manifest.csv. Required when "
+             "--universe discover is set; ignored otherwise.",
+    )
     a = ap.parse_args()
+    if a.universe == "discover" and not a.kraken_manifest:
+        ap.error("--universe discover requires --kraken-manifest <path to fetch_kraken.py manifest.csv>")
 
     ex = ccxt.coinbaseexchange({"enableRateLimit": True})
     ex.session.trust_env = True  # see fetch_kraken.py for why this is needed in a proxied env
@@ -182,8 +233,19 @@ def main():
     Path(a.out).mkdir(parents=True, exist_ok=True)
     skipped = []
     sources_rows = []
+    not_on_coinbase = []
 
-    for base in WATCHLIST:
+    if a.universe == "discover":
+        candidate_bases = bases_from_kraken_manifest(a.kraken_manifest)
+        bases = [b for b in candidate_bases if f"{b}/{a.quote}" in ex.markets]
+        not_on_coinbase = [b for b in candidate_bases if b not in bases]
+        print(f"discover mode: {len(candidate_bases)} Kraken-universe base(s), "
+              f"{len(bases)} also listed on Coinbase Exchange under {a.quote} "
+              f"({len(not_on_coinbase)} not listed there)", flush=True)
+    else:
+        bases = WATCHLIST
+
+    for base in bases:
         sym = f"{base}/{a.quote}"
         if sym not in ex.markets:
             skipped.append(sym)
@@ -241,6 +303,11 @@ def main():
         lines.append(f"| {r['coin']} | {r['source']} | {r['quote']} | {r['first_date']} | {r['last_date']} | {r['candles']} | {r['gaps']} | {r['gap_detail'] or '—'} |")
     if skipped:
         lines.append(f"\nSkipped (no USD market or no data returned on Coinbase Exchange): {', '.join(skipped)}\n")
+    if not_on_coinbase:
+        lines.append(
+            f"\nKraken-universe base(s) not listed on Coinbase Exchange under {a.quote} at all "
+            f"(excluded from long_universe before any fetch attempt): {', '.join(not_on_coinbase)}\n"
+        )
     Path(a.sources_out).write_text("\n".join(lines), encoding="utf-8")
     print(f"\nWrote {a.sources_out}")
 
