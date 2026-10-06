@@ -1068,6 +1068,72 @@
       "config_value": null,
       "promoted_at": null,
       "promoted_pr_url": null
+    },
+    {
+      "id": "squeeze-breakout-bbw-20261006-1659",
+      "tested_at": "2026-10-06T17:40:00Z",
+      "name": "Bollinger-BandWidth volatility-squeeze breakout",
+      "description": "Bollinger-BandWidth volatility-squeeze breakout: enter long when close breaks above the upper Bollinger band (20, 2sigma) after a recent volatility squeeze (BandWidth in the lowest 20% of its trailing 120 bars within the last 5 bars) while the BTC SMA200 regime is ON; exit when close falls below the middle band; the engine's 3xATR chandelier is the loss limit. Mechanically different from the Donchian breakouts tested before: the trigger requires a prior volatility COMPRESSION. Code: strategy_pack_run/squeeze_breakout.py.",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 248,
+      "win_rate_pct": 38.3,
+      "avg_r": 0.3,
+      "avg_r_ci": [
+        0.07,
+        0.59
+      ],
+      "return_pct": 57.3,
+      "max_dd_pct": -16.2,
+      "sharpe": 0.49,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "PASS",
+        "net_return_and_sharpe_gt_buy_hold": "FAIL",
+        "overall": "FAIL"
+      },
+      "notes": "SOURCE: the well-known Bollinger BandWidth 'squeeze then surge' volatility-compression breakout pattern (John Bollinger's BandWidth indicator), found via web search on 2026-10-06 -- e.g. LuxAlgo 'Bollinger Bands Strategy: Squeeze then Surge', the PyQuantLab 'Volatility Squeeze Breakout Strategy in Backtrader' write-up and the Coinquant crypto breakout backtest. This is this project's OWN daily-bar, long-only implementation of the general idea, NOT a reproduction of any source's system; none of their claimed results were trusted or used. kraken_T3_taker costs, 200 placebo sims, 70/30 split; parameters a-priori (Bollinger 20/2sigma, squeeze = BandWidth in the lowest 20% of the trailing 120 bars within the last 5 bars, close above the upper band, BTC SMA200 regime ON, exit below the middle band), ONE gated run, no tuning. Same-data comparison -- unfiltered trend_ensemble: 682 trades, avg R 0.21, return 154%, maxDD -30.6%, Sharpe 0.62; time-series momentum (strategies.tsmom): 815 trades, avg R 0.24, return 215%, maxDD -25.7%, Sharpe 0.77. Long set: 4/5 gates (passes 100 trades, CI low > 0 (0.07), later-30% > 0 and the placebo gate (return 99.5th / avg R 100.0th pct); fails only net-return/Sharpe vs buy&hold 0.81). Highest avg R of the new-strategy series (0.30) with a shallow drawdown (-16%) but it trades rarely (exposure ~4%), so total return (57%) and Sharpe (0.49) trail the always-invested time-series momentum (215% / 0.77) on the same data.",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "squeeze-breakout-bbw-20261006-1659",
+      "tested_at": "2026-10-06T17:40:00Z",
+      "name": "Bollinger-BandWidth volatility-squeeze breakout",
+      "description": "Bollinger-BandWidth volatility-squeeze breakout: enter long when close breaks above the upper Bollinger band (20, 2sigma) after a recent volatility squeeze (BandWidth in the lowest 20% of its trailing 120 bars within the last 5 bars) while the BTC SMA200 regime is ON; exit when close falls below the middle band; the engine's 3xATR chandelier is the loss limit. Mechanically different from the Donchian breakouts tested before: the trigger requires a prior volatility COMPRESSION. Code: strategy_pack_run/squeeze_breakout.py.",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 42,
+      "win_rate_pct": 52.4,
+      "avg_r": 0.23,
+      "avg_r_ci": [
+        0.0,
+        0.47
+      ],
+      "return_pct": 6.3,
+      "max_dd_pct": -8.2,
+      "sharpe": 0.51,
+      "gates": {
+        "min_100_trades": "FAIL",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "FAIL"
+      },
+      "notes": "SOURCE: the well-known Bollinger BandWidth 'squeeze then surge' volatility-compression breakout pattern (John Bollinger's BandWidth indicator), found via web search on 2026-10-06 -- e.g. LuxAlgo 'Bollinger Bands Strategy: Squeeze then Surge', the PyQuantLab 'Volatility Squeeze Breakout Strategy in Backtrader' write-up and the Coinquant crypto breakout backtest. This is this project's OWN daily-bar, long-only implementation of the general idea, NOT a reproduction of any source's system; none of their claimed results were trusted or used. kraken_T3_taker costs, 200 placebo sims, 70/30 split; parameters a-priori (Bollinger 20/2sigma, squeeze = BandWidth in the lowest 20% of the trailing 120 bars within the last 5 bars, close above the upper band, BTC SMA200 regime ON, exit below the middle band), ONE gated run, no tuning. Same-data comparison -- unfiltered trend_ensemble: 81 trades, avg R 0.24, return 16%, maxDD -8.9%, Sharpe 0.83; time-series momentum (strategies.tsmom): 109 trades, avg R 0.24, return 15%, maxDD -9.2%, Sharpe 0.79. 2-year set: 3/5 gates -- the first new-strategy candidate with avg R CI low > 0 here (0.005, avg R 0.23), but on only 42 trades (<100 gate, so smoke test only; the CI is razor-thin) and the placebo gate is missed (return 89.5th / avg R 90.5th pct). Directionally consistent with the long set, not evidence on its own.",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
     }
   ]
 }
