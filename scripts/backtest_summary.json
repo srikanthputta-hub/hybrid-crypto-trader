@@ -1002,6 +1002,72 @@
       "config_value": null,
       "promoted_at": null,
       "promoted_pr_url": null
+    },
+    {
+      "id": "cs-momentum-rotation-20261006-1059",
+      "tested_at": "2026-10-06T11:40:00Z",
+      "name": "Long-only cross-sectional momentum rotation (top-4 of 16, weekly)",
+      "description": "Long-only cross-sectional momentum rotation: every 7 bars rank all coins by trailing 28-day return; enter a coin if it is in the top 4, its own return is > 0 and the BTC SMA200 regime is ON; release it at a rebalance once it falls out of the top 8 or its return turns <= 0. Nothing changes between rebalances; the engine's 3xATR chandelier is the loss limit. Mechanically different from the time-series trend/momentum strategies already tested (which compare each coin only to its own history): it ranks coins against each other. Code: strategy_pack_run/cs_momentum.py.",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 401,
+      "win_rate_pct": 39.2,
+      "avg_r": 0.22,
+      "avg_r_ci": [
+        0.06,
+        0.41
+      ],
+      "return_pct": 79.5,
+      "max_dd_pct": -23.8,
+      "sharpe": 0.56,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "PASS",
+        "net_return_and_sharpe_gt_buy_hold": "FAIL",
+        "overall": "FAIL"
+      },
+      "notes": "SOURCE: web search on 2026-10-06 for crypto cross-sectional momentum literature -- Drogen, Hoffstein & Otte, 'Cross-sectional Momentum in Cryptocurrency Markets' (SSRN 4322637); Arefev, 'Cross-Sectional Momentum in Cryptocurrency: A Net-of-Costs Replication on Tradable Binance Perpetuals (2020-2026)' (SSRN 7404139); and a 2026 comparative study of time-series vs cross-sectional crypto momentum (Baltic Journal / BATP, vu.lt, which reports time-series beating cross-sectional on a risk-adjusted basis). This is this project's OWN long-only, daily-bar implementation of the general idea, not a reproduction of any paper's system; none of their reported returns or Sharpes were trusted or used. kraken_T3_taker costs, 200 placebo sims, 70/30 split; parameters a-priori (28-day formation, weekly rebalance, top-4 entry / top-8 keep, own return > 0, BTC SMA200 regime on), ONE gated run, no tuning. Same-data comparison -- unfiltered trend_ensemble: 682 trades, avg R 0.21, return 154%, maxDD -30.6%, Sharpe 0.62; time-series momentum (strategies.tsmom, 28d/5d, same costs): 815 trades, avg R 0.24, return 215%, maxDD -25.7%, Sharpe 0.77. Long set: 4/5 gates -- the best result of the new-strategy series so far (401 trades, avg R 0.22 CI [0.06,0.41], later-30% > 0, and the FIRST candidate to clear the placebo gate: return 94.5th / avg R 96.0th pct), but a lower-return, lower-Sharpe profile than the time-series strategies on the same data (return 80% vs 215% for tsmom, Sharpe 0.56 vs 0.77), and Sharpe is below buy&hold (0.81). Consistent with the 2026 comparative study's finding that time-series momentum beats cross-sectional here.",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "cs-momentum-rotation-20261006-1059",
+      "tested_at": "2026-10-06T11:40:00Z",
+      "name": "Long-only cross-sectional momentum rotation (top-4 of 16, weekly)",
+      "description": "Long-only cross-sectional momentum rotation: every 7 bars rank all coins by trailing 28-day return; enter a coin if it is in the top 4, its own return is > 0 and the BTC SMA200 regime is ON; release it at a rebalance once it falls out of the top 8 or its return turns <= 0. Nothing changes between rebalances; the engine's 3xATR chandelier is the loss limit. Mechanically different from the time-series trend/momentum strategies already tested (which compare each coin only to its own history): it ranks coins against each other. Code: strategy_pack_run/cs_momentum.py.",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 56,
+      "win_rate_pct": 41.1,
+      "avg_r": 0.05,
+      "avg_r_ci": [
+        -0.15,
+        0.25
+      ],
+      "return_pct": 1.5,
+      "max_dd_pct": -7.4,
+      "sharpe": 0.17,
+      "gates": {
+        "min_100_trades": "FAIL",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "PASS",
+        "overall": "FAIL"
+      },
+      "notes": "SOURCE: web search on 2026-10-06 for crypto cross-sectional momentum literature -- Drogen, Hoffstein & Otte, 'Cross-sectional Momentum in Cryptocurrency Markets' (SSRN 4322637); Arefev, 'Cross-Sectional Momentum in Cryptocurrency: A Net-of-Costs Replication on Tradable Binance Perpetuals (2020-2026)' (SSRN 7404139); and a 2026 comparative study of time-series vs cross-sectional crypto momentum (Baltic Journal / BATP, vu.lt, which reports time-series beating cross-sectional on a risk-adjusted basis). This is this project's OWN long-only, daily-bar implementation of the general idea, not a reproduction of any paper's system; none of their reported returns or Sharpes were trusted or used. kraken_T3_taker costs, 200 placebo sims, 70/30 split; parameters a-priori (28-day formation, weekly rebalance, top-4 entry / top-8 keep, own return > 0, BTC SMA200 regime on), ONE gated run, no tuning. Same-data comparison -- unfiltered trend_ensemble: 81 trades, avg R 0.24, return 16%, maxDD -8.9%, Sharpe 0.83; time-series momentum (strategies.tsmom, 28d/5d, same costs): 109 trades, avg R 0.24, return 15%, maxDD -9.2%, Sharpe 0.79. 2-year set: FAIL -- 56 trades (<100, smoke test only), avg R 0.05 CI [-0.15,0.25], return 1.5%, placebo 62.0th/61.5th pct. The time-series momentum baseline (109 trades, avg R 0.24, CI low 0.08, +15.2%) is clearly stronger on the same data.",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
     }
   ]
 }
