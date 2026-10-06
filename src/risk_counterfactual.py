@@ -137,6 +137,7 @@ _REASON_CATEGORIES: tuple[tuple[str, str], ...] = (
     ("market volatility too high", "volatility"),
     ("risk/reward", "min_risk_reward"),
     ("no room left to size", "no_sizing_room"),
+    ("below the minimum order size", "min_order_size"),
 )
 
 

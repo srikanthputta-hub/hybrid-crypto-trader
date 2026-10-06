@@ -78,7 +78,7 @@ def build_components(cfg: Config):
         # own bounds validation) stay the single source of truth when they're omitted.
         **{
             key: risk_cfg[key]
-            for key in ("max_new_entries_per_window", "new_entry_window_minutes")
+            for key in ("max_new_entries_per_window", "new_entry_window_minutes", "min_order_quote_usd")
             if key in risk_cfg
         },
     )

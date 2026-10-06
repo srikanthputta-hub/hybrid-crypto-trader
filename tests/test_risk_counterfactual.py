@@ -341,6 +341,9 @@ def test_reason_categories_match_real_risk_engine_strings(tmp_path):
     reasons["no_sizing_room"] = engine().check_new_trade(
         "BTC/USDT", "buy", open_positions_value=10_000, **base
     ).reason
+    reasons["min_order_size"] = engine(min_order_quote_usd=1_000).check_new_trade(
+        "BTC/USDT", "buy", open_positions_value=3_500, **base  # $500 of exposure room < $1000 floor
+    ).reason
     (tmp_path / "KILL_SWITCH").touch()
     reasons["kill_switch"] = engine().check_new_trade("BTC/USDT", "buy", **base).reason
 

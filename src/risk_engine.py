@@ -42,6 +42,12 @@ re-entering; this stops a burst of *different* symbols all triggering on the
 same market-wide move (one shared directional bet, not N independent edges)
 from being approved together. It only ever rejects a new entry — it never
 resizes one and never touches an open position.
+
+Plus a MINIMUM ORDER SIZE floor (min_order_quote_usd, issue #81): if the final
+spend, after every sizing cap above, is below this many quote-currency units,
+the buy is rejected outright — a "dust" position that may also fall below the
+exchange's own minimum order size. It never sizes a trade up to the floor.
+0 (the default) disables it.
 """
 from __future__ import annotations
 
@@ -77,7 +83,23 @@ class RiskEngine:
         volatility_scale_floor: float = 0.5,
         max_new_entries_per_window: int = 5,
         new_entry_window_minutes: float = 120,
+        min_order_quote_usd: float = 0.0,
     ) -> None:
+        # Minimum order size floor (issue #81). 0 disables it (the pre-#81 behaviour).
+        # Same "refuse to start rather than guess" rule as below: a negative or
+        # non-finite floor is meaningless (inf would silently block every buy), and
+        # bool is rejected explicitly because it is an int subclass.
+        if (
+            isinstance(min_order_quote_usd, bool)
+            or not isinstance(min_order_quote_usd, (int, float))
+            or not math.isfinite(min_order_quote_usd)
+            or min_order_quote_usd < 0
+        ):
+            raise ValueError(
+                f"min_order_quote_usd must be a finite number >= 0, got {min_order_quote_usd!r}"
+            )
+        self.min_order_quote_usd = float(min_order_quote_usd)
+
         # A floor above 1.0 would *enlarge* positions in volatile markets, and a
         # negative/non-finite one is meaningless — refuse to start rather than guess.
         if not (math.isfinite(volatility_scale_floor) and 0.0 <= volatility_scale_floor <= 1.0):
@@ -292,6 +314,17 @@ class RiskEngine:
                 False,
                 "no room left to size this trade (cash, position cap, risk-per-trade cap, or "
                 "total-exposure cap all reduced it to zero)",
+            )
+
+        # Minimum order size (issue #81): applied LAST, to the final spend after every
+        # cap above, and it only ever rejects -- it never sizes a trade up to the floor
+        # (that would override the stricter caps). Written as `not (spend >= floor)` so
+        # a NaN spend is rejected too whenever the floor is enabled.
+        if self.min_order_quote_usd > 0 and not (spend >= self.min_order_quote_usd):
+            return RiskDecision(
+                False,
+                f"sized order {spend:.8g} is below the minimum order size "
+                f"{self.min_order_quote_usd:.8g} (min_order_quote_usd); rejected, not resized up",
             )
         return RiskDecision(True, "ok", max_quote_amount=spend)
 

@@ -190,6 +190,15 @@ risk:
                                  # the live 1h/5-minute cadence this guards against, so this remains a risk-
                                  # appetite choice informed by, not proven by, the backtest -- revisit if hourly
                                  # backtest data ever becomes available. Must be an integer >= 1 / a number > 0.
+  min_order_quote_usd: 0         # minimum order size (issue #81): reject (never resize up) any buy whose final
+                                 # spend, after every cap above, is below this many quote units (USD/USDT) --
+                                 # "dust" fills on scraps of exposure room, and orders a live exchange would
+                                 # refuse outright. 0 = disabled, i.e. identical to pre-#81 behaviour. Left at 0
+                                 # on purpose: picking a real floor is a risk-parameter change that needs its own
+                                 # written reason + out-of-sample backtest (CLAUDE.md). If set, leave headroom
+                                 # above the exchange's own per-pair minimum (Kraken limits.cost.min /
+                                 # limits.amount.min, not checked here yet): the fee is taken out of this spend
+                                 # and price can move between plan and fill. Must be a finite number >= 0.
   kill_switch_file: "KILL_SWITCH"  # if this file exists in the project root, refuse all new entries
 
 # Pipeline stage 4b — Claude's second opinion. Can only veto a plan the pipeline
