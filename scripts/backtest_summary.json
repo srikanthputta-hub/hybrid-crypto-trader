@@ -936,6 +936,72 @@
       "config_value": null,
       "promoted_at": null,
       "promoted_pr_url": null
+    },
+    {
+      "id": "regime-blend-adx-20261006-0459",
+      "tested_at": "2026-10-06T05:40:00Z",
+      "name": "Regime-switching trend / mean-reversion blend (ADX regime)",
+      "description": "Regime-switching trend/mean-reversion blend: per symbol and bar, Wilder ADX(14) >= 25 (trending) lets the trend_ensemble entry (Donchian ensemble + BTC SMA200 regime, ATR chandelier) open positions; ADX < 20 (choppy) lets a long-only dip-buy open instead (3-bar return z-score <= -1.5); ADX 20-25 no entry. Each position exits by its own leg's rule (trend hold, or SMA5 rebound / 8-bar time stop), tagged by the most recent entry signal (an approximation: the strategy cannot see the engine's actual fills). Code: strategy_pack_run/regime_blend.py.",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "long",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 833,
+      "win_rate_pct": 43.6,
+      "avg_r": 0.14,
+      "avg_r_ci": [
+        0.05,
+        0.25
+      ],
+      "return_pct": 56.6,
+      "max_dd_pct": -27.6,
+      "sharpe": 0.37,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "PASS",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "FAIL",
+        "overall": "FAIL"
+      },
+      "notes": "SOURCE: the 'regime-switching trend/mean-reversion blend' concept on this routine's shortlist (originally from the awesome-systematic-trading crypto catalog; its claimed Sharpe 1.11 was NOT trusted or used). This is this project's OWN mechanical implementation of the general idea, not a reproduction of any paper's system or results. The mean-reversion leg reuses the construction from the already-tested overreaction fade (overreaction-fade-20261004-0459), minus its trend/BTC-regime gates. kraken_T3_taker costs, 200 placebo sims, 70/30 split; all parameters a-priori (textbook ADX 25/20 thresholds; the fade's z 1.5/3-bar/SMA5/8-bar), ONE gated run, no tuning. Unfiltered trend_ensemble on the same data/costs for comparison: 682 trades, avg R 0.21, return 154%, maxDD -30.6%, Sharpe 0.62. Long set: FAIL 3/5 (passes 100 trades, CI low > 0 (0.05), later-30% avg R > 0; misses placebo (return 73.5th, avg R 98th pct) and Sharpe vs buy&hold 0.81). The blend has a real but small positive edge (833 trades, avg R 0.14, return 57%) and is WORSE than the plain trend ensemble it contains: adding the choppy-regime dip-buy leg and gating the trend leg on ADX >= 25 cost return and Sharpe rather than adding diversification.",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
+    },
+    {
+      "id": "regime-blend-adx-20261006-0459",
+      "tested_at": "2026-10-06T05:40:00Z",
+      "name": "Regime-switching trend / mean-reversion blend (ADX regime)",
+      "description": "Regime-switching trend/mean-reversion blend: per symbol and bar, Wilder ADX(14) >= 25 (trending) lets the trend_ensemble entry (Donchian ensemble + BTC SMA200 regime, ATR chandelier) open positions; ADX < 20 (choppy) lets a long-only dip-buy open instead (3-bar return z-score <= -1.5); ADX 20-25 no entry. Each position exits by its own leg's rule (trend hold, or SMA5 rebound / 8-bar time stop), tagged by the most recent entry signal (an approximation: the strategy cannot see the engine's actual fills). Code: strategy_pack_run/regime_blend.py.",
+      "kind": "new_strategy",
+      "based_on": null,
+      "dataset": "kraken_720",
+      "cost_preset": "kraken_T3_taker",
+      "trades": 134,
+      "win_rate_pct": 54.5,
+      "avg_r": 0.04,
+      "avg_r_ci": [
+        -0.07,
+        0.16
+      ],
+      "return_pct": -1.9,
+      "max_dd_pct": -12.0,
+      "sharpe": -0.05,
+      "gates": {
+        "min_100_trades": "PASS",
+        "avg_r_ci_low_gt_0": "FAIL",
+        "later_30pct_avg_r_gt_0": "PASS",
+        "beats_placebo_90th_pct": "FAIL",
+        "net_return_and_sharpe_gt_buy_hold": "FAIL",
+        "overall": "FAIL"
+      },
+      "notes": "SOURCE: the 'regime-switching trend/mean-reversion blend' concept on this routine's shortlist (originally from the awesome-systematic-trading crypto catalog; its claimed Sharpe 1.11 was NOT trusted or used). This is this project's OWN mechanical implementation of the general idea, not a reproduction of any paper's system or results. The mean-reversion leg reuses the construction from the already-tested overreaction fade (overreaction-fade-20261004-0459), minus its trend/BTC-regime gates. kraken_T3_taker costs, 200 placebo sims, 70/30 split; all parameters a-priori (textbook ADX 25/20 thresholds; the fade's z 1.5/3-bar/SMA5/8-bar), ONE gated run, no tuning. Unfiltered trend_ensemble on the same data/costs for comparison: 81 trades, avg R 0.24, return 16%, maxDD -8.9%, Sharpe 0.83. 2-year set: FAIL -- 134 trades (passes the 100-trade gate here), avg R 0.04 CI [-0.07,0.16], return -1.9%, Sharpe -0.05, placebo 66.5th/77.5th pct. Roughly breakeven after costs; the unfiltered trend ensemble made +15.7% on the same data.",
+      "config_key": null,
+      "config_value": null,
+      "promoted_at": null,
+      "promoted_pr_url": null
     }
   ]
 }
