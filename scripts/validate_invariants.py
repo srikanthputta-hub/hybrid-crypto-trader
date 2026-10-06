@@ -229,6 +229,18 @@ def check_risk_config_bounds() -> InvariantResult:
                     f"FAIL: new_entry_window_minutes = {new_win!r} is not a finite number > 0",
                 )
 
+        # Minimum order size floor (optional key; src/risk_engine.py defaults it to 0 =
+        # disabled). Same restart-loop concern as above: RiskEngine refuses to construct
+        # on a negative/non-finite/non-numeric value.
+        mo = risk_config.get("min_order_quote_usd")
+        if mo is not None:
+            if isinstance(mo, bool) or not isinstance(mo, (int, float)) or not math.isfinite(mo) or mo < 0:
+                return InvariantResult(
+                    "risk_config_bounds",
+                    False,
+                    f"FAIL: min_order_quote_usd = {mo!r} is not a finite number >= 0",
+                )
+
         # Check min_risk_reward >= 1.0
         mrr = risk_config.get("min_risk_reward")
         if mrr is None:
