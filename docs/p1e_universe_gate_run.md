@@ -155,7 +155,7 @@ _Everything below was added after the pre-registration commit (`d869832`)._
 |---|---|
 | `strategy_pack_run/universe_gate_inputs.py` (new) | The builder. `load_universe_raw` applies the §0.2 exclusions at load. `build_eligibility` produces `eligible_mask_by_symbol`: `"floor"` rule (kraken_720_universe: P1d's `eligible_mask_floor`, i.e. age AND floor-with-hysteresis, then a per-bar top-150 cap) or `"rank_topn"` rule (long_universe: P1d's `eligible_mask_rank_topn`). `build_costs` produces the per-bar tiered `costs_by_symbol` via P1d's `tiered_costs_series_by_symbol` (frozen 5/20/50bp, t-1 volume). Imports P1d's modules and `backtest_live_bot`; modifies none of them. |
 | `strategy_pack_run/run_universe_gate.py` (new) | The runner. It verifies SHA256SUMS (refuses to run on a mismatch), builds one shared bar axis per dataset, computes Stage-A signals once per symbol (cached outside the repo), runs every case through `simulate_portfolio` / `placebo_run`, and writes `report_p1e_universe_gate.md` + `p1e_universe_gate_results.json`. |
-| `strategy_pack_run/test_universe_gate_inputs.py` (new, 15 tests) | 9 synthetic unit tests (always run). 6 real-data tests (skip when the gitignored datasets are absent, so **they skip in CI**): every-bar truncation invariance of masks + per-bar slippage on a real 10-symbol kraken slice (floor rule) and a real 8-symbol long slice (rank rule); end-to-end builder -> signals -> `simulate_portfolio` truncation invariance on the real kraken slice (cut every 15 bars: entries, closed trades and the equity curve before the cut must match); two permanent mutation tests; and a check that the runner's own assembly reproduces `build_enriched_and_signals` exactly. |
+| `strategy_pack_run/test_universe_gate_inputs.py` (new, 15 tests) | 9 synthetic unit tests (always run). 6 real-data tests (skip when the gitignored datasets are absent; note CI runs only `tests/` (`testpaths`), so no `strategy_pack_run` test runs in CI at all): every-bar truncation invariance of masks + per-bar slippage on a real 10-symbol kraken slice (floor rule) and a real 8-symbol long slice (rank rule); end-to-end builder -> signals -> `simulate_portfolio` truncation invariance on the real kraken slice (cut every 15 bars: entries, closed trades and the equity curve before the cut must match); two permanent mutation tests; and a check that the runner's own assembly reproduces `build_enriched_and_signals` exactly. |
 
 - **(a) Truncation invariance + mutation check.** Mutation results, run by hand against the real
   builder (the file was restored afterwards and the restore was confirmed):
@@ -331,9 +331,11 @@ slot contests.
 3. **Processing-order variance** (§3.7) is large on kraken_720_universe and isn't captured by the
    bootstrap CI or the placebo.
 4. **Tiered slippage understates the tail.** P1d's calibration found 25% of the <$1M tier with real
-   half-spreads above 50bp, some near 100%. The $100k candidate trades in that tier. Its kraken CI
-   failure is cost-driven (flat 5bp would pass it, info row), and true costs there are likely higher
-   than modeled, not lower.
+   half-spreads above 50bp, some near 100%. The $100k candidate trades in that tier. Costs take
+   roughly 0.05-0.1R off, but the kraken CI failure is NOT mainly cost-driven: the independent
+   review re-ran $100k kraken with flat 5bp under the same 10 alternate tie-break orders and 7 of 10
+   still failed the CI gate (9 of 10 with tiered costs). It is mostly order/sample variance. True
+   costs there are likely higher than modeled, not lower.
 5. **Daily bars, not the live 1h feed** (same limitation as every live-strategy report), and the
    cooldown/daily-loss gates are inert at daily resolution.
 6. **Gate-5 benchmark on kraken $1M** is equal-weight buy&hold of the symbols that became eligible
@@ -394,3 +396,28 @@ same id per candidate, matching the existing per-dataset pattern), plus the two 
 `datasets` and an optional, additive `harness_version` field in `candidates_schema`, per design §7.
 The Routine's promotion rule looks for `kraken_720` + `long`, so these entries can't be
 auto-promoted, and as `new_strategy` with null `config_key` there's no mechanical path anyway.
+
+
+## 7. Post-review corrections (independent Opus review of this branch; §0 stays frozen)
+- **Order fragility cuts both ways.** On long_universe $1M, all 10 alternate tie-break orders give a
+  higher avg R (0.39-0.48, median 0.46) than the canonical order (0.40), and several beat the baseline
+  Sharpe (0.92). The long placebo FAIL and the regression vs static-16 are therefore probably
+  order-dependent too, not only the Kraken result. The pre-registered rule still yields FAIL.
+- **Cost attribution:** see §4 caveat 4 (7/10 alternate orders still fail the $100k CI gate at flat 5bp).
+- **"Static-16 fails the placebo gate on the same harness"** holds on legacy `data/` only (97th/87.5th,
+  and it also fails CI). On `kraken_720_universe` it passes placebo (97/91) and fails only CI.
+- **Exclusions:** §0.2's FRNT description is wrong: its daily log-return std is 11.3% (spiky prints),
+  not <= 0.1%. The price-only hygiene scan flagged only CASH/FIDD/SOFID/USAT; FRNT, BRL1 and XU3O8 were
+  identified by name/peg inspection, also before any backtest. LCAP (tracks a BTC/ETH ratio) was not
+  excluded, inconsistent with XU3O8's reasoning, but it has 0 trades so no verdict is affected.
+  Reviewer confirmed the 8 exclusions cannot change any verdict (264 trades / avg R 0.209 / CI low -0.039
+  identical with and without them).
+- **Test blind spot:** a 1-bar look-ahead in the cost wiring (bar t costed on its own volume) passes
+  all 15 tests, because truncating at t keeps bar t; the permanent mutation test uses a 2-bar peek.
+  The t-1 shift itself is unit-tested in `test_tiered_slippage.py`; the P1e wiring assertion
+  `build_costs(eg)[s][t].slippage == tiered_slippage_fraction(trailing_quote_volume(eg[s])[t-1])`
+  is a recorded follow-up. The every-bar check is the detector for eligibility, not for costs.
+- **`backtest_summary.json`:** the four P1e entries carry `gates.overall: "FAIL"` (the candidate
+  verdict) so the dashboard's Passed tab cannot show them as all-pass; per-dataset results remain in
+  the gate fields and notes.
+- `p1e_universe_gate_results.json` contains bare `NaN` tokens (not strict JSON; nothing reads it).
