@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -23,12 +24,14 @@ for _p in (_REPO_ROOT, _THIS_DIR):
 
 from engine import Costs  # noqa: E402
 
+import backtest_live_bot as blb  # noqa: E402
 from backtest_live_bot import (  # noqa: E402
     TF_SECONDS,
     compute_symbol_signals,
     liquidity_window_bars,
     load_csv,
     load_dir,
+    placebo_run,
     simulate_portfolio,
     trailing_quote_volume,
 )
@@ -368,6 +371,308 @@ def test_rank_order_tie_break_uses_liquidity_when_engine_score_ties():
     assert list(res_rank.trades["symbol"]) == ["ZZZ"], (
         f"rank_signals order must tie-break on higher trailing_quote_volume, got:\n{res_rank.trades}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# P1d (docs/system-redesign-2026-10.md §4.4/§8): simulate_portfolio's new
+# `eligible_mask_by_symbol` (point-in-time universe gate, universe_eligibility.py) and
+# `costs_by_symbol` (tiered slippage, tiered_slippage.py) parameters. Both default to None,
+# preserving every existing test/caller above this point byte-for-byte.
+# --------------------------------------------------------------------------- #
+def test_eligible_mask_by_symbol_default_none_is_unchanged():
+    """Passing neither new parameter, or passing both as None explicitly, must produce identical
+    results -- guards against either default ever silently changing behavior."""
+    enriched, idx, signals = _cooldown_frame_and_signals()
+    res_implicit = simulate_portfolio(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT,
+    )
+    res_explicit_none = simulate_portfolio(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, eligible_mask_by_symbol=None, costs_by_symbol=None,
+    )
+    pd.testing.assert_frame_equal(res_implicit.trades, res_explicit_none.trades)
+    pd.testing.assert_series_equal(res_implicit.equity, res_explicit_none.equity)
+
+
+def test_eligible_mask_by_symbol_blocks_new_entry_when_ineligible_everywhere():
+    sig0, t0, price0, atr0 = _known_breakout_signal(_breakout_frame([])[0])
+    tail = [
+        (105.0, 110.0, 104.0, 160.0, 10.0),
+        (162.0, 163.0, 161.0, 162.0, 10.0),
+    ]
+    df, idx = _breakout_frame(tail)
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+    signals = {t0: sig0}
+    n = len(idx)
+
+    res_blocked = simulate_portfolio(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, eligible_mask_by_symbol={"X": np.zeros(n, dtype=bool)},
+    )
+    assert len(res_blocked.trades) == 0, (
+        "a symbol ineligible at the signal bar must never open a new position, even though the "
+        "exact same signal/plan would otherwise fill and hit take-profit (see the un-gated "
+        "version of this same scenario above)"
+    )
+
+    res_allowed = simulate_portfolio(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, eligible_mask_by_symbol={"X": np.ones(n, dtype=bool)},
+    )
+    assert len(res_allowed.trades) == 1, "eligible at every bar must behave exactly like no mask at all"
+
+
+def test_eligible_mask_by_symbol_does_not_block_monitoring_an_already_open_position():
+    """Eligible ONLY on the bar the signal fires and the plan is opened; ineligible on every bar
+    after that. The position must still fill and be monitored all the way to its take-profit exit
+    -- eligible_mask_by_symbol only gates opening a brand NEW position, never an existing
+    OPEN/PENDING one (matches the design doc's "monitor always runs for every held symbol, in or
+    out of the universe")."""
+    sig0, t0, price0, atr0 = _known_breakout_signal(_breakout_frame([])[0])
+    tail = [
+        (105.0, 110.0, 104.0, 160.0, 10.0),
+        (162.0, 163.0, 161.0, 162.0, 10.0),
+    ]
+    df, idx = _breakout_frame(tail)
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+    signals = {t0: sig0}
+    n = len(idx)
+    t0_pos = list(idx).index(t0)
+
+    mask = np.zeros(n, dtype=bool)
+    mask[t0_pos] = True  # eligible only on the signal/planning bar itself
+    res = simulate_portfolio(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, eligible_mask_by_symbol={"X": mask},
+    )
+    tr = res.trades
+    assert len(tr) == 1, f"expected the position to still open, fill, and reach take-profit:\n{tr}"
+    assert tr.iloc[0]["reason"] == "take_profit"
+
+
+def test_eligible_mask_by_symbol_missing_symbol_defaults_to_eligible():
+    """A symbol simply absent from eligible_mask_by_symbol (rather than explicitly present with an
+    all-True mask) must behave as fully eligible -- lets a caller only supply masks for the
+    symbols it actually wants gated."""
+    sig0, t0, price0, atr0 = _known_breakout_signal(_breakout_frame([])[0])
+    tail = [
+        (105.0, 110.0, 104.0, 160.0, 10.0),
+        (162.0, 163.0, 161.0, 162.0, 10.0),
+    ]
+    df, idx = _breakout_frame(tail)
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+    signals = {t0: sig0}
+
+    res = simulate_portfolio(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, eligible_mask_by_symbol={"SOME_OTHER_SYMBOL": np.zeros(len(idx), dtype=bool)},
+    )
+    assert len(res.trades) == 1, "X isn't in the mask dict at all -- must default to eligible, not blocked"
+
+
+COSTS_BY_SYMBOL_RISK_CFG = dict(
+    starting_cash_usd=1_000_000.0,
+    max_position_pct=0.1,
+    max_total_exposure_pct=0.9,
+    max_loss_per_trade_pct=0.5,
+    max_daily_loss_pct=0.5,
+    max_volatility_pct=1.0,
+    min_risk_reward=1.0,
+    cooldown_minutes=0,
+)
+
+
+def test_costs_by_symbol_overrides_global_costs_per_symbol():
+    """Two symbols with the IDENTICAL signal/price path: AAA has a steep costs_by_symbol override
+    (a per-bar array, one Costs per bar on the shared global axis -- see simulate_portfolio's
+    docstring on why this is a per-bar array and not a single static Costs), BBB has no entry in
+    the dict at all. AAA's booked fees/slippage must reflect the override; BBB must fall back to
+    the global (zero-cost) Costs unchanged -- proves the override is applied per-symbol, not
+    globally, and that a missing entry doesn't silently inherit the override."""
+    sig0, t0, price0, atr0 = _known_breakout_signal(_breakout_frame([])[0])
+    tail = [
+        (105.0, 110.0, 104.0, 160.0, 10.0),
+        (162.0, 163.0, 161.0, 162.0, 10.0),
+    ]
+    df, idx = _breakout_frame(tail)
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+    signals = {t0: sig0}
+
+    steep = Costs(0.01, 0.01, "steep")
+    steep_series = np.full(len(idx), steep, dtype=object)
+    res = simulate_portfolio(
+        {"AAA": enriched, "BBB": enriched}, {"AAA": signals, "BBB": signals}, Costs(0.0, 0.0),
+        COSTS_BY_SYMBOL_RISK_CFG, PLANNER_CFG, 10_000.0, 365.0, _REPO_ROOT,
+        costs_by_symbol={"AAA": steep_series},
+    )
+    tr = res.trades.set_index("symbol")
+    assert len(tr) == 2, f"expected one trade per symbol:\n{res.trades}"
+    assert tr.loc["AAA", "fees"] > 0.0, "AAA must use the override Costs, not the zero-cost global default"
+    assert tr.loc["BBB", "fees"] == 0.0, "BBB has no override entry -- must fall back to the global Costs unchanged"
+    assert tr.loc["AAA", "net_pnl"] < tr.loc["BBB", "net_pnl"], "AAA's steeper costs must book a worse net P&L"
+
+
+def test_costs_by_symbol_is_read_per_bar_not_static_for_the_whole_run():
+    """Architect review fix: costs_by_symbol must be read FRESH at each bar's own index, not one
+    static Costs applied to every fill/exit in the run. Zero costs at the FILL bar and steep costs
+    at the exit (take-profit) bar must book a trade whose entry carries no cost but whose exit
+    does -- proving the array is indexed by bar, not collapsed to one value for the whole trade."""
+    sig0, t0, price0, atr0 = _known_breakout_signal(_breakout_frame([])[0])
+    tail = [
+        (105.0, 110.0, 104.0, 160.0, 10.0),
+        (162.0, 163.0, 161.0, 162.0, 10.0),
+    ]
+    df, idx = _breakout_frame(tail)
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+    signals = {t0: sig0}
+    n = len(idx)
+    t0_pos = list(idx).index(t0)
+
+    zero = Costs(0.0, 0.0, "zero")
+    steep = Costs(0.02, 0.02, "steep")
+    # Zero cost at and before the fill bar, steep cost from the following bar onward (the
+    # take-profit exit lands well after that) -- the entry fee must be exactly 0.0 and the exit fee
+    # must be > 0.0, which can only happen if costs_for actually re-reads the array per bar.
+    per_bar = np.array([zero] * (t0_pos + 2) + [steep] * (n - t0_pos - 2), dtype=object)
+    res = simulate_portfolio(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, costs_by_symbol={"X": per_bar},
+    )
+    tr = res.trades
+    assert len(tr) == 1, f"expected exactly one trade:\n{tr}"
+    row = tr.iloc[0]
+    assert row["reason"] == "take_profit"
+    entry_fee = row["fees"] - (row["qty"] * row["exit_px"] * steep.fee)
+    assert abs(entry_fee) < 1e-9, (
+        f"entry must have been booked at the zero-cost bar's Costs (fee≈0), not the steep exit "
+        f"bar's -- got total fees={row['fees']}"
+    )
+
+
+def test_costs_by_symbol_mismatched_length_raises():
+    sig0, t0, price0, atr0 = _known_breakout_signal(_breakout_frame([])[0])
+    df, idx = _breakout_frame([])
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+    signals = {t0: sig0}
+    too_short = np.full(len(idx) - 1, Costs(0.0, 0.0), dtype=object)
+    try:
+        simulate_portfolio(
+            {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+            10_000.0, 365.0, _REPO_ROOT, costs_by_symbol={"X": too_short},
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a costs_by_symbol array shorter than the global axis must raise, not silently misalign")
+
+
+def test_eligible_mask_by_symbol_mismatched_length_raises():
+    sig0, t0, price0, atr0 = _known_breakout_signal(_breakout_frame([])[0])
+    df, idx = _breakout_frame([])
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+    signals = {t0: sig0}
+    too_long = np.ones(len(idx) + 3, dtype=bool)
+    try:
+        simulate_portfolio(
+            {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+            10_000.0, 365.0, _REPO_ROOT, eligible_mask_by_symbol={"X": too_long},
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("an eligible_mask_by_symbol array longer than the global axis must raise")
+
+
+# --------------------------------------------------------------------------- #
+# Architect review fix: placebo_run must forward eligible_mask_by_symbol/costs_by_symbol to its
+# own internal simulate_portfolio call, UNCHANGED (not time-shifted along with the placebo's own
+# signal-timing shift) -- otherwise a P1e gate run comparing a universe-gated, tiered-cost real run
+# against un-gated, flat-cost placebos would not be a like-for-like comparison.
+# --------------------------------------------------------------------------- #
+def test_placebo_run_forwards_eligible_mask_and_costs_by_symbol_as_the_same_object_every_draw():
+    """Captures every call placebo_run makes to simulate_portfolio (across n_sims draws, each with
+    a DIFFERENT random time-shift) and confirms eligible_mask_by_symbol/costs_by_symbol are passed
+    through as the exact same object every single draw -- i.e. never reconstructed, reindexed, or
+    shifted along with the placebo's own per-draw signal timing."""
+    sig0, t0, price0, atr0 = _known_breakout_signal(_breakout_frame([])[0])
+    df, idx = _breakout_frame([])
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+    signals = {t0: sig0}
+    n = len(idx)
+
+    mask = {"X": np.zeros(n, dtype=bool)}
+    costs_arr = {"X": np.full(n, Costs(0.01, 0.01, "steep"), dtype=object)}
+
+    real_simulate = blb.simulate_portfolio
+    captured: list[dict] = []
+
+    def spy(*args, **kwargs):
+        captured.append(kwargs)
+        return real_simulate(*args, **kwargs)
+
+    with patch.object(blb, "simulate_portfolio", side_effect=spy):
+        placebo_run(
+            {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+            10_000.0, 365.0, _REPO_ROOT, n_sims=5, seed=1,
+            eligible_mask_by_symbol=mask, costs_by_symbol=costs_arr,
+        )
+
+    assert len(captured) == 5, "expected one simulate_portfolio call per placebo draw"
+    for kwargs in captured:
+        assert kwargs["eligible_mask_by_symbol"] is mask, (
+            "placebo_run must forward the SAME mask object unchanged on every draw, not a "
+            "time-shifted copy"
+        )
+        assert kwargs["costs_by_symbol"] is costs_arr, (
+            "placebo_run must forward the SAME per-bar costs object unchanged on every draw, not "
+            "a time-shifted copy"
+        )
+
+
+def test_placebo_run_default_none_for_new_params_is_unchanged():
+    """Every pre-P1d caller (run_live_bot_report.py, run_rank_order_validation.py) never passes
+    these two params -- confirms the bugfix (forwarding them) didn't change placebo_run's output
+    for callers that don't supply them at all."""
+    sig0, t0, price0, atr0 = _known_breakout_signal(_breakout_frame([])[0])
+    df, idx = _breakout_frame([])
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+    signals = {t0: sig0}
+
+    out_implicit = placebo_run(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, n_sims=5, seed=7,
+    )
+    out_explicit_none = placebo_run(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, n_sims=5, seed=7,
+        eligible_mask_by_symbol=None, costs_by_symbol=None,
+    )
+    pd.testing.assert_frame_equal(out_implicit, out_explicit_none)
+
+
+def test_placebo_run_eligible_mask_by_symbol_actually_blocks_every_draws_trades():
+    """Behavioral proof, not just structural forwarding: an all-False eligibility mask forwarded
+    through placebo_run must prevent EVERY one of the n_sims placebo draws from opening a single
+    new position, regardless of where that draw's randomly time-shifted signal lands -- confirming
+    the forwarded mask is actually applied inside each draw's simulate_portfolio call, not merely
+    accepted and ignored."""
+    sig0, t0, price0, atr0 = _known_breakout_signal(_breakout_frame([])[0])
+    tail = [
+        (105.0, 110.0, 104.0, 160.0, 10.0),
+        (162.0, 163.0, 161.0, 162.0, 10.0),
+    ]
+    df, idx = _breakout_frame(tail)
+    enriched = add_indicators(df, fast_ema=12, slow_ema=26, rsi_period=14)
+    signals = {t0: sig0}
+    n = len(idx)
+
+    out = placebo_run(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), PERMISSIVE_RISK_CFG, PLANNER_CFG,
+        10_000.0, 365.0, _REPO_ROOT, n_sims=8, seed=3,
+        eligible_mask_by_symbol={"X": np.zeros(n, dtype=bool)},
+    )
+    assert (out["trades"] == 0).all(), f"every placebo draw should be blocked from trading:\n{out}"
 
 
 # --------------------------------------------------------------------------- #

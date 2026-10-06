@@ -186,8 +186,12 @@ def trailing_quote_volume(enriched: pd.DataFrame, window: int = LIQUIDITY_WINDOW
 
     Bar t's value only uses bars up to and including t (`min_periods=1`, no look-ahead) -- the
     same point-in-time discipline as every other lookback in this harness (see the module
-    docstring's SCAN_TAIL_BARS note). Used only as `rank_signals`' liquidity tie-break input
-    (`src.signal_engine.rank_signals`'s second argument); never affects sizing or costs.
+    docstring's SCAN_TAIL_BARS note). Originally used only as `rank_signals`' liquidity tie-break
+    input (`src.signal_engine.rank_signals`'s second argument) and documented as "never affects
+    sizing or costs" -- that second half is now stale since tiered_slippage.py's per-bar cost
+    series (`tiered_costs_series_by_symbol`) is ALSO built from this same trailing-volume array
+    (shifted by one bar first, see that function's docstring) for `simulate_portfolio`'s
+    `costs_by_symbol` parameter. It still never affects position sizing.
 
     `window` is a BAR count, not a calendar-day count -- pass `liquidity_window_bars(timeframe)`
     for any non-daily timeframe (see that function's docstring); the bare LIQUIDITY_WINDOW_DAYS
@@ -340,6 +344,8 @@ def simulate_portfolio(
     project_root: Path,
     use_rank_order: bool = False,
     timeframe: str = "1d",
+    eligible_mask_by_symbol: dict[str, np.ndarray] | None = None,
+    costs_by_symbol: dict[str, np.ndarray] | None = None,
 ) -> Result:
     """Walks the shared global date axis one bar at a time, for every symbol in lockstep, with
     ONE RiskEngine instance and ONE cash/position pool for the whole run -- mirroring how
@@ -363,10 +369,69 @@ def simulate_portfolio(
     engine_score first, tie-broken by `trailing_quote_volume` then symbol) instead of
     `sorted(symbols)`. Symbols without a fresh signal this bar (OPEN/PENDING monitor-only, or
     FLAT with nothing new) are visited afterward in the original `sorted(symbols)` order --
-    their processing order never matters since they don't compete for anything."""
+    their processing order never matters since they don't compete for anything.
+
+    `eligible_mask_by_symbol` (P1d, docs/system-redesign-2026-10.md §4.4 rule 1 -- default None
+    preserves every existing caller's behavior byte-for-byte, "every symbol eligible at every
+    bar"): an optional `{symbol: bool array over the shared global axis}` from
+    universe_eligibility.py (imported there, never reimplemented here -- see that module). When
+    given, a FLAT symbol is only allowed to scan for and open a brand NEW setup on bars where
+    `eligible_mask_by_symbol[symbol][t]` is True -- exactly matching the design doc's "no
+    look-ahead universe" rule and `rank_signals`' own candidate set (an ineligible symbol's signal
+    this bar, if any, is simply never acted on, so it never competes for a scarce new-entry slot
+    either). A symbol missing from the dict is treated as eligible at every bar (so a caller only
+    needs to supply a mask for the symbols it actually wants gated). Critically, this ONLY gates
+    opening a NEW position -- an already-OPEN or -PENDING symbol is monitored to completion
+    exactly as before regardless of its current eligibility, matching the design doc's pipeline
+    note that "the monitor always runs for every held symbol, in or out of the universe" (§2).
+
+    `costs_by_symbol` (P1d, docs/system-redesign-2026-10.md §4.4 rule 3 -- default None preserves
+    every existing caller's behavior byte-for-byte, "the single global `costs` for every symbol
+    and every fill"): an optional `{symbol: array of Costs, one per bar on the shared global axis}`
+    -- a PER-BAR array, like `eligible_mask_by_symbol`, NOT a single static `Costs` for the whole
+    run. This is intentional, not merely a style match: a universe-wide run (e.g. `long_universe`,
+    2015-2026) can see a symbol's liquidity tier change enormously over its own history (a coin
+    that's $5M/day liquid TODAY was almost certainly far thinner in its 2017 dust era), so a single
+    per-symbol tier applied uniformly to the whole run would both misprice that era's real cost and
+    leak today's liquidity level backward into how far-past bars get costed -- a look-ahead. See
+    `tiered_slippage.tiered_costs_series_by_symbol` for how to build this array correctly (from
+    trailing volume through bar t-1, not t -- bar t's own volume isn't known yet at its open, when
+    the fill actually happens). At bar t, `costs_by_symbol[symbol][t]` replaces the global `costs`
+    for that symbol's own fills and exits (FILL/STOP_LOSS/TAKE_PROFIT/end-of-run close) at THAT
+    bar. A symbol missing from the dict falls back to the global `costs` at every bar, same as the
+    no-override default. Every supplied array must have exactly T entries (the shared global axis
+    length) -- a mismatched length raises `ValueError` rather than silently misaligning (same
+    validation as `eligible_mask_by_symbol`, see immediately below)."""
     symbols = sorted(enriched_global)  # fixed, deterministic per-bar processing order
     idx = next(iter(enriched_global.values())).index
     T = len(idx)
+
+    if eligible_mask_by_symbol is not None:
+        for sym, arr in eligible_mask_by_symbol.items():
+            if len(arr) != T:
+                raise ValueError(
+                    f"eligible_mask_by_symbol[{sym!r}] has length {len(arr)}, expected {T} "
+                    f"(the shared global bar axis) -- a mismatched array would silently "
+                    f"misalign eligibility decisions to the wrong bars."
+                )
+    if costs_by_symbol is not None:
+        for sym, arr in costs_by_symbol.items():
+            if len(arr) != T:
+                raise ValueError(
+                    f"costs_by_symbol[{sym!r}] has length {len(arr)}, expected {T} "
+                    f"(the shared global bar axis) -- a mismatched array would silently "
+                    f"misalign cost assumptions to the wrong bars."
+                )
+
+    def costs_for(symbol: str, t: int) -> Costs:
+        if costs_by_symbol is not None and symbol in costs_by_symbol:
+            return costs_by_symbol[symbol][t]
+        return costs
+
+    def is_eligible(symbol: str, t: int) -> bool:
+        if eligible_mask_by_symbol is None or symbol not in eligible_mask_by_symbol:
+            return True
+        return bool(eligible_mask_by_symbol[symbol][t])
     liquidity_arr = (
         {
             s: trailing_quote_volume(enriched_global[s], window=liquidity_window_bars(timeframe)).to_numpy()
@@ -433,9 +498,10 @@ def simulate_portfolio(
     def record_trade(symbol: str, t: int, reason: str, raw_exit_px: float) -> None:
         nonlocal cash
         st = state[symbol]
-        px = raw_exit_px * (1.0 - costs.slippage)
+        sym_costs = costs_for(symbol, t)
+        px = raw_exit_px * (1.0 - sym_costs.slippage)
         notional = st.qty * px
-        fee_x = notional * costs.fee
+        fee_x = notional * sym_costs.fee
         cash += notional - fee_x
         net = (notional - fee_x) - (st.qty * st.entry_px + st.entry_fee)
         r = net / (st.qty * st.planned_risk_per_unit) if st.planned_risk_per_unit > 0 else float("nan")
@@ -472,12 +538,13 @@ def simulate_portfolio(
             action, payload = st.queued
             st.queued = None
             if action == "FILL":
+                sym_costs = costs_for(s, t)
                 quote_amount = min(payload or 0.0, cash)  # see module docstring note 5 (same-bar cash race)
-                price = o * (1.0 + costs.slippage)
+                price = o * (1.0 + sym_costs.slippage)
                 if quote_amount <= 0 or price <= 0:
                     state[s] = _SymState()
                     continue
-                fee_e = quote_amount * costs.fee
+                fee_e = quote_amount * sym_costs.fee
                 net_quote = quote_amount - fee_e
                 if net_quote <= 0:
                     state[s] = _SymState()
@@ -512,7 +579,7 @@ def simulate_portfolio(
         if use_rank_order:
             signals_t: dict[str, Signal] = {}
             for s in symbols:
-                if state[s].status != "FLAT":
+                if state[s].status != "FLAT" or not is_eligible(s, t):
                     continue
                 sig = signals_by_symbol.get(s, {}).get(idx[t])
                 if sig is not None:
@@ -547,6 +614,13 @@ def simulate_portfolio(
                     amt = st.plan.get("approved_quote_amount") if action.action == "FILL" else None
                     st.queued = (action.action, amt)
             else:  # FLAT -- look for a brand new setup, same branch src/bot.py takes
+                if not is_eligible(s, t):
+                    # P1d point-in-time universe gate (eligible_mask_by_symbol): a currently
+                    # ineligible symbol never opens a NEW position, same as src/universe.py's
+                    # discover-mode whitelist would exclude it from the live bot's scan list --
+                    # but this ONLY blocks new entries; an existing OPEN/PENDING position (the two
+                    # branches above this one) is untouched regardless of eligibility.
+                    continue
                 sig = signals_by_symbol.get(s, {}).get(idx[t])
                 if sig is None:
                     continue
@@ -657,6 +731,8 @@ def placebo_run(
     seed: int = 0,
     use_rank_order: bool = False,
     timeframe: str = "1d",
+    eligible_mask_by_symbol: dict[str, np.ndarray] | None = None,
+    costs_by_symbol: dict[str, np.ndarray] | None = None,
 ) -> pd.DataFrame:
     """Time-shift placebo, adapted from engine.placebo_baseline's pattern: circularly shift WHEN
     each symbol's real signals fired by one random offset shared by every symbol (so clustering/
@@ -669,7 +745,20 @@ def placebo_run(
     every existing caller) so a placebo comparison uses the SAME per-bar processing order as
     whatever real run it's being compared against. `timeframe` (Phase 2.0 generalization, default
     "1d" preserves every existing caller's behavior byte-for-byte) is forwarded the same way, for
-    the same liquidity-window reason documented on simulate_portfolio."""
+    the same liquidity-window reason documented on simulate_portfolio.
+
+    `eligible_mask_by_symbol`/`costs_by_symbol` (P1d fix, both default None preserving every
+    existing caller's behavior byte-for-byte) are forwarded to `simulate_portfolio` UNCHANGED --
+    i.e. NOT time-shifted the way the placebo's own signals/plans are above. This is deliberate:
+    a placebo is a test of whether the real signals' TIMING carries information, by asking "would
+    this same recipe have done as well fired at some other, randomly-shifted point in time?" --
+    only the thing being tested (signal timing) should move. The universe-eligibility mask and the
+    liquidity-tiered cost schedule both reflect REAL calendar-time facts about REAL bar t (whether
+    that symbol was actually a legitimate, tradeable part of the universe at that real date, and
+    what it actually cost to trade then) -- shifting them along with the placebo's fake signal
+    timing would silently compare the real run's real universe/costs against a placebo using a
+    DIFFERENT, wrong universe/cost regime for each shifted draw, which is not what this placebo is
+    supposed to test and would make gate 4 (beats placebo) a non-like-for-like comparison."""
     idx = next(iter(enriched_global.values())).index
     T = len(idx)
     dense = {s: _dense_signal_array(sig_map, idx) for s, sig_map in signals_by_symbol.items()}
@@ -692,6 +781,7 @@ def placebo_run(
         res = simulate_portfolio(
             enriched_global, shifted, costs, risk_cfg, planner_cfg, start_equity, periods_per_year, project_root,
             use_rank_order=use_rank_order, timeframe=timeframe,
+            eligible_mask_by_symbol=eligible_mask_by_symbol, costs_by_symbol=costs_by_symbol,
         )
         from engine import summarize  # local import: avoids a module-level cycle with run_live_bot_report
 
