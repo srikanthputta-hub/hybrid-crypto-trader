@@ -234,10 +234,10 @@ table and methodology notes: `strategy_pack_run/data_universe/tiered_slippage_ca
 ## 3. Validation run in this worktree
 
 - `PYTHONPATH=. python3 -m pytest -q` (repo root, `tests/` only per `pytest.ini`): **352 passed.**
-- `cd strategy_pack_run && PYTHONPATH=..:. python3 -m pytest -q .`: **67 passed** (20 pre-existing
-  `test_backtest_live_bot.py` tests unchanged + 5 new ones for `eligible_mask_by_symbol`/
-  `costs_by_symbol` + 13 new `test_universe_eligibility.py` + 4 new `test_tiered_slippage.py` +
-  every other pre-existing `strategy_pack_run` test file untouched and passing).
+- `cd strategy_pack_run && PYTHONPATH=..:. python3 -m pytest -q .`: **89 passed** (`test_backtest_live_bot.py` 31, of
+  which 11 are new for `eligible_mask_by_symbol`/`costs_by_symbol`; `test_universe_eligibility.py` 18;
+  `test_tiered_slippage.py` 10; `test_calibrate_tiered_slippage.py` 5; every other pre-existing
+  `strategy_pack_run` test file untouched and passing).
 - `PYTHONPATH=. python3 scripts/validate_invariants.py`: **5/5 invariants passed.**
 - Zero `anthropic`/`openai`/LLM imports in any new or modified file: confirmed via grep (no
   matches).
