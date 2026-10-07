@@ -249,7 +249,7 @@ did what it was meant to do: every candidate takes the order-variance range from
    expected if "bigger 5-bar move" is a mild positive among liquid majors and a negative once small,
    volatile coins compete. It is not a robust edge, and S1 is the dataset P1c showed is dominated by
    order noise.
-3. **C is the most stable of the three**: it is never the worst, it is the only key that beats legacy
+3. **C is the least uneven of the three.** It is the weakest candidate on S1 (0.13), but it is the only key that beats legacy
    on the long_universe info row (0.43 vs 0.40, later-30% 0.24 vs 0.16), and it matches legacy on S2.
    It still fails U1, and that row is not part of any criterion. Treat this as a lead, not a result.
 4. **The saturation is a scanner-calibration problem, not a ranking problem.** `momentum_return_threshold:
