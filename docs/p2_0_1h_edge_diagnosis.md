@@ -9,6 +9,13 @@ up `docs/p2_0_1h_rebaseline.md`, whose corrected version on `main` left two thin
 `hyperopt_param.py` was changed.** This document is a written reason for a possible future change.
 It is not that change.
 
+> **Independent review (Architect, 2026-10-07): see §8 "Review corrections".** Every table in §1-§5
+> reproduced exactly. Two claims are overstated and one context point was missing: the "same edge per
+> day held at both resolutions" rate holds for portfolio trades only, not for the signal sets (§8 R2);
+> Model I is disfavoured, not rejected (§8 R3); the daily kraken_720 profit comes from one quarter
+> (§8 R4). The bottom line below (no edge at 1h at today's geometry) stands. The original text is kept
+> unedited.
+
 ## Bottom line (read this first)
 
 **The evidence points to "this strategy has no edge at a 1h trading horizon, regardless of
@@ -513,3 +520,64 @@ which are not reproducible from git.
 - `PYTHONPATH=. python3 scripts/validate_invariants.py`: **5/5 passed**.
 - `git status` before committing: no data or cache files staged. `data_15m/` is gitignored, and
   analysis caches live outside the repo.
+
+## 8. Review corrections (independent Architect review, 2026-10-07)
+
+Reviewer: Architect role, branch `claude/multiday-hold-design` (this doc's two commits cherry-picked onto
+`origin/main` at `65a5bbe`). Same `data_15m/` 1h/1d parquet files (md5-identical to the P2.0 worktree's),
+same `data/`, fresh cache directory. Nothing in §1-§7 above was edited; corrections are listed here.
+
+**R1. Reproduction: everything in §1-§5 reproduces exactly.** I re-ran `--step signals` (the htf
+reclassification asserts passed), `replay`, `isolated`, `variants` (1.5, 3.0, 4.5, 7.0, then 6.0, 8.0),
+`mechanism` and `report`. Every number in §1-§5 matched, including every gate verdict and placebo
+percentile, and the T3-taker trade lists are R-identical to the original cache's. I also re-checked
+§5.4's two numbers that `report` doesn't print: median hold at 7.0 is 264.5h, and dropping
+XTZ/SHIB/ALGO gives 212 trades, +0.21R, CI [+0.001, +0.421] (vs 905 trades and -0.26R at 1.5).
+`test_diag_1h_edge.py`: 7 passed. **On pre-registration:** git only shows the predictions were committed
+at 22:08 UTC (`701cec8`) and the results at 22:37. It can't show the variants ran after 22:08. The original
+cache's file times back up the claimed order: `gates_1h_stop{3.0,4.5,7.0}.pkl` were written at 22:14, 22:16
+and 22:18, and the post-hoc 6.0/8.0 at 22:22/22:24. That supports the order but doesn't prove it.
+
+**R2. Overstated: "the edge accrues per day held at about the same rate at both resolutions" (Bottom
+line 1, §1).** The 0.10-0.15%/day figures hold for the **portfolio-selected trades**. They don't hold for
+the signal sets themselves. Gross price return per 24h held, `kraken_T3_taker` brackets, isolated
+trades as in §2.2:
+
+| set | 1h | daily (Kraken) | daily (Coinbase) | daily `data_long` (11y) |
+|---|---|---|---|---|
+| portfolio trades (§1) | 0.102% | 0.148% | 0.131% | n/a |
+| every htf-confirmed signal, isolated | **0.202%** | **0.021%** | **-0.017%** | 0.259% |
+| non-overlapping htf-confirmed (§3) | n/a | 0.150% | n/a | 0.278% |
+| random timing, htf up | -0.037% | -0.087% | -0.108% | 0.138% |
+
+(The non-overlapping and `data_long` cells come from a scratch script, not from `diag_1h_edge.py`. Their
+inputs are `classify_and_verify`, `isolated_for_signals`, `sequential_non_overlapping` and
+`isolated_baseline`, all imported unchanged.) On the 2-year window, the average daily signal earns roughly
+nothing per day held, either gross (+0.112R) or net (+0.021R). The daily edge there comes from
+**which** signals the one-plan-per-symbol rule ends up taking. 225 non-overlapping trades earn +0.315R
+gross, CI [+0.08, +0.55], and the all-signal mean sits inside that CI. That makes the 2-year daily edge
+path-dependent and fragile, not a broad property of the signals. What survives: §1's cost-geometry
+arithmetic (stop width sets hold time and cost drag) and the conclusion that 1h fails at today's
+geometry. 1h's own CI is entirely below zero (-0.24R [-0.35, -0.13]). What doesn't survive: "1h earns
+70-80% of daily's rate" as a property of the signals. On the full signal sets, 1h earns more per day held
+than daily does on this window.
+
+**R3. Overstated: "Model I is rejected" (§5.3).** Model I predicted -0.15 / -0.11 / -0.07. Per-point
+95% CIs: 3.0 [-0.18, +0.09] contains -0.15. 4.5 [-0.107, +0.22] excludes -0.11 by only 0.003. 7.0
+[+0.005, +0.41] excludes -0.07. The post-hoc 6.0 [-0.12, +0.27] and 8.0 [-0.14, +0.29] both contain
+what Model I's 1/F shrinkage implies at those widths (about -0.08 / -0.06). All six variants also
+re-bracket largely the same signals, so they aren't independent tests. Fair reading: the point estimates
+favour Model D and disfavour Model I, but Model I isn't decisively rejected. The bottom line doesn't
+change.
+
+**R4. Context missing from "daily replay = 154 trades, +0.18R, 4/5" (§1, §5.4 item 5).** The 2-year daily
+result is concentrated in time. By entry year (`kraken_T3_taker`): 2024 (Oct-Dec only) 29 trades, **+1.32R**;
+2025 64 trades, **-0.32R**; 2026 61 trades, +0.17R. Without Q4-2024 the other 125 trades average
+**-0.08R**. On `data_long` (562 trades, +0.52R, 5/5) the losing years are 2018 (-0.07R, n=10), 2022
+(-0.58R, n=39) and 2025 (-0.33R, n=55). Random-timing entries in htf-up periods earn **+0.20R net** there,
+which is survivor drift. The placebo gate (100th/98th) says signal timing adds something beyond that
+drift. Even so, most of the 11-year R is being long surviving coins in up-trends. P1e's long-universe
+finding points the same way: added coins earned 0.23R vs the original 16's 0.55R.
+
+**R5. Not re-verified:** §2.1's per-pattern daily cells (2-12 trades; the doc already says not to read
+them) and §0's data-coverage counts (taken from P2.0). Everything else was re-run.
