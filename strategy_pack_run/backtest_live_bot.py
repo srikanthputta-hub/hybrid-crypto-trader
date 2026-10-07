@@ -464,7 +464,7 @@ def simulate_portfolio(
         # has ever swept either key (see docs/p1c_rank_signals_validation.md).
         **{
             key: risk_cfg[key]
-            for key in ("max_new_entries_per_window", "new_entry_window_minutes")
+            for key in ("max_new_entries_per_window", "new_entry_window_minutes", "min_order_quote_usd")
             if key in risk_cfg
         },
     )

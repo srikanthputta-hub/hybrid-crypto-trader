@@ -27,7 +27,7 @@ from engine import COST_PRESETS  # noqa: E402
 from run_universe_gate import criterion_c, gates, make_random_tiebreak  # noqa: E402
 from src.config import load_config  # noqa: E402
 from src.signal_engine import Signal  # noqa: E402
-from tiered_slippage import tiered_costs_series_by_symbol  # noqa: E402
+from tiered_slippage import tiered_costs_series_by_symbol, tiered_slippage_fraction  # noqa: E402
 from universe_eligibility import EXTRA_EXCLUDE_BASES  # noqa: E402
 from universe_gate_inputs import (  # noqa: E402
     ALL_EXCLUDE_BASES,
@@ -136,6 +136,69 @@ def test_gates_match_run_live_bot_report_definitions():
     assert g["beats_placebo_90th_pct"] is False and g["net_return_and_sharpe_gt_buy_hold"] is False
 
 
+# --- cost wiring: build_costs(eg)[s][t].slippage == tier(trailing_quote_volume(eg[s])[t-1]) --------
+# (docs/p1e_universe_gate_run.md §7 "Test blind spot"). Truncation invariance cannot see a 1-bar
+# cost peek (bar t is kept when truncating at t), so the t-1 rule is asserted directly, per bar.
+def _assert_cost_wiring(eg: dict[str, pd.DataFrame], costs_fn=build_costs) -> int:
+    """Check every symbol at every bar; returns the number of bars where the t-1 tier differs from
+    the (wrong) same-bar tier, i.e. the bars on which a 1-bar peek would show up."""
+    costs = costs_fn(eg)
+    discriminating = 0
+    for s, frame in eg.items():
+        vol = trailing_quote_volume(frame).to_numpy()
+        assert len(costs[s]) == len(frame)
+        assert costs[s][0].slippage == tiered_slippage_fraction(None), f"{s}: bar 0 must get the worst tier"
+        for t in range(1, len(frame)):
+            want = tiered_slippage_fraction(float(vol[t - 1]))
+            assert costs[s][t].slippage == want, f"{s}: bar {t} slippage not tiered on volume through bar t-1"
+            if tiered_slippage_fraction(float(vol[t])) != want:
+                discriminating += 1
+    return discriminating
+
+
+def _tier_stepping_frame(volumes_by_block: list[float], block: int = 60) -> pd.DataFrame:
+    idx = pd.date_range("2025-01-01", periods=block * len(volumes_by_block), freq="D", tz="UTC")
+    return pd.DataFrame({"close": 1.0, "volume": np.repeat(volumes_by_block, block)}, index=idx)
+
+
+def test_build_costs_slippage_uses_prior_bar_trailing_volume_on_tier_crossing_fixture():
+    # median-30 dollar volume steps $100k (50bp) -> $5M (20bp) -> $20M (5bp); and the reverse
+    up = _tier_stepping_frame([100_000.0, 5_000_000.0, 20_000_000.0])
+    down = _tier_stepping_frame([20_000_000.0, 100_000.0])
+    discriminating = _assert_cost_wiring({"UP": up, "DOWN": down})
+    # non-vacuous: the 3 tiers are all hit and there are bars where t-1 and t disagree on the tier
+    costs = build_costs({"UP": up})
+    assert {c.slippage for c in costs["UP"]} == {0.0050, 0.0020, 0.0005}
+    assert discriminating >= 3
+
+
+def test_cost_wiring_check_catches_a_one_bar_cost_peek_on_the_synthetic_fixture():
+    def peek_build_costs(eg):
+        return tiered_costs_series_by_symbol({s: trailing_quote_volume(e).shift(-1).to_numpy() for s, e in eg.items()})
+
+    eg = {"UP": _tier_stepping_frame([100_000.0, 5_000_000.0, 20_000_000.0])}
+    with pytest.raises(AssertionError, match="not tiered on volume through bar t-1"):
+        _assert_cost_wiring(eg, costs_fn=peek_build_costs)
+
+
+def test_build_costs_bar_zero_gets_worst_tier_even_when_volume_is_huge():
+    eg = {"HUGE": _tier_stepping_frame([1e9], block=40)}
+    costs = build_costs(eg)["HUGE"]
+    assert costs[0].slippage == 0.0050  # no t-1 exists -> worst tier
+    assert costs[1].slippage == 0.0005
+
+
+def test_build_costs_leading_nan_bars_get_worst_tier_on_the_shared_axis():
+    idx = pd.date_range("2025-01-01", periods=60, freq="D", tz="UTC")
+    full = pd.DataFrame({"close": 1.0, "volume": 5e7}, index=idx)
+    late = full.iloc[20:].reindex(idx)  # lists at bar 20; NaN before
+    eg = {"FULL": full, "LATE": late}
+    _assert_cost_wiring(eg)
+    costs = build_costs(eg)["LATE"]
+    assert all(c.slippage == 0.0050 for c in costs[:21])  # NaN through bar 19, bar 20 still sees t-1=NaN
+    assert costs[21].slippage == 0.0005
+
+
 # --------------------------------------------------------------------------- #
 # 2. REAL-dataset truncation invariance
 # --------------------------------------------------------------------------- #
@@ -225,6 +288,34 @@ def test_truncation_check_catches_injected_cost_lookahead():
         return tiered_costs_series_by_symbol({s: trailing_quote_volume(e).shift(-2).to_numpy() for s, e in eg.items()})
     assert any(kind == "slippage" for kind, *_ in _truncation_mismatches(frames, "floor", stop_at_first=True, costs_fn=peek_costs))
 
+
+def _real_eg(frames):
+    idx = shared_axis(frames)
+    return {s: f.reindex(idx) for s, f in frames.items()}
+
+
+@needs_real
+def test_real_kraken_build_costs_slippage_matches_prior_bar_tier_at_every_bar():
+    discriminating = _assert_cost_wiring(_real_eg(_real_frames(RAW_KRAKEN, KRAKEN_SLICE)))
+    assert discriminating > 0  # non-vacuous: real volumes do cross tiers between consecutive bars
+
+
+@needs_real
+def test_real_long_build_costs_slippage_matches_prior_bar_tier_at_every_bar():
+    discriminating = _assert_cost_wiring(_real_eg(_real_frames(RAW_LONG, LONG_SLICE, since="2024-06-01")))
+    assert discriminating > 0
+
+
+@needs_real
+def test_cost_wiring_check_catches_a_one_bar_cost_peek():
+    """Mutation test: the t-1 wiring assertion must flag build_costs tiering bar t on volume
+    through bar t (the very blind spot truncation invariance has)."""
+    def peek_build_costs(eg):  # == build_costs with `.shift(-1)` on the volume before tiering
+        return tiered_costs_series_by_symbol({s: trailing_quote_volume(e).shift(-1).to_numpy() for s, e in eg.items()})
+
+    eg = _real_eg(_real_frames(RAW_KRAKEN, KRAKEN_SLICE))
+    with pytest.raises(AssertionError, match="not tiered on volume through bar t-1"):
+        _assert_cost_wiring(eg, costs_fn=peek_build_costs)
 
 def _full_pipeline(frames, cfg, sigs=None):
     native = enrich_native(frames, cfg.indicators)
