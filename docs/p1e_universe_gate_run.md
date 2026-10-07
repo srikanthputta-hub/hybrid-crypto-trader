@@ -168,8 +168,9 @@ _Everything below was added after the pre-registration commit (`d869832`)._
     tightened test catches it (entries differ at cut 540).
   - The two permanent mutation tests in the file inject a 1-bar eligibility peek and a 2-bar cost
     peek and assert the check flags them.
-  Bottom line: the every-bar mask/cost check is the detector that matters. The end-to-end test is a
-  coarser second layer.
+  Bottom line: the every-bar mask check is the detector for eligibility look-ahead (it does not detect a
+  1-bar cost peek, see §7; cost wiring is covered by the direct t-1 assertion tests). The end-to-end test
+  is a coarser second layer.
 - **(b) Flat-5bp info row:** `discover-*-flat5bp` cases, same masks, `costs_by_symbol=None`.
 - **(c) Static-16 on the same harness:** `static16|<dataset>` cases (rank order + tiered slippage +
   same placebo). Legacy flat-cost reproduction is in the runner's last step (§3.6).
@@ -416,7 +417,11 @@ auto-promoted, and as `new_strategy` with null `config_key` there's no mechanica
   all 15 tests, because truncating at t keeps bar t; the permanent mutation test uses a 2-bar peek.
   The t-1 shift itself is unit-tested in `test_tiered_slippage.py`; the P1e wiring assertion
   `build_costs(eg)[s][t].slippage == tiered_slippage_fraction(trailing_quote_volume(eg[s])[t-1])`
-  is a recorded follow-up. The every-bar check is the detector for eligibility, not for costs.
+  was a recorded follow-up and is now in `test_universe_gate_inputs.py`
+  (`test_build_costs_*`, `test_real_*_build_costs_*`, `test_cost_wiring_check_catches_a_one_bar_cost_peek*`:
+  synthetic tier-crossing fixture plus real kraken/long slices, every bar incl. the t=0 worst-tier rule).
+  Verified by mutation: `.shift(-1)` on the volume in `build_costs` leaves all 15 original tests green and
+  fails the new ones. The every-bar truncation check is the detector for eligibility, not for costs.
 - **`backtest_summary.json`:** the four P1e entries carry `gates.overall: "FAIL"` (the candidate
   verdict) so the dashboard's Passed tab cannot show them as all-pass; per-dataset results remain in
   the gate fields and notes.
