@@ -261,6 +261,59 @@ def test_cooldown_rejection_blocks_a_would_be_reentry():
 
 
 # --------------------------------------------------------------------------- #
+# Optional RiskEngine keys the harness forwards (min_order_quote_usd, PR #86 / issue #81)
+# --------------------------------------------------------------------------- #
+# _cooldown_frame_and_signals() with cooldown_minutes=0 books two ~$5000 / ~$4850 trades
+# (max_position_pct=0.5 of $10k equity, then of the post-stop-loss equity) -- values printed
+# from a throwaway run before being transcribed here, not guessed.
+def _run_with_risk_overrides(**overrides):
+    enriched, _idx_, signals = _cooldown_frame_and_signals()
+    cfg = {**PERMISSIVE_RISK_CFG, "cooldown_minutes": 0, **overrides}
+    return simulate_portfolio(
+        {"X": enriched}, {"X": signals}, Costs(0.0, 0.0), cfg, PLANNER_CFG, 10_000.0, 365.0, _REPO_ROOT,
+    )
+
+
+def test_min_order_quote_usd_above_every_sized_order_rejects_all_trades():
+    baseline = _run_with_risk_overrides()
+    assert len(baseline.trades) == 2  # sanity: the floor-free run does trade
+    res = _run_with_risk_overrides(min_order_quote_usd=6_000.0)
+    assert len(res.trades) == 0, f"every sized order (<= $5000) is below the floor, got:\n{res.trades}"
+
+
+def test_min_order_quote_usd_rejects_only_the_below_floor_trade():
+    # floor 4900 sits between the first order (~$5000) and the second (~$4850)
+    res = _run_with_risk_overrides(min_order_quote_usd=4_900.0)
+    assert len(res.trades) == 1
+    assert res.trades.iloc[0]["reason"] == "stop_loss"
+    assert np.isclose(res.trades.iloc[0]["qty"] * res.trades.iloc[0]["entry_px"], 5_000.0)
+
+
+def test_min_order_quote_usd_absent_zero_and_tiny_floor_are_identical_to_before():
+    absent = _run_with_risk_overrides()
+    for floor in (0, 0.0, 1.0):
+        res = _run_with_risk_overrides(min_order_quote_usd=floor)
+        pd.testing.assert_frame_equal(res.trades, absent.trades)
+        pd.testing.assert_series_equal(res.equity, absent.equity)
+
+
+def test_harness_forwards_min_order_quote_usd_to_the_risk_engine_it_builds():
+    """Direct check on the constructed engine (spy on the class the harness imported)."""
+    built = []
+    real = blb.RiskEngine
+
+    def spy(*a, **kw):
+        eng = real(*a, **kw)
+        built.append(eng)
+        return eng
+
+    with patch.object(blb, "RiskEngine", spy):
+        _run_with_risk_overrides(min_order_quote_usd=25.0)
+        _run_with_risk_overrides()
+    assert [e.min_order_quote_usd for e in built] == [25.0, 0.0]
+
+
+# --------------------------------------------------------------------------- #
 # Stage A sanity: compute_symbol_signals finds the known breakout and nothing spurious around it
 # --------------------------------------------------------------------------- #
 def test_compute_symbol_signals_finds_the_known_breakout():
