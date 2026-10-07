@@ -147,3 +147,143 @@ cannot be implemented without changing the `Candidate` or `Signal` dataclass sha
 ---
 
 _Everything below was added after the pre-registration commit._
+
+## 3. What was run
+
+| file | what it is |
+|---|---|
+| `strategy_pack_run/run_engine_score_diagnosis.py` | §1 diagnosis (read-only). |
+| `strategy_pack_run/run_rank_key_eval.py` | §2 evaluation. Runner-local patches only (`rank_signals`, and `_placebo_signal_at` so placebo signals carry the original's key values). Legacy rows are not patched. Caches each job, so a run resumes after an interruption. |
+| `strategy_pack_run/test_rank_key_eval.py` | 5 tests: the runner's legacy ranker equals `src.signal_engine.rank_signals` on 500 randomized inputs (ties, missing and `None` liquidity, extra symbols); A/B/C orderings as pre-registered; the tie counter; placebo carry. Mutation-checked by hand: `None` liquidity as 0, placebo not carrying the key, missing value sorted first. All three caught, file restored. |
+| `strategy_pack_run/engine_score_rank_key_results.json` | Every number below, including all 10 seeds per case and candidate. |
+
+```bash
+cd strategy_pack_run   # raw universe CSVs copied from the P1e worktree, SHA256SUMS 966/966 OK
+PYTHONPATH=..:. python3 -W ignore run_engine_score_diagnosis.py --out <scratch>/diag.pkl
+PYTHONPATH=..:. python3 -W ignore run_rank_key_eval.py --cache-dir <scratch>/eval --integrity-only
+PYTHONPATH=..:. python3 -W ignore run_rank_key_eval.py --cache-dir <scratch>/eval --workers 4
+```
+
+The integrity check passed before any candidate ran: S1 sorted 154 / 0.182, S2 sorted 562 / 0.518,
+S1 legacy 137 / 0.114, S2 legacy 572 / 0.532, U1 legacy 172 / 0.412. The runner also asserts that
+its own re-implemented legacy ranker gives identical trades to the unpatched code on S1, S2 and U1.
+
+The evaluation was run once. The JSON was then regenerated from the same job cache with no rerun,
+only to write `null` instead of bare `NaN` tokens. It was verified identical apart from that.
+
+## 4. Results
+
+Gates are in order: >= 100 trades / CI low > 0 / later-30% > 0 / placebo >= 90th / return > 0 and
+Sharpe > benchmark. "Tied at top" is criterion (i). Seeds = the 10 random tie-break orders.
+
+| case | key | trades | avg R [95% CI] | return | Sharpe (bench) | later-30% n / avg R | placebo pct ret / avgR | gates | tied at top | seed avg R min / max | seeds failing 1,2,3,5 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| S1 `data/` | legacy | 137 | 0.11 [-0.18, 0.41] | 16.2% | 0.52 (0.28) | 42 / 0.43 | 96 / 86.5 | P F P **F** P | 70.3% | 0.10 / 0.28 | 9 |
+| S1 | A | 145 | 0.20 [-0.09, 0.51] | 20.9% | 0.62 | 42 / 0.39 | 98 / 94.0 | P F P P P | 0.0% | 0.20 / 0.20 | 10 |
+| S1 | B | 145 | 0.16 [-0.12, 0.46] | 14.5% | 0.47 | 42 / 0.37 | 96 / 90.0 | P F P P P | 0.0% | 0.16 / 0.16 | 10 |
+| S1 | C | 143 | 0.13 [-0.15, 0.43] | 18.6% | 0.57 | 42 / 0.39 | 97 / 87.5 | P F P F P | 0.0% | 0.13 / 0.13 | 10 |
+| S2 `data_long/` | legacy | 572 | 0.53 [0.38, 0.69] | 327.0% | 0.94 (0.81) | 262 / 0.31 | 100 / 98.5 | P P P P P | 70.1% | 0.49 / 0.56 | 0 |
+| S2 | A | 555 | 0.55 [0.39, 0.71] | 426.0% | 1.04 | 244 / 0.35 | 100 / 99.0 | P P P P P | 0.0% | 0.55 / 0.55 | 0 |
+| S2 | B | 548 | 0.51 [0.35, 0.67] | 347.3% | 0.95 | 238 / 0.25 | 100 / 98.0 | P P P P P | 0.0% | 0.51 / 0.51 | 0 |
+| S2 | C | 549 | 0.53 [0.37, 0.69] | 387.9% | 1.00 | 239 / 0.31 | 100 / 99.0 | P P P P P | 0.0% | 0.53 / 0.53 | 0 |
+| U1 kraken $1M | legacy | 172 | 0.41 [0.15, 0.69] | 38.9% | 0.99 (0.83) | 83 / 0.56 | 100 / 100 | P P P P P | 73.8% | 0.23 / 0.38 | 6 |
+| U1 | A | 185 | 0.19 [**-0.05**, 0.45] | 31.7% | 0.85 | 80 / 0.38 | 100 / 94.5 | P **F** P P P | 0.0% | 0.19 / 0.19 | 10 |
+| U1 | B | 193 | 0.27 [0.01, 0.51] | 27.1% | **0.75** | 88 / 0.50 | 98 / 98.5 | P P P P **F** | 0.0% | 0.27 / 0.27 | 10 |
+| U1 | C | 163 | 0.25 [**-0.02**, 0.52] | 33.9% | 0.89 | 70 / 0.43 | 100 / 97.0 | P **F** P P P | 0.0% | 0.25 / 0.25 | 10 |
+| _info: long_universe $1M_ | legacy | 838 | 0.40 [0.27, 0.53] | 371.3% | 0.90 (0.82) | 418 / 0.16 | not run | P P P - P | 75.8% | 0.39 / 0.48 | 0 |
+| _info_ | A | 864 | 0.33 [0.21, 0.46] | 415.4% | 0.93 | 433 / 0.08 | not run | P P P - P | 0.0% | 0.33 / 0.33 | 0 |
+| _info_ | B | 847 | 0.38 [0.25, 0.51] | 385.9% | 0.91 | 424 / 0.18 | not run | P P P - P | 0.0% | 0.38 / 0.38 | 0 |
+| _info_ | C | 859 | 0.43 [0.30, 0.56] | 409.0% | 0.92 | 447 / 0.24 | not run | P P P - P | 0.0% | 0.43 / 0.43 | 0 |
+
+### 4.1 Criteria, applied mechanically
+
+| key | dataset | (i) ties <= 20% | (ii) no gate regression | (iii) order robustness | (iv) later-30% >= legacy - 0.10 |
+|---|---|---|---|---|---|
+| A | S1 | PASS (0.0%) | PASS (placebo FAIL -> PASS) | FAIL (10 vs 9 seeds failing) | PASS (0.39 vs 0.43) |
+| A | S2 | PASS | PASS | PASS | PASS (0.35 vs 0.31) |
+| A | U1 | PASS | **FAIL** (CI low) | **FAIL** (10 vs 6) | **FAIL** (0.38 vs 0.56) |
+| B | S1 | PASS | PASS (placebo FAIL -> PASS, at exactly 90.0) | FAIL (10 vs 9) | PASS (0.37 vs 0.43) |
+| B | S2 | PASS | PASS | PASS | PASS (0.25 vs 0.31) |
+| B | U1 | PASS | **FAIL** (gate 5: Sharpe 0.75 < 0.83) | **FAIL** (10 vs 6) | PASS (0.50 vs 0.56) |
+| C | S1 | PASS | PASS | FAIL (10 vs 9) | PASS (0.39 vs 0.43) |
+| C | S2 | PASS | PASS | PASS | PASS (0.31 vs 0.31) |
+| C | U1 | PASS | **FAIL** (CI low) | **FAIL** (10 vs 6) | **FAIL** (0.43 vs 0.56) |
+
+### 4.2 Where each canonical result sits in legacy's random-order spread (full-sample avg R; information only)
+
+| dataset | legacy canonical | legacy 10 random orders | A | B | C |
+|---|---|---|---|---|---|
+| S1 | 0.11 | 0.10 - 0.28 | 0.20 (beats 9/10) | 0.16 (7/10) | 0.13 (3/10) |
+| S2 | 0.53 | 0.49 - 0.56 | 0.55 (9/10) | 0.51 (6/10) | 0.53 (8/10) |
+| U1 | 0.41 | 0.23 - 0.38 | 0.19 (0/10) | 0.27 (1/10) | 0.25 (1/10) |
+| long_universe $1M (info) | 0.40 | 0.39 - 0.48 | 0.33 (0/10) | 0.38 (0/10) | 0.43 (3/10) |
+
+## 5. Verdict
+
+**No candidate qualifies. Outcome: no change; saturation documented.** Nothing in `src/` or
+`config/config.yaml` changes. `rank_signals` stays exactly as on `origin/main`.
+
+All three fail on U1, the dataset where slot contention matters most. The decisive failures are (ii)
+and (iv): A and C newly fail the CI-low gate and fall more than 0.10R behind legacy out of sample,
+and B newly fails gate 5 (Sharpe 0.75 against the 0.83 benchmark). Each of these on its own is enough.
+
+**A flaw in my own criterion (iii), disclosed rather than reinterpreted.** Once a key has no ties,
+all 10 seed runs are identical to the canonical run (the random draw only breaks ties). The
+"seeds failing" count can then only be 0 or 10, depending on the canonical result. On S1 legacy's
+canonical run already fails CI low, and so does every candidate, so (iii) records 10 vs 9 and fails.
+That S1 failure is an artefact of how (iii) was written, not evidence against the keys. The verdict
+does not depend on it: U1 fails (ii) for all three keys regardless. The avg-R range part of (iii)
+did what it was meant to do: every candidate takes the order-variance range from 0.07-0.18R to zero.
+
+## 6. What the results say (interpretation; not part of the verdict)
+
+1. **Removing ties removes order luck, but the liquidity tie-break was not luck to be removed.**
+   On U1, legacy's canonical run (liquidity tie-break, 0.41) beats all 10 random tie-breaks
+   (0.23-0.38). All three strength-based tie-breaks land at or below the bottom of that random
+   range (0.19-0.27). On the long_universe info row the picture is similar for A and B. Inside a broad
+   universe, choosing among saturated signals by "stronger signal" (bigger move, higher ADX, bigger
+   move in ATRs) picks worse trades than choosing the more liquid coin. That matches the playbook (§3):
+   small caps revert, and edge sits in the liquid large caps.
+2. **On the static 16 majors, A looks better** (S1 avg R 0.11 -> 0.20 and placebo FAIL -> PASS;
+   S2 0.53 -> 0.55, Sharpe 0.94 -> 1.04). It reverses on both universe datasets. That is the pattern
+   expected if "bigger 5-bar move" is a mild positive among liquid majors and a negative once small,
+   volatile coins compete. It is not a robust edge, and S1 is the dataset P1c showed is dominated by
+   order noise.
+3. **C is the most stable of the three**: it is never the worst, it is the only key that beats legacy
+   on the long_universe info row (0.43 vs 0.40, later-30% 0.24 vs 0.16), and it matches legacy on S2.
+   It still fails U1, and that row is not part of any criterion. Treat this as a lead, not a result.
+4. **The saturation is a scanner-calibration problem, not a ranking problem.** `momentum_return_threshold:
+   0.03` over 5 bars is crossed far more easily on daily bars than on the 1h bars the live bot uses.
+   The momentum strength therefore clips for about 70% of daily signals. Fixing that properly means
+   rescaling the MOMENTUM strength formula, for example in ATR units like the other detectors. That
+   would change `engine_score`, the `min_strength` filter and `trade_planner`'s confidence stars,
+   which means a strategy change with its own pre-registration, not a ranking flag.
+
+## 7. Recommendation (the user's call)
+
+- Do **not** wire any of A/B/C into `rank_signals`. Leave `rank_signals` and its liquidity
+  tie-break as they are.
+- Do not re-run P1e's universe candidates with a strength-based key on this evidence: every
+  strength-based key tested here does worse than liquidity on `kraken_720_universe`.
+- If order variance in the gate methodology is still a concern, that is P1e §6 option (ii) (treat
+  order variance as part of the gate), a methodology change for the Architect. Note that a no-tie
+  key makes the seed test degenerate, as §5 shows.
+- If engine_score saturation itself is to be fixed, it should be done in the scanner: rescale the
+  MOMENTUM strength so it is comparable across patterns and timeframes, pre-registered against a
+  **1h** dataset as well as daily, because the live bot runs on 1h. That changes `engine_score` and
+  the `min_strength` filter (Market Analyst) and the confidence stars (`trade_planner.py`, Trade
+  Strategist), so it must be scoped as a strategy change, not a ranking tweak.
+- Do not run a fourth key on these datasets. Three were pre-registered, and adding more after
+  seeing these results would inflate the false-pass rate.
+
+## 8. Caveats
+
+1. Daily bars only; live runs on 1h (§1.1). Neither the saturation rate nor any ranking result is
+   shown to transfer.
+2. U1 is a 719-bar window, and the gate margins are the size of the order noise (P1e §3.7). U1's
+   survivorship caveats (P1e §4) apply in full.
+3. The placebo for candidate keys carries the original signal's key value (pre-registered). Legacy
+   placebo percentiles reproduce P1c/P1e exactly (S1 96 / 86.5, U1 100 / 100).
+4. Funding: long-only spot, so there is no funding cost to model. Fees and slippage are included
+   (flat `kraken_T3_taker` on S1/S2, P1e tiered slippage on U1).
+5. Criterion (iii) was badly designed for no-tie keys (§5). This does not change the verdict.
