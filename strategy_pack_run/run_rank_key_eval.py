@@ -303,7 +303,18 @@ def main() -> None:
                                   fails=[k for k, v in g.items() if k != "beats_placebo_90th_pct" and not v]))
             m["order_seeds"] = seeds
             out["cases"][f"{cid}|{c}"] = m
-    Path(a.out_json).write_text(json.dumps(out, indent=1, default=lambda x: None if isinstance(x, float) and math.isnan(x) else str(x)))
+    def _strict(x):  # strict JSON: NaN/inf -> null (json.dumps would otherwise emit bare NaN tokens)
+        if isinstance(x, dict):
+            return {k: _strict(v) for k, v in x.items()}
+        if isinstance(x, (list, tuple)):
+            return [_strict(v) for v in x]
+        if isinstance(x, (float, np.floating)):
+            return float(x) if math.isfinite(float(x)) else None
+        if isinstance(x, (np.integer, np.bool_)):
+            return x.item()
+        return x
+
+    Path(a.out_json).write_text(json.dumps(_strict(out), indent=1, allow_nan=False, default=str))
     print(f"wrote {a.out_json}")
 
 
