@@ -47,7 +47,7 @@ Raw (pre-clip) strength per pattern, all agreeing candidates:
 **Cause.** Saturation is almost entirely the MOMENTUM detector's own clip, not the confluence bonus.
 `_detect_momentum` scores `0.4 + |move| / momentum_return_threshold * 0.2 (+0.08 ADX bonus)` with
 `momentum_lookback: 5`, `momentum_return_threshold: 0.03`. On **daily** bars a 5-bar move of 9%
-(6.6% with the ADX bonus) already reaches 1.0, and the median momentum signal's move is about 12%.
+(7.8% with the +0.08 ADX bonus) already reaches 1.0, and the median momentum signal's move is about 12%.
 The bonus explains only ~3-4% of saturated signals; removing the final clamp in `evaluate()` alone
 leaves the signal at its clipped primary strength of 1.0. Consequence: 40-48% of all signals share
 exactly the same unclamped value (primary 1.0, n=1).
@@ -55,7 +55,9 @@ exactly the same unclamped value (primary 1.0, n=1).
 **Caveat that matters for any fix.** `config/config.yaml` runs the live bot on `market.timeframe: "1h"`.
 All datasets here are daily. A 3%-in-5-bars threshold means something very different on 1h bars,
 so the saturation rate measured here (and anything selected on it) may not transfer to live. No 1h
-dataset is used in this study.
+dataset is used in this study. One exists (P2.0, `data_15m` resampled to 1h, gitignored; see
+`docs/p2_0_1h_rebaseline.md`) but was not used here, and P2.0 found that the live strategy FAILS the
+5 gates at 1h, which any scanner-rescale proposal must be framed against.
 
 ### 1.2 What `rank_signals` actually sees (legacy, contested calls only)
 
@@ -154,7 +156,7 @@ _Everything below was added after the pre-registration commit._
 |---|---|
 | `strategy_pack_run/run_engine_score_diagnosis.py` | §1 diagnosis (read-only). |
 | `strategy_pack_run/run_rank_key_eval.py` | §2 evaluation. Runner-local patches only (`rank_signals`, and `_placebo_signal_at` so placebo signals carry the original's key values). Legacy rows are not patched. Caches each job, so a run resumes after an interruption. |
-| `strategy_pack_run/test_rank_key_eval.py` | 5 tests: the runner's legacy ranker equals `src.signal_engine.rank_signals` on 500 randomized inputs (ties, missing and `None` liquidity, extra symbols); A/B/C orderings as pre-registered; the tie counter; placebo carry. Mutation-checked by hand: `None` liquidity as 0, placebo not carrying the key, missing value sorted first. All three caught, file restored. |
+| `strategy_pack_run/test_rank_key_eval.py` | 5 tests: the runner's legacy ranker equals `src.signal_engine.rank_signals` on 500 randomized inputs (ties, missing liquidity entries (explicit `None` values are filtered out by the test), extra symbols); A/B/C orderings as pre-registered; the tie counter; placebo carry. Mutation-checked by hand: `None` liquidity as 0, placebo not carrying the key, missing value sorted first. All three caught, file restored. |
 | `strategy_pack_run/engine_score_rank_key_results.json` | Every number below, including all 10 seeds per case and candidate. |
 
 ```bash
@@ -240,9 +242,11 @@ did what it was meant to do: every candidate takes the order-variance range from
 1. **Removing ties removes order luck, but the liquidity tie-break was not luck to be removed.**
    On U1, legacy's canonical run (liquidity tie-break, 0.41) beats all 10 random tie-breaks
    (0.23-0.38). All three strength-based tie-breaks land at or below the bottom of that random
-   range (0.19-0.27). On the long_universe info row the picture is similar for A and B. Inside a broad
-   universe, choosing among saturated signals by "stronger signal" (bigger move, higher ADX, bigger
-   move in ATRs) picks worse trades than choosing the more liquid coin. That matches the playbook (§3):
+   range (0.19-0.27). On the long_universe info row the picture is similar for A and B but NOT for C,
+   which beats legacy there (0.43 vs 0.40). In this one 719-bar kraken_720_universe window, choosing
+   among saturated signals by "stronger signal" (bigger move, higher ADX, bigger move in ATRs) picked
+   worse trades than choosing the more liquid coin. Hedge: legacy's canonical run beating all 10 random
+   orders has roughly a 1-in-11 chance under exchangeability, so this is a hint, not a finding. That matches the playbook (§3):
    small caps revert, and edge sits in the liquid large caps.
 2. **On the static 16 majors, A looks better** (S1 avg R 0.11 -> 0.20 and placebo FAIL -> PASS;
    S2 0.53 -> 0.55, Sharpe 0.94 -> 1.04). It reverses on both universe datasets. That is the pattern
