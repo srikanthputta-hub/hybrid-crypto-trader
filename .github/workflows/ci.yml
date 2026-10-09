@@ -3,6 +3,11 @@ name: CI
 on:
   push:
     branches: ["main"]
+    # The VM's run_live.py pushes a "chore: refresh dashboard data" commit that only touches
+    # web/data.json roughly every 5 minutes (~290/day). Running the full test suite on each one
+    # exhausted the 2,000 free Actions minutes by 2026-10-08. Nothing in web/data.json is code.
+    paths-ignore:
+      - "web/data.json"
   pull_request:
     branches: ["main"]
 
