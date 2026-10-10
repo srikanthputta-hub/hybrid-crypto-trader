@@ -370,6 +370,82 @@ class TestRiskConfigBounds:
                 assert not result.passed, result.message
                 assert key in result.message and expected in result.message
 
+    @pytest.mark.parametrize(
+        ("key", "bad_value", "expected"),
+        [
+            # Previously PASSED: `nan < 1.0` / `inf < 1.0` are False, and True == 1.
+            ("min_risk_reward", float("nan"), "not >= 1.0"),
+            ("min_risk_reward", float("inf"), "not >= 1.0"),
+            ("min_risk_reward", True, "not >= 1.0"),
+            # Previously PASSED: bool is an int subclass and True == 1 is in (0, 1] / [0, 1].
+            ("max_position_pct", True, "not in (0, 1]"),
+            ("max_daily_loss_pct", True, "not in (0, 1]"),
+            ("volatility_scale_floor", True, "not in [0, 1]"),
+            ("max_daily_loss_pct", float("nan"), "not in (0, 1]"),
+            # Previously not checked at all (src/bot.py reads both directly).
+            ("cooldown_minutes", None, "Missing cooldown_minutes"),
+            ("cooldown_minutes", float("nan"), "not a finite number >= 0"),
+            ("cooldown_minutes", float("inf"), "not a finite number >= 0"),
+            ("cooldown_minutes", -1, "not a finite number >= 0"),
+            ("cooldown_minutes", True, "not a finite number >= 0"),
+            ("cooldown_minutes", "60", "not a finite number >= 0"),
+            ("cooldown_minutes", 1e15, "not a finite number >= 0"),  # overflows timedelta
+            ("starting_cash_usd", None, "Missing starting_cash_usd"),
+            ("starting_cash_usd", 0, "not a finite number > 0"),
+            ("starting_cash_usd", float("nan"), "not a finite number > 0"),
+            ("starting_cash_usd", True, "not a finite number > 0"),
+        ],
+    )
+    def test_risk_bounds_fail_on_non_finite_bool_or_missing(self, key, bad_value, expected) -> None:
+        """Broken case: the same finite/range/type rules RiskEngine's constructor enforces."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_file = Path(tmpdir) / "config.yaml"
+            risk = {
+                "starting_cash_usd": 10000,
+                "max_position_pct": 0.1,
+                "max_total_exposure_pct": 0.4,
+                "max_loss_per_trade_pct": 0.01,
+                "max_daily_loss_pct": 0.05,
+                "max_volatility_pct": 0.08,
+                "min_risk_reward": 1.5,
+                "cooldown_minutes": 60,
+            }
+            if bad_value is None:
+                del risk[key]
+            else:
+                risk[key] = bad_value
+            with open(config_file, "w") as f:
+                yaml.dump({"mode": "paper", "risk": risk}, f)
+
+            with patch("scripts.validate_invariants.Path") as mock_path:
+                mock_path.return_value = config_file
+                result = check_risk_config_bounds()
+                assert not result.passed, result.message
+                assert key in result.message and expected in result.message
+
+    def test_risk_bounds_pass_on_valid_boundary_values(self) -> None:
+        """Non-broken case: boundary values RiskEngine accepts must pass here too."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_file = Path(tmpdir) / "config.yaml"
+            risk = {
+                "starting_cash_usd": 0.01,
+                "max_position_pct": 1,
+                "max_total_exposure_pct": 1.0,
+                "max_loss_per_trade_pct": 1e-9,
+                "max_daily_loss_pct": 0.05,
+                "max_volatility_pct": 1.0,
+                "volatility_scale_floor": 0,
+                "min_risk_reward": 1,
+                "cooldown_minutes": 0,
+            }
+            with open(config_file, "w") as f:
+                yaml.dump({"mode": "paper", "risk": risk}, f)
+
+            with patch("scripts.validate_invariants.Path") as mock_path:
+                mock_path.return_value = config_file
+                result = check_risk_config_bounds()
+                assert result.passed, result.message
+
 
 class TestEnvExampleLiveConfirm:
     """Test invariant 5: .env.example documents LIVE_TRADING_CONFIRM."""

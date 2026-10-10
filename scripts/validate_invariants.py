@@ -158,6 +158,28 @@ def _window_representable(minutes: float) -> bool:
         return False
 
 
+def _is_finite_config_number(value: Any) -> bool:
+    """Mirror of src/risk_engine.py's config rule: an int or float (bool excluded -- it is an
+    int subclass), and finite (an int too large for a float counts as not finite)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _cooldown_representable(minutes: float) -> bool:
+    """Mirror of src/risk_engine.py: cooldown_minutes must convert to a timedelta."""
+    from datetime import timedelta
+
+    try:
+        timedelta(minutes=minutes)
+        return True
+    except OverflowError:
+        return False
+
+
 def check_risk_config_bounds() -> InvariantResult:
     """Verify risk config values are in valid ranges."""
     try:
@@ -186,7 +208,9 @@ def check_risk_config_bounds() -> InvariantResult:
                 return InvariantResult(
                     "risk_config_bounds", False, f"FAIL: Missing required risk parameter {param}"
                 )
-            if not isinstance(value, (int, float)) or not (0 < value <= 1):
+            # bool excluded (True == 1 would pass the range check); NaN/inf already fail
+            # `0 < value <= 1`, the isfinite is explicit to match src/risk_engine.py.
+            if not _is_finite_config_number(value) or not (0 < value <= 1):
                 return InvariantResult(
                     "risk_config_bounds",
                     False,
@@ -196,7 +220,7 @@ def check_risk_config_bounds() -> InvariantResult:
         # Check volatility_scale_floor [0, 1]
         vsf = risk_config.get("volatility_scale_floor")
         if vsf is not None:
-            if not isinstance(vsf, (int, float)) or not (0 <= vsf <= 1):
+            if not _is_finite_config_number(vsf) or not (0 <= vsf <= 1):
                 return InvariantResult(
                     "risk_config_bounds",
                     False,
@@ -245,11 +269,35 @@ def check_risk_config_bounds() -> InvariantResult:
         mrr = risk_config.get("min_risk_reward")
         if mrr is None:
             return InvariantResult("risk_config_bounds", False, "FAIL: Missing min_risk_reward")
-        if not isinstance(mrr, (int, float)) or mrr < 1.0:
+        # Written as `not (mrr >= 1.0)` plus an explicit finite check: `nan < 1.0` is False,
+        # so the previous `mrr < 1.0` let a NaN (and inf) through.
+        if not _is_finite_config_number(mrr) or not (mrr >= 1.0):
             return InvariantResult(
                 "risk_config_bounds",
                 False,
                 f"FAIL: min_risk_reward = {mrr!r} is not >= 1.0",
+            )
+
+        # Required keys src/bot.py reads directly (a missing one is a KeyError at startup;
+        # a bad one makes RiskEngine refuse to construct -- the same restart-loop concern
+        # as above, so catch it in CI). Same bounds as RiskEngine.__init__.
+        cooldown = risk_config.get("cooldown_minutes")
+        if cooldown is None:
+            return InvariantResult("risk_config_bounds", False, "FAIL: Missing cooldown_minutes")
+        if not _is_finite_config_number(cooldown) or not (cooldown >= 0) or not _cooldown_representable(cooldown):
+            return InvariantResult(
+                "risk_config_bounds",
+                False,
+                f"FAIL: cooldown_minutes = {cooldown!r} is not a finite number >= 0",
+            )
+        cash = risk_config.get("starting_cash_usd")
+        if cash is None:
+            return InvariantResult("risk_config_bounds", False, "FAIL: Missing starting_cash_usd")
+        if not _is_finite_config_number(cash) or not (cash > 0):
+            return InvariantResult(
+                "risk_config_bounds",
+                False,
+                f"FAIL: starting_cash_usd = {cash!r} is not a finite number > 0",
             )
 
         return InvariantResult("risk_config_bounds", True, "PASS: Risk config bounds are valid")
