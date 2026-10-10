@@ -2,9 +2,30 @@
 from __future__ import annotations
 
 import csv
+import math
+import numbers
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:  # numpy is a project dependency, but this module must not hard-require it.
+    import numpy as _np
+
+    _BOOL_TYPES: tuple[type, ...] = (bool, _np.bool_)
+except ImportError:  # pragma: no cover - numpy is in requirements.txt
+    _BOOL_TYPES = (bool,)
+
+
+def _is_finite_number(value: object) -> bool:
+    """True only for a real, finite number (bool / numpy.bool_ and non-numbers.Real values such
+    as numpy arrays rejected). Same rule as src.risk_engine's helper, duplicated so the
+    portfolio doesn't import the risk engine."""
+    if isinstance(value, _BOOL_TYPES) or not isinstance(value, numbers.Real):
+        return False
+    try:
+        return math.isfinite(value)
+    except (TypeError, ValueError, OverflowError):
+        return False
 
 
 def reconstruct_cash(trade_log_path: Path, starting_cash: float) -> float:
@@ -54,33 +75,91 @@ class Portfolio:
         return (current_price - pos.entry_price) / pos.entry_price
 
     def apply_buy(self, symbol: str, quote_amount: float, price: float, fee_pct: float = 0.001) -> float:
-        """Spend `quote_amount` of cash buying `symbol` at `price`. Returns base amount bought."""
+        """Spend `quote_amount` of cash buying `symbol` at `price`. Returns base amount bought.
+
+        Raises ValueError -- leaving cash and positions exactly as they were -- unless
+        quote_amount and price are finite numbers > 0, fee_pct is finite in [0, 1),
+        cash is finite, and quote_amount <= cash (issue #87: `nan > cash` is False, so a
+        NaN amount used to slip past the cash check and make cash NaN permanently). All
+        new values are computed and checked BEFORE anything is mutated.
+        """
+        if not (_is_finite_number(quote_amount) and quote_amount > 0):
+            raise ValueError(f"invalid buy quote_amount {quote_amount!r}: must be a finite number > 0")
+        if not (_is_finite_number(price) and price > 0):
+            raise ValueError(f"invalid buy price {price!r}: must be a finite number > 0")
+        if not (_is_finite_number(fee_pct) and 0 <= fee_pct < 1):
+            raise ValueError(f"invalid fee_pct {fee_pct!r}: must be a finite number in [0, 1)")
+        if not _is_finite_number(self.cash):
+            raise ValueError(f"portfolio cash {self.cash!r} is not a finite number; refusing to buy")
         if quote_amount > self.cash:
             raise ValueError(f"insufficient cash: have {self.cash}, need {quote_amount}")
         fee = quote_amount * fee_pct
         net_quote = quote_amount - fee
         base_amount = net_quote / price
-        self.cash -= quote_amount
+        new_cash = self.cash - quote_amount
         existing = self.positions.get(symbol)
         if existing is None:
-            self.positions[symbol] = Position(symbol=symbol, amount=base_amount, entry_price=price)
+            new_amount, new_entry_price = base_amount, price
         else:
             total_amount = existing.amount + base_amount
-            existing.entry_price = (
+            new_entry_price = (
                 existing.entry_price * existing.amount + price * base_amount
             ) / total_amount
-            existing.amount = total_amount
+            new_amount = total_amount
+        if not (
+            _is_finite_number(base_amount) and base_amount > 0
+            and _is_finite_number(new_cash)
+            and _is_finite_number(new_amount) and new_amount > 0
+            and _is_finite_number(new_entry_price) and new_entry_price > 0
+        ):
+            # Only reachable with extreme magnitudes (overflow/underflow) or an existing
+            # position that was already corrupt -- refuse rather than write it into state.
+            raise ValueError(
+                f"buy of {quote_amount!r} {symbol} at {price!r} would produce a non-finite or "
+                f"non-positive position/cash (base={base_amount!r}, cash={new_cash!r}, "
+                f"amount={new_amount!r}, entry_price={new_entry_price!r}); state left unchanged"
+            )
+        self.cash = new_cash
+        if existing is None:
+            self.positions[symbol] = Position(symbol=symbol, amount=new_amount, entry_price=new_entry_price)
+        else:
+            existing.entry_price = new_entry_price
+            existing.amount = new_amount
         return base_amount
 
     def apply_sell(self, symbol: str, price: float, fee_pct: float = 0.001) -> float:
-        """Sell the *entire* position in `symbol` at `price`. Returns net quote proceeds."""
+        """Sell the *entire* position in `symbol` at `price`. Returns net quote proceeds.
+
+        Raises ValueError -- leaving cash and positions exactly as they were (the position
+        stays open, so the next valid price can still close it) -- unless price is a finite
+        number > 0, the held amount is a finite number > 0, fee_pct is finite in [0, 1), and
+        the proceeds are finite and >= 0. +-inf used to reach here from the monitor and set cash to
+        +-inf. Cash that was ALREADY non-finite does not block the sell (closing risk stays
+        possible); only turning finite cash non-finite (overflow) is refused. All new values
+        are computed and checked BEFORE anything is mutated.
+        """
         pos = self.positions.get(symbol)
-        if pos is None or pos.amount <= 0:
+        if pos is None or (_is_finite_number(pos.amount) and pos.amount <= 0):
             raise ValueError(f"no open position in {symbol} to sell")
+        if not _is_finite_number(pos.amount):
+            raise ValueError(f"position in {symbol} has invalid amount {pos.amount!r}; refusing to sell")
+        if not (_is_finite_number(price) and price > 0):
+            raise ValueError(f"invalid sell price {price!r}: must be a finite number > 0")
+        if not (_is_finite_number(fee_pct) and 0 <= fee_pct < 1):
+            raise ValueError(f"invalid fee_pct {fee_pct!r}: must be a finite number in [0, 1)")
         gross = pos.amount * price
         fee = gross * fee_pct
         net = gross - fee
-        self.cash += net
+        new_cash = self.cash + net
+        if not (_is_finite_number(net) and net >= 0) or (
+            _is_finite_number(self.cash) and not _is_finite_number(new_cash)
+        ):
+            # Only reachable with extreme magnitudes (overflow/underflow).
+            raise ValueError(
+                f"sell of {symbol} at {price!r} would produce non-finite or negative proceeds / non-finite cash "
+                f"(net={net!r}, cash={new_cash!r}); state left unchanged"
+            )
+        self.cash = new_cash
         del self.positions[symbol]
         return net
 

@@ -12,7 +12,9 @@ exchange:
                             # this is real Kraken market data (reads only, in paper mode)
 
 market:
-  symbols:                 # whitelist — the bot will only ever look at / trade these.
+  symbols:                 # tradeable list — universe.mode: static (src/universe.py) uses exactly this, and
+                            # the risk engine only approves NEW plans on these. A symbol that already has a
+                            # plan/position is still fetched and monitored until it closes, even if removed here.
                             # Verified empirically against Kraken's real ccxt market list (a
                             # 2026-09-27 workflow_dispatch run of refresh-dashboard.yml -- see
                             # job 108597402474's logs, then 108598510828, then 108604148650,
@@ -56,22 +58,27 @@ market:
   timeframe: "1h"           # ccxt timeframe string: 1m, 5m, 15m, 1h, 4h, 1d
   history_bars: 200         # bars of OHLCV history fetched each cycle for indicators/scanner
 
-# Phase 1b of docs/system-redesign-2026-10.md (§4.2): the symbol-universe
-# source of truth. Only `mode` does anything right now -- src/universe.py's
+# Phase 1b of docs/system-redesign-2026-10.md (§4.2; that design doc lives on the
+# claude/system-redesign-design branch, not on main): the symbol-universe
+# source of truth. Only `mode` is read by the live bot -- src/universe.py's
 # refresh() in `static` mode just wraps market.symbols above verbatim, making
 # zero exchange calls. The other keys below are documented here so the shape
-# is visible and ready for Phase 1e's separately-gated "discover" mode
-# (full Kraken USD/USDT universe, point-in-time liquidity ranking) -- none of
-# them are read yet, and `mode: discover` currently raises NotImplementedError
-# rather than doing anything undefined.
+# is visible and ready for a separately-gated "discover" mode (full Kraken
+# USD/USDT universe, point-in-time liquidity ranking) -- the live bot reads
+# none of them, and `mode: discover` currently raises NotImplementedError
+# rather than doing anything undefined. Exception: the offline research
+# harnesses (strategy_pack_run/run_universe_gate.py, run_rank_key_eval.py,
+# run_engine_score_diagnosis.py) read min_listing_age_days, exit_volume_ratio
+# and max_symbols from here as their eligibility parameters (read-only) -- so
+# editing those three changes what those harnesses reproduce, though not the bot.
 universe:
-  mode: static              # "static" = exactly today's behavior (market.symbols) | "discover" (not implemented yet)
+  mode: static              # "static" = exactly today's behavior (market.symbols) | "discover" (not implemented; raises NotImplementedError)
   quotes: ["USD", "USDT"]   # NOT YET USED (discover mode only)
   prefer_quote: "USD"       # one pair per base asset when discovering; NOT YET USED
   min_median_quote_volume_usd: 1000000   # 30-day MEDIAN daily quote volume floor; NOT YET USED
-  exit_volume_ratio: 0.5    # hysteresis so membership doesn't churn at the floor; NOT YET USED
-  min_listing_age_days: 60  # NOT YET USED
-  max_symbols: 150          # NOT YET USED
+  exit_volume_ratio: 0.5    # hysteresis so membership doesn't churn at the floor; NOT YET USED by the bot (read by the offline harnesses)
+  min_listing_age_days: 60  # NOT YET USED by the bot (read by the offline harnesses)
+  max_symbols: 150          # NOT YET USED by the bot (read by the offline harnesses)
   include_symbols: []       # pins beyond discovery; NOT YET USED
   exclude_bases: []         # e.g. stablecoins/wrapped assets to always drop in discover mode; NOT YET USED
   exclude_symbols: {}       # "SYMBOL": "reason + date" -- human-maintained structural exclusions; NOT YET USED
@@ -186,7 +193,8 @@ risk:
                                  # room. Treat this cap as a guard against an even larger, more extreme burst
                                  # (e.g. 15-20+ simultaneous signals), NOT as the fix for 09-29's actual loss --
                                  # that would need a lower max_total_exposure_pct or (more directly) a minimum
-                                 # order/notional size, neither of which exists yet. Daily bars also can't test
+                                 # order/notional size -- the latter now exists as min_order_quote_usd below (issue
+                                 # #81) but ships disabled (0), so neither is in effect. Daily bars also can't test
                                  # the live 1h/5-minute cadence this guards against, so this remains a risk-
                                  # appetite choice informed by, not proven by, the backtest -- revisit if hourly
                                  # backtest data ever becomes available. Must be an integer >= 1 / a number > 0.
