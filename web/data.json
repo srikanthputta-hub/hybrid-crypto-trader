@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-10T15:14:00.250797+00:00",
+  "generated_at": "2026-10-10T17:06:01.959824+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -31,7 +31,7 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-10-10T15:14:00.116688+00:00",
+      "last_active": "2026-10-10T17:06:01.819944+00:00",
       "detail": "Coordinating 3 active role(s) this cycle"
     },
     {
@@ -39,24 +39,24 @@
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-10-10T15:14:00.114003+00:00",
-      "detail": "BCH/USDT: found a PULLBACK setup (bullish)"
+      "last_active": "2026-10-10T17:06:01.817515+00:00",
+      "detail": "BCH/USDT: checked, nothing worth trading"
     },
     {
       "id": "trade_strategist",
       "label": "Trade Strategist",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-10-10T15:14:00.114003+00:00",
-      "detail": "BCH/USDT: buy between $279.06 and $281.70, stop-loss $276.63"
+      "last_active": "2026-10-10T17:06:01.815026+00:00",
+      "detail": "ALGO/USDT: buy between $0.1189 and $0.1191, stop-loss $0.1168"
     },
     {
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-10-10T15:14:00.114003+00:00",
-      "detail": "BCH/USDT: blocked \u2014 no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero)"
+      "last_active": "2026-10-10T17:06:01.815026+00:00",
+      "detail": "ALGO/USDT: blocked \u2014 no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero)"
     },
     {
       "id": "compliance_reviewer",
@@ -213,6 +213,294 @@
   ],
   "pending": [],
   "signal_history": [
+    {
+      "timestamp": "2026-10-10T17:06:01.815026+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T17:00:41.910350+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:55:22.007507+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:55:22.004906+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:50:01.471225+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:50:01.468632+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:44:41.598564+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:44:41.596062+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:39:21.757527+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:39:21.755026+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:34:01.849838+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:34:01.847236+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:28:41.952078+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:28:41.949520+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:23:21.170303+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:23:21.167747+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:18:01.299490+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:18:01.296921+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:12:41.390770+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:12:41.388234+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:07:21.578870+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:07:21.576307+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:02:00.680588+00:00",
+      "symbol": "ALGO/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T16:02:00.678058+00:00",
+      "symbol": "ATOM/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:56:40.792156+00:00",
+      "symbol": "BCH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:56:40.782664+00:00",
+      "symbol": "LINK/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:56:40.772640+00:00",
+      "symbol": "ETH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:51:20.905251+00:00",
+      "symbol": "BCH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:51:20.894849+00:00",
+      "symbol": "LINK/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:51:20.884943+00:00",
+      "symbol": "ETH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:46:01.009208+00:00",
+      "symbol": "BCH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:46:00.999816+00:00",
+      "symbol": "LINK/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:46:00.988708+00:00",
+      "symbol": "ETH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:40:41.053915+00:00",
+      "symbol": "BCH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:40:41.044400+00:00",
+      "symbol": "LINK/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:40:41.034207+00:00",
+      "symbol": "ETH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:35:21.202956+00:00",
+      "symbol": "BCH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:35:21.193473+00:00",
+      "symbol": "LINK/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:35:21.182227+00:00",
+      "symbol": "ETH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:30:00.946580+00:00",
+      "symbol": "BCH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:30:00.936941+00:00",
+      "symbol": "LINK/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:30:00.926473+00:00",
+      "symbol": "ETH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:24:41.110219+00:00",
+      "symbol": "BCH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:24:41.100861+00:00",
+      "symbol": "LINK/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:24:41.091061+00:00",
+      "symbol": "ETH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:19:19.998974+00:00",
+      "symbol": "BCH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:19:19.989534+00:00",
+      "symbol": "LINK/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
+    {
+      "timestamp": "2026-10-10T15:19:19.979736+00:00",
+      "symbol": "ETH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 risk check said no (no room left to size this trade (cash, position cap, risk-per-trade cap, or total-exposure cap all reduced it to zero))"
+    },
     {
       "timestamp": "2026-10-10T15:14:00.114003+00:00",
       "symbol": "BCH/USDT",
@@ -3977,146 +4265,146 @@
     },
     "hourly": [
       {
-        "label": "16:00",
-        "start": "2026-10-09T15:14:00.250797+00:00",
-        "pnl": 0,
-        "trades": 0
-      },
-      {
-        "label": "17:00",
-        "start": "2026-10-09T16:14:00.250797+00:00",
-        "pnl": 0,
-        "trades": 0
-      },
-      {
         "label": "18:00",
-        "start": "2026-10-09T17:14:00.250797+00:00",
+        "start": "2026-10-09T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "19:00",
-        "start": "2026-10-09T18:14:00.250797+00:00",
+        "start": "2026-10-09T18:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "20:00",
-        "start": "2026-10-09T19:14:00.250797+00:00",
+        "start": "2026-10-09T19:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "21:00",
-        "start": "2026-10-09T20:14:00.250797+00:00",
+        "start": "2026-10-09T20:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "22:00",
-        "start": "2026-10-09T21:14:00.250797+00:00",
+        "start": "2026-10-09T21:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "23:00",
-        "start": "2026-10-09T22:14:00.250797+00:00",
+        "start": "2026-10-09T22:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "00:00",
-        "start": "2026-10-09T23:14:00.250797+00:00",
+        "start": "2026-10-09T23:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "01:00",
-        "start": "2026-10-10T00:14:00.250797+00:00",
+        "start": "2026-10-10T00:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "02:00",
-        "start": "2026-10-10T01:14:00.250797+00:00",
+        "start": "2026-10-10T01:06:01.959824+00:00",
         "pnl": 47.75,
         "trades": 1
       },
       {
         "label": "03:00",
-        "start": "2026-10-10T02:14:00.250797+00:00",
+        "start": "2026-10-10T02:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "04:00",
-        "start": "2026-10-10T03:14:00.250797+00:00",
+        "start": "2026-10-10T03:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "05:00",
-        "start": "2026-10-10T04:14:00.250797+00:00",
+        "start": "2026-10-10T04:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "06:00",
-        "start": "2026-10-10T05:14:00.250797+00:00",
+        "start": "2026-10-10T05:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "07:00",
-        "start": "2026-10-10T06:14:00.250797+00:00",
+        "start": "2026-10-10T06:06:01.959824+00:00",
         "pnl": -0.0,
         "trades": 1
       },
       {
         "label": "08:00",
-        "start": "2026-10-10T07:14:00.250797+00:00",
+        "start": "2026-10-10T07:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "09:00",
-        "start": "2026-10-10T08:14:00.250797+00:00",
+        "start": "2026-10-10T08:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "10:00",
-        "start": "2026-10-10T09:14:00.250797+00:00",
+        "start": "2026-10-10T09:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "11:00",
-        "start": "2026-10-10T10:14:00.250797+00:00",
+        "start": "2026-10-10T10:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "12:00",
-        "start": "2026-10-10T11:14:00.250797+00:00",
+        "start": "2026-10-10T11:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "13:00",
-        "start": "2026-10-10T12:14:00.250797+00:00",
+        "start": "2026-10-10T12:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "14:00",
-        "start": "2026-10-10T13:14:00.250797+00:00",
+        "start": "2026-10-10T13:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "15:00",
-        "start": "2026-10-10T14:14:00.250797+00:00",
+        "start": "2026-10-10T14:06:01.959824+00:00",
+        "pnl": 0,
+        "trades": 0
+      },
+      {
+        "label": "16:00",
+        "start": "2026-10-10T15:06:01.959824+00:00",
+        "pnl": 0,
+        "trades": 0
+      },
+      {
+        "label": "17:00",
+        "start": "2026-10-10T16:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       }
@@ -4124,181 +4412,181 @@
     "daily": [
       {
         "label": "Sep 11",
-        "start": "2026-09-10T15:14:00.250797+00:00",
+        "start": "2026-09-10T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 12",
-        "start": "2026-09-11T15:14:00.250797+00:00",
+        "start": "2026-09-11T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 13",
-        "start": "2026-09-12T15:14:00.250797+00:00",
+        "start": "2026-09-12T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 14",
-        "start": "2026-09-13T15:14:00.250797+00:00",
+        "start": "2026-09-13T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 15",
-        "start": "2026-09-14T15:14:00.250797+00:00",
+        "start": "2026-09-14T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 16",
-        "start": "2026-09-15T15:14:00.250797+00:00",
+        "start": "2026-09-15T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 17",
-        "start": "2026-09-16T15:14:00.250797+00:00",
+        "start": "2026-09-16T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 18",
-        "start": "2026-09-17T15:14:00.250797+00:00",
+        "start": "2026-09-17T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 19",
-        "start": "2026-09-18T15:14:00.250797+00:00",
+        "start": "2026-09-18T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 20",
-        "start": "2026-09-19T15:14:00.250797+00:00",
+        "start": "2026-09-19T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 21",
-        "start": "2026-09-20T15:14:00.250797+00:00",
+        "start": "2026-09-20T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 22",
-        "start": "2026-09-21T15:14:00.250797+00:00",
+        "start": "2026-09-21T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 23",
-        "start": "2026-09-22T15:14:00.250797+00:00",
+        "start": "2026-09-22T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 24",
-        "start": "2026-09-23T15:14:00.250797+00:00",
+        "start": "2026-09-23T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 25",
-        "start": "2026-09-24T15:14:00.250797+00:00",
+        "start": "2026-09-24T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 26",
-        "start": "2026-09-25T15:14:00.250797+00:00",
+        "start": "2026-09-25T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 27",
-        "start": "2026-09-26T15:14:00.250797+00:00",
+        "start": "2026-09-26T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 28",
-        "start": "2026-09-27T15:14:00.250797+00:00",
+        "start": "2026-09-27T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 29",
-        "start": "2026-09-28T15:14:00.250797+00:00",
+        "start": "2026-09-28T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 30",
-        "start": "2026-09-29T15:14:00.250797+00:00",
+        "start": "2026-09-29T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 01",
-        "start": "2026-09-30T15:14:00.250797+00:00",
+        "start": "2026-09-30T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 02",
-        "start": "2026-10-01T15:14:00.250797+00:00",
+        "start": "2026-10-01T17:06:01.959824+00:00",
         "pnl": -19.56,
         "trades": 1
       },
       {
         "label": "Oct 03",
-        "start": "2026-10-02T15:14:00.250797+00:00",
+        "start": "2026-10-02T17:06:01.959824+00:00",
         "pnl": -119.42,
         "trades": 7
       },
       {
         "label": "Oct 04",
-        "start": "2026-10-03T15:14:00.250797+00:00",
+        "start": "2026-10-03T17:06:01.959824+00:00",
         "pnl": 18.18,
         "trades": 1
       },
       {
         "label": "Oct 05",
-        "start": "2026-10-04T15:14:00.250797+00:00",
+        "start": "2026-10-04T17:06:01.959824+00:00",
         "pnl": -2.3,
-        "trades": 7
-      },
-      {
-        "label": "Oct 06",
-        "start": "2026-10-05T15:14:00.250797+00:00",
-        "pnl": -36.84,
-        "trades": 2
-      },
-      {
-        "label": "Oct 07",
-        "start": "2026-10-06T15:14:00.250797+00:00",
-        "pnl": -74.26,
         "trades": 8
       },
       {
+        "label": "Oct 06",
+        "start": "2026-10-05T17:06:01.959824+00:00",
+        "pnl": -56.6,
+        "trades": 3
+      },
+      {
+        "label": "Oct 07",
+        "start": "2026-10-06T17:06:01.959824+00:00",
+        "pnl": -54.5,
+        "trades": 6
+      },
+      {
         "label": "Oct 08",
-        "start": "2026-10-07T15:14:00.250797+00:00",
-        "pnl": -36.98,
-        "trades": 1
+        "start": "2026-10-07T17:06:01.959824+00:00",
+        "pnl": -145.82,
+        "trades": 4
       },
       {
         "label": "Oct 09",
-        "start": "2026-10-08T15:14:00.250797+00:00",
-        "pnl": -188.82,
-        "trades": 5
+        "start": "2026-10-08T17:06:01.959824+00:00",
+        "pnl": -79.98,
+        "trades": 2
       },
       {
         "label": "Oct 10",
-        "start": "2026-10-09T15:14:00.250797+00:00",
+        "start": "2026-10-09T17:06:01.959824+00:00",
         "pnl": 47.75,
         "trades": 2
       }
@@ -4306,73 +4594,73 @@
     "weekly": [
       {
         "label": "Jul 25",
-        "start": "2026-07-18T15:14:00.250797+00:00",
+        "start": "2026-07-18T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 01",
-        "start": "2026-07-25T15:14:00.250797+00:00",
+        "start": "2026-07-25T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 08",
-        "start": "2026-08-01T15:14:00.250797+00:00",
+        "start": "2026-08-01T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 15",
-        "start": "2026-08-08T15:14:00.250797+00:00",
+        "start": "2026-08-08T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 22",
-        "start": "2026-08-15T15:14:00.250797+00:00",
+        "start": "2026-08-15T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 29",
-        "start": "2026-08-22T15:14:00.250797+00:00",
+        "start": "2026-08-22T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 05",
-        "start": "2026-08-29T15:14:00.250797+00:00",
+        "start": "2026-08-29T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 12",
-        "start": "2026-09-05T15:14:00.250797+00:00",
+        "start": "2026-09-05T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 19",
-        "start": "2026-09-12T15:14:00.250797+00:00",
+        "start": "2026-09-12T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 26",
-        "start": "2026-09-19T15:14:00.250797+00:00",
+        "start": "2026-09-19T17:06:01.959824+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 03",
-        "start": "2026-09-26T15:14:00.250797+00:00",
+        "start": "2026-09-26T17:06:01.959824+00:00",
         "pnl": -138.99,
         "trades": 8
       },
       {
         "label": "Oct 10",
-        "start": "2026-10-03T15:14:00.250797+00:00",
+        "start": "2026-10-03T17:06:01.959824+00:00",
         "pnl": -273.27,
         "trades": 26
       }
