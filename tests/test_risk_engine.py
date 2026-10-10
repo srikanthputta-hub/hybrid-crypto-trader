@@ -239,7 +239,14 @@ def test_nan_atr_pct_never_bypasses_risk_sizing(tmp_path):
 
 
 def test_non_finite_max_volatility_pct_scales_to_floor(tmp_path):
-    engine = _vol_engine(tmp_path, max_volatility_pct=float("nan"))
+    # Updated for the startup config validation: an engine can no longer be CONSTRUCTED with a
+    # NaN max_volatility_pct (that is the primary guard, see test_constructor_rejects_* below),
+    # so the sizing helper's own NaN guard is exercised by reassigning the attribute after
+    # construction -- it stays in place as defence in depth.
+    with pytest.raises(ValueError, match="max_volatility_pct"):
+        _vol_engine(tmp_path, max_volatility_pct=float("nan"))
+    engine = _vol_engine(tmp_path)
+    engine.max_volatility_pct = float("nan")
     assert engine._volatility_scale(0.01) == engine.volatility_scale_floor
 
 
@@ -965,9 +972,20 @@ def test_nan_config_pct_never_approves_a_nan_or_uncapped_spend(tmp_path):
     # Defence in depth behind the input checks: a NaN max_position_pct used to give
     # spend=min(nan, cash)=nan -> approved with max_quote_amount=nan; a NaN
     # max_loss_per_trade_pct made min(spend, nan) silently drop the per-trade risk cap.
-    d1 = _nan_buy(_nan_engine(tmp_path, max_position_pct=NAN))
+    #
+    # Updated for the startup config validation: the constructor now refuses a NaN config
+    # value outright (primary guard), so the in-call guards are exercised by reassigning the
+    # attribute after construction instead.
+    for key in ("max_position_pct", "max_loss_per_trade_pct"):
+        with pytest.raises(ValueError, match=key):
+            _nan_engine(tmp_path, **{key: NAN})
+    e1 = _nan_engine(tmp_path)
+    e1.max_position_pct = NAN
+    d1 = _nan_buy(e1)
     assert not d1.allowed and d1.max_quote_amount is None and "sized spend" in d1.reason
-    d2 = _nan_buy(_nan_engine(tmp_path, max_loss_per_trade_pct=NAN))
+    e2 = _nan_engine(tmp_path)
+    e2.max_loss_per_trade_pct = NAN
+    d2 = _nan_buy(e2)
     assert not d2.allowed and d2.max_quote_amount is None and "risk-sized spend" in d2.reason
 
 
@@ -1013,3 +1031,140 @@ def test_rejected_invalid_input_calls_leave_no_trace(tmp_path):
     assert dirty._day_start_equity == 10000 and dirty._day_start_date == T0.date()
     for equity in (10000, 9600, 9400):
         assert _nan_buy(dirty, portfolio_equity=equity) == _nan_buy(clean, portfolio_equity=equity)
+
+
+# --- startup validation of every numeric risk setting (follow-up to #87 / PR #96) ---
+#
+# Every limit in check_new_trade is a comparison a NaN passes, so a non-finite (or
+# nonsensical) config value used to silently switch its check off on every call -- or,
+# for cooldown_minutes, raise on every buy instead of once. The constructor now refuses
+# to build the engine, with a ValueError naming the key.
+
+import numpy as np  # noqa: E402  (test-only; numpy is already a project dependency)
+
+_COMMON_BAD = [NAN, INF, -INF, True, False, np.True_, np.False_, None, "0.05", 10 ** 400, np.array(0.05)]
+_PCT_KEYS = ["max_position_pct", "max_total_exposure_pct", "max_loss_per_trade_pct",
+             "max_daily_loss_pct", "max_volatility_pct"]
+_BAD_CONFIG = (
+    [(key, bad) for key in _PCT_KEYS for bad in _COMMON_BAD + [0, 0.0, -0.05, 1.0000001, 1.5, 5]]
+    + [("min_risk_reward", bad) for bad in _COMMON_BAD + [0.999, 0, -1.5]]
+    + [("cooldown_minutes", bad) for bad in _COMMON_BAD + [-1, -0.001, 1e15]]
+    + [("starting_cash_usd", bad) for bad in _COMMON_BAD + [0, -1.0]]
+    + [("stop_loss_pct", bad) for bad in _COMMON_BAD + [0, 1, 1.5, -0.03]]
+    + [("take_profit_pct", bad) for bad in _COMMON_BAD + [0, -0.06]]
+    # Keys validated before this change, now also reject numpy bools / arrays / huge ints
+    # with a ValueError (previously True / "0.5" floors slipped through or raised TypeError,
+    # 10**400 raised OverflowError).
+    + [("volatility_scale_floor", bad) for bad in _COMMON_BAD + [1.5, -0.1]]
+    + [("min_order_quote_usd", bad) for bad in _COMMON_BAD + [-0.01]]
+    + [("new_entry_window_minutes", bad) for bad in _COMMON_BAD + [0, -5]]
+)
+
+
+@pytest.mark.parametrize("key,bad", _BAD_CONFIG, ids=[f"{k}={b!r}" for k, b in _BAD_CONFIG])
+def test_constructor_rejects_invalid_numeric_risk_setting(tmp_path, key, bad):
+    with pytest.raises(ValueError, match=key):
+        make_engine(tmp_path, **{key: bad})
+
+
+_GOOD_CONFIG = [
+    *[(key, good) for key in _PCT_KEYS for good in (1e-9, 0.05, 1, 1.0, np.float64(0.5))],
+    *[("min_risk_reward", good) for good in (1, 1.0, 1.5, 3)],
+    *[("cooldown_minutes", good) for good in (0, 0.0, 0.5, 60, 10_000_000)],  # 10M: harness test value
+    *[("starting_cash_usd", good) for good in (0.01, 10000)],
+    *[("stop_loss_pct", good) for good in (0.03, 0.999)],
+    *[("take_profit_pct", good) for good in (0.06, 2)],
+    *[("volatility_scale_floor", good) for good in (0, 0.5, 1)],
+    *[("min_order_quote_usd", good) for good in (0, 10.5)],
+]
+
+
+@pytest.mark.parametrize("key,good", _GOOD_CONFIG, ids=[f"{k}={g!r}" for k, g in _GOOD_CONFIG])
+def test_constructor_accepts_valid_boundary_values(tmp_path, key, good):
+    engine = make_engine(tmp_path, **{key: good})
+    assert getattr(engine, key) == good
+
+
+def test_shipped_config_constructs_exactly_like_bot_py(tmp_path):
+    # The constructor validation must never reject the shipped config (the VM would
+    # restart-loop with no stops executed). Built with the same keys src/bot.py passes.
+    import yaml
+
+    repo_root = Path(__file__).resolve().parent.parent
+    risk_cfg = yaml.safe_load((repo_root / "config" / "config.yaml").read_text())["risk"]
+    RiskEngine(
+        starting_cash_usd=risk_cfg["starting_cash_usd"],
+        max_position_pct=risk_cfg["max_position_pct"],
+        max_total_exposure_pct=risk_cfg["max_total_exposure_pct"],
+        max_loss_per_trade_pct=risk_cfg["max_loss_per_trade_pct"],
+        max_daily_loss_pct=risk_cfg["max_daily_loss_pct"],
+        max_volatility_pct=risk_cfg["max_volatility_pct"],
+        min_risk_reward=risk_cfg["min_risk_reward"],
+        cooldown_minutes=risk_cfg["cooldown_minutes"],
+        kill_switch_path=tmp_path / "KILL_SWITCH",
+        symbol_whitelist=["BTC/USDT"],
+        **{key: risk_cfg[key] for key in
+           ("max_new_entries_per_window", "new_entry_window_minutes", "min_order_quote_usd", "volatility_scale_floor")
+           if key in risk_cfg},
+    )
+
+
+def test_nan_daily_loss_limit_fails_at_startup_not_by_approving(tmp_path):
+    # The reviewer's repro: with a NaN max_daily_loss_pct, `-20% <= -nan` is False, so a buy
+    # at -20% on the day was APPROVED. Now the engine cannot be built with it at all...
+    with pytest.raises(ValueError, match="max_daily_loss_pct"):
+        make_engine(tmp_path, max_daily_loss_pct=NAN)
+    # ...and if the attribute is ever reassigned after construction, the comparison itself
+    # fails closed (written as `not (pnl > -limit)`).
+    engine = make_engine(tmp_path)
+    assert engine.check_new_trade("BTC/USDT", "buy", 10000, 10000, now=T0).allowed  # baseline 10000
+    engine.max_daily_loss_pct = NAN
+    decision = engine.check_new_trade("BTC/USDT", "buy", 8000, 8000, now=T0 + timedelta(minutes=1))
+    assert not decision.allowed and decision.max_quote_amount is None
+    assert "daily loss limit" in decision.reason
+    # Even a day with NO loss is refused while the limit is NaN (doubt -> no trade).
+    other = make_engine(tmp_path)
+    other.max_daily_loss_pct = NAN
+    assert not other.check_new_trade("ETH/USDT", "buy", 10000, 10000, now=T0).allowed
+
+
+def test_nan_cooldown_fails_at_startup_not_per_call(tmp_path):
+    # Before: the engine built fine and every later buy on a symbol with a recorded trade
+    # raised ValueError from timedelta(minutes=nan) inside check_new_trade.
+    with pytest.raises(ValueError, match="cooldown_minutes"):
+        make_engine(tmp_path, cooldown_minutes=NAN)
+
+
+def test_reassigned_nan_volatility_and_rr_limits_reject(tmp_path):
+    # Defence in depth for attribute reassignment after construction: the volatility and
+    # R/R gates are written as `not (x <= max)` / `not (rr >= min)`, so a NaN limit rejects.
+    engine = _nan_engine(tmp_path)
+    assert _nan_buy(engine).allowed  # precondition: valid limits approve this exact call
+    engine.max_volatility_pct = NAN
+    d = _nan_buy(engine)
+    assert not d.allowed and "volatility" in d.reason
+    engine2 = _nan_engine(tmp_path)
+    engine2.min_risk_reward = NAN
+    d2 = _nan_buy(engine2)
+    assert not d2.allowed and "risk/reward" in d2.reason
+
+
+@pytest.mark.parametrize("field,bad", [
+    ("portfolio_equity", np.True_), ("cash_available", np.True_), ("open_positions_value", np.False_),
+    ("entry_price", np.True_), ("stop_loss", np.False_), ("risk_reward", np.True_), ("atr_pct", np.False_),
+    ("portfolio_equity", np.array(10000.0)), ("atr_pct", np.array(0.03)), ("entry_price", np.array([50000.0])),
+])
+def test_numpy_bools_and_arrays_are_not_numbers(tmp_path, field, bad):
+    # math.isfinite accepts numpy.bool_ (and 0-d / 1-element arrays), so before this change
+    # np.True_ equity counted as a valid equity of 1 and np.False_ ATR as a calm market.
+    _assert_invalid_input(_nan_buy(_nan_engine(tmp_path), **{field: bad}), field)
+
+
+def test_numpy_float_inputs_decide_exactly_like_python_floats(tmp_path):
+    # Tightening the number check must not change anything for the numpy scalar types the
+    # bot really passes (pandas .iloc values are numpy.float64).
+    as_py = _nan_buy(_nan_engine(tmp_path))
+    as_np = _nan_buy(_nan_engine(tmp_path), portfolio_equity=np.float64(10000), cash_available=np.float64(10000),
+                     entry_price=np.float64(50000), stop_loss=np.float32(49000), risk_reward=np.float64(2.0),
+                     open_positions_value=np.int64(1000), atr_pct=np.float64(0.03))
+    assert as_np.allowed and as_np.max_quote_amount == as_py.max_quote_amount and as_np.reason == as_py.reason

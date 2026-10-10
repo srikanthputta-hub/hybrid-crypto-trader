@@ -60,8 +60,15 @@ rejected outright (reason prefixed "invalid risk input:") unless:
   - entry_price, if given, is a finite number > 0,
   - stop_loss and risk_reward, if given, are finite numbers,
   - atr_pct, if given, is a finite number >= 0.
-bool is never accepted as a number. None keeps its existing meaning ("not
-provided") for the optional inputs. The daily-loss baseline is only ever
+bool / numpy.bool_ (and anything that isn't a numbers.Real, e.g. a numpy array) is
+never accepted as a number. None keeps its existing meaning ("not
+provided") for the optional inputs.
+
+The same rule applies to the CONFIG: the constructor refuses to build an engine
+(ValueError naming the key) unless every numeric risk setting is a finite int/float
+in its documented range -- see __init__. A NaN limit would otherwise silently turn
+its check off on every call (e.g. a NaN max_daily_loss_pct approved a buy at -20% on
+the day). The daily-loss baseline is only ever
 initialised from a finite equity > 0, so one bad equity reading can't become
 the day's reference point. Sells are deliberately NOT validated: closing risk
 must stay possible on a bad price/equity reading (see check_new_trade).
@@ -69,22 +76,52 @@ must stay possible on a bad price/equity reading (see check_new_trade).
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+import numbers
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+try:  # numpy is a project dependency, but this module must not hard-require it.
+    import numpy as _np
+
+    _BOOL_TYPES: tuple[type, ...] = (bool, _np.bool_)
+except ImportError:  # pragma: no cover - numpy is in requirements.txt
+    _BOOL_TYPES = (bool,)
+
 
 def _is_finite_number(value: object) -> bool:
-    """True only for a real, finite number. bool is rejected (it is an int subclass);
-    anything math.isfinite can't evaluate (None, str, an int too large for a float, ...)
-    counts as not finite -- fail closed, never "assume it's fine"."""
-    if isinstance(value, bool):
+    """True only for a real, finite number. bool and numpy.bool_ are rejected (math.isfinite
+    accepts both as 0/1); so is anything that isn't a numbers.Real (e.g. a 0-d or 1-element
+    numpy array, which math.isfinite would otherwise accept, or a Decimal). Anything
+    math.isfinite can't evaluate (None, str, an int too large for a float, ...) counts as
+    not finite -- fail closed, never "assume it's fine"."""
+    if isinstance(value, _BOOL_TYPES) or not isinstance(value, numbers.Real):
         return False
     try:
-        return math.isfinite(value)  # type: ignore[arg-type]
+        return math.isfinite(value)
     except (TypeError, ValueError, OverflowError):
         return False
+
+
+def _require_config_number(name: str, value: object, expected: str, in_range: Callable[[float], bool]) -> None:
+    """Startup validation of one numeric risk setting: raise ValueError naming `name` unless
+    `value` is an int or float (bool / numpy.bool_ rejected -- True would silently mean 1),
+    finite, and `in_range(value)`. Fails at construction rather than on every buy: e.g. a
+    NaN max_daily_loss_pct would otherwise make `daily_pnl_pct <= -nan` False on every
+    call, silently switching the daily loss limit off."""
+    ok = False
+    if not isinstance(value, _BOOL_TYPES) and isinstance(value, (int, float)):
+        try:
+            ok = math.isfinite(value) and bool(in_range(value))
+        except OverflowError:  # an int too large to convert to float
+            ok = False
+    if not ok:
+        raise ValueError(f"{name} must be {expected}, got {value!r}")
+
+
+def _in_unit_interval_excl_zero(x: float) -> bool:
+    return 0 < x <= 1
 
 
 @dataclass
@@ -114,27 +151,54 @@ class RiskEngine:
         new_entry_window_minutes: float = 120,
         min_order_quote_usd: float = 0.0,
     ) -> None:
+        # Every numeric risk setting is validated here, at startup, so a bad config
+        # stops the process instead of silently disabling a check on every buy: each
+        # limit below is a comparison that a NaN passes (`nan <= x` is False), so e.g.
+        # a NaN max_daily_loss_pct used to approve a buy at -20% on the day, and a NaN
+        # cooldown_minutes raised on every call instead of once at startup. Ranges are
+        # the units each value is actually used in by check_new_trade (all *_pct are
+        # fractions, 0.05 == 5%), and match scripts/validate_invariants.py's CI check
+        # of config/config.yaml. int or float only; bool / numpy.bool_ rejected.
+        _require_config_number("starting_cash_usd", starting_cash_usd, "a finite number > 0", lambda x: x > 0)
+        # Fractions of equity; > 1 would allow leverage this spot bot doesn't have, 0 would
+        # silently turn the cap into "never trade" (or, for the daily limit, halt at -0%).
+        for key, value in (
+            ("max_position_pct", max_position_pct),
+            ("max_total_exposure_pct", max_total_exposure_pct),
+            ("max_loss_per_trade_pct", max_loss_per_trade_pct),
+            ("max_daily_loss_pct", max_daily_loss_pct),
+        ):
+            _require_config_number(key, value, "a finite fraction of equity in (0, 1]", _in_unit_interval_excl_zero)
+        # ATR / price, as a fraction (0.08 == 8%). 0 would reject every entry with ATR > 0.
+        _require_config_number(
+            "max_volatility_pct", max_volatility_pct, "a finite ATR/price fraction in (0, 1]", _in_unit_interval_excl_zero
+        )
+        # reward / risk ratio. Below 1.0 would accept plans that risk more than they target.
+        _require_config_number("min_risk_reward", min_risk_reward, "a finite number >= 1.0", lambda x: x >= 1.0)
+        # Minutes; 0 disables the per-symbol cooldown. Must also be representable as a
+        # timedelta (check_new_trade builds one per call), so an absurd value fails here.
+        _require_config_number("cooldown_minutes", cooldown_minutes, "a finite number of minutes >= 0", lambda x: x >= 0)
+        try:
+            timedelta(minutes=cooldown_minutes)
+        except OverflowError as exc:
+            raise ValueError(f"cooldown_minutes is too large: {cooldown_minutes!r}") from exc
+        # Fallback fixed-exit fractions (stop_loss_price/take_profit_price). A stop of
+        # >= 100% would sit at or below zero and never trigger.
+        _require_config_number("stop_loss_pct", stop_loss_pct, "a finite number in (0, 1)", lambda x: 0 < x < 1)
+        _require_config_number("take_profit_pct", take_profit_pct, "a finite number > 0", lambda x: x > 0)
+
         # Minimum order size floor (issue #81). 0 disables it (the pre-#81 behaviour).
         # Same "refuse to start rather than guess" rule as below: a negative or
         # non-finite floor is meaningless (inf would silently block every buy), and
         # bool is rejected explicitly because it is an int subclass.
-        if (
-            isinstance(min_order_quote_usd, bool)
-            or not isinstance(min_order_quote_usd, (int, float))
-            or not math.isfinite(min_order_quote_usd)
-            or min_order_quote_usd < 0
-        ):
-            raise ValueError(
-                f"min_order_quote_usd must be a finite number >= 0, got {min_order_quote_usd!r}"
-            )
+        _require_config_number("min_order_quote_usd", min_order_quote_usd, "a finite number >= 0", lambda x: x >= 0)
         self.min_order_quote_usd = float(min_order_quote_usd)
 
         # A floor above 1.0 would *enlarge* positions in volatile markets, and a
         # negative/non-finite one is meaningless — refuse to start rather than guess.
-        if not (math.isfinite(volatility_scale_floor) and 0.0 <= volatility_scale_floor <= 1.0):
-            raise ValueError(
-                f"volatility_scale_floor must be a finite number in [0, 1], got {volatility_scale_floor!r}"
-            )
+        _require_config_number(
+            "volatility_scale_floor", volatility_scale_floor, "a finite number in [0, 1]", lambda x: 0.0 <= x <= 1.0
+        )
         self.volatility_scale_floor = volatility_scale_floor
 
         # Global new-entry rate cap. Same "refuse to start rather than guess" rule:
@@ -150,15 +214,9 @@ class RiskEngine:
             raise ValueError(
                 f"max_new_entries_per_window must be an integer >= 1, got {max_new_entries_per_window!r}"
             )
-        if (
-            isinstance(new_entry_window_minutes, bool)
-            or not isinstance(new_entry_window_minutes, (int, float))
-            or not math.isfinite(new_entry_window_minutes)
-            or new_entry_window_minutes <= 0
-        ):
-            raise ValueError(
-                f"new_entry_window_minutes must be a finite number > 0, got {new_entry_window_minutes!r}"
-            )
+        _require_config_number(
+            "new_entry_window_minutes", new_entry_window_minutes, "a finite number > 0", lambda x: x > 0
+        )
         try:
             # Built once here so an absurdly large window fails at startup, not mid-cycle.
             self._new_entry_window = timedelta(minutes=new_entry_window_minutes)
@@ -342,7 +400,11 @@ class RiskEngine:
 
         assert self._day_start_equity is not None
         daily_pnl_pct = (portfolio_equity - self._day_start_equity) / self._day_start_equity
-        if daily_pnl_pct <= -abs(self.max_daily_loss_pct):
+        # The three limit comparisons below are written as `not (ok-condition)` so that a
+        # NaN limit REJECTS (every comparison with NaN is False). The constructor already
+        # refuses non-finite config; this only matters if an attribute is reassigned
+        # after construction. Identical results for every finite value.
+        if not (daily_pnl_pct > -abs(self.max_daily_loss_pct)):
             return RiskDecision(
                 False,
                 f"daily loss limit hit ({daily_pnl_pct:.2%} <= -{self.max_daily_loss_pct:.2%}); "
@@ -370,14 +432,14 @@ class RiskEngine:
                 f"(max {self.max_new_entries_per_window}); next slot opens in {next_slot_in}",
             )
 
-        if atr_pct is not None and atr_pct > self.max_volatility_pct:
+        if atr_pct is not None and not (atr_pct <= self.max_volatility_pct):
             return RiskDecision(
                 False,
                 f"market volatility too high ({atr_pct:.2%} > max {self.max_volatility_pct:.2%}); "
                 "skipping new entries until it calms down",
             )
 
-        if risk_reward is not None and risk_reward < self.min_risk_reward:
+        if risk_reward is not None and not (risk_reward >= self.min_risk_reward):
             return RiskDecision(
                 False, f"risk/reward {risk_reward:.2f} is below the configured minimum {self.min_risk_reward:.2f}"
             )

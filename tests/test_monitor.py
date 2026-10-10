@@ -69,3 +69,56 @@ def test_sweep_handles_mixed_records_and_missing_prices():
     actions = sweep(records, prices)
     symbols_acted_on = {a.symbol for a in actions}
     assert symbols_acted_on == {"BTC/USDT", "ETH/USDT"}
+
+
+# --- non-finite prices never trigger anything (follow-up to #87 / PR #96) ---
+#
+# Before: +inf satisfied `price >= take_profit` (TAKE_PROFIT) and -inf satisfied
+# `price <= stop_loss` / `price <= invalidation` (STOP_LOSS / DISCARD), and the paper broker
+# then booked the exit at +-inf (cash became +-inf). NaN already compared False everywhere.
+
+import logging  # noqa: E402
+
+import pytest  # noqa: E402
+
+_NON_FINITE = [float("inf"), float("-inf"), float("nan")]
+
+
+@pytest.mark.parametrize("price", _NON_FINITE)
+@pytest.mark.parametrize("status", ["PENDING", "OPEN"])
+def test_non_finite_price_never_triggers(price, status, caplog):
+    record = _record(status)
+    with caplog.at_level(logging.WARNING, logger="src.monitor"):
+        assert check_pending(record, price) is None
+        assert check_open(record, price) is None
+        assert sweep({"BTC/USDT": record}, {"BTC/USDT": price}) == []
+    # Logged distinctly (once per check that owns this status, i.e. twice: direct + sweep).
+    msgs = [r.getMessage() for r in caplog.records if r.name == "src.monitor"]
+    assert len(msgs) == 2 and all("non-finite price" in m and "BTC/USDT" in m for m in msgs)
+
+
+def test_non_finite_price_is_skipped_even_with_extreme_plan_levels():
+    # A plan whose levels are themselves +-inf must still not fire on a +-inf price.
+    record = _record("OPEN", stop_loss=float("-inf"), take_profit=float("inf"))
+    assert check_open(record, float("inf")) is None
+    assert check_open(record, float("-inf")) is None
+
+
+def test_finite_prices_still_trigger_after_a_non_finite_one():
+    record = _record("OPEN")
+    assert check_open(record, float("-inf")) is None
+    assert check_open(record, 96.5).action == "STOP_LOSS"
+    assert check_open(record, 110.0).action == "TAKE_PROFIT"
+    pending = _record("PENDING")
+    assert check_pending(pending, float("inf")) is None
+    assert check_pending(pending, 101.0).action == "FILL"
+    assert check_pending(pending, 95.0).action == "DISCARD"
+
+
+def test_non_matching_status_does_not_log(caplog):
+    # check_pending on an OPEN plan (and vice versa) returns before the price is looked at,
+    # so bot.py's `check_pending(...) or check_open(...)` logs exactly once per record.
+    with caplog.at_level(logging.WARNING, logger="src.monitor"):
+        assert check_pending(_record("OPEN"), float("inf")) is None
+        assert check_open(_record("PENDING"), float("inf")) is None
+    assert [r for r in caplog.records if r.name == "src.monitor"] == []
