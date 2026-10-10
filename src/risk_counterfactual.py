@@ -129,6 +129,9 @@ DEFAULT_MAX_FETCH_BARS = 720
 # check_new_trade. Anything unrecognized gets its own "other: <reason>" group
 # rather than being silently merged into a known one.
 _REASON_CATEGORIES: tuple[tuple[str, str], ...] = (
+    # Listed first: these reasons embed the offending value's repr, so they must never
+    # be matched by a later needle by accident (issue #87).
+    ("invalid risk input", "invalid_input"),
     ("kill switch", "kill_switch"),
     ("symbol whitelist", "symbol_whitelist"),
     ("daily loss limit", "daily_loss_limit"),
