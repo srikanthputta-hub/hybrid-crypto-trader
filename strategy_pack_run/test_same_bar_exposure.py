@@ -156,13 +156,16 @@ def test_later_risk_checks_on_the_bar_see_committed_value_and_reduced_cash():
 
 
 # --------------------------------------------------------------------------- #
-# 2. Cash is consumed within one bar (exposure cap set out of the way)
+# 2. Cash is consumed within one bar
+# RiskEngine (PR #96/#97) only accepts max_total_exposure_pct in (0, 1]. At the maximum, 1.0, the
+# exposure room (equity - open value - committed) equals cash - committed, so cash and room bind
+# together; the test asserts the cash_available actually passed, which is what P6 changes.
 # --------------------------------------------------------------------------- #
-def test_on_cash_binds_within_the_bar_without_relying_on_the_fill_clip():
+def test_on_cash_is_consumed_within_the_bar_without_relying_on_the_fill_clip():
     syms = ["A", "B", "C", "D"]
     eg = _universe(syms)
     sigs = {s: {eg[s].index[1]: _sig()} for s in syms}
-    cfg = {**RISK_CFG, "max_position_pct": 0.40, "max_total_exposure_pct": 5.0}
+    cfg = {**RISK_CFG, "max_position_pct": 0.40, "max_total_exposure_pct": 1.0}
 
     _, log_on = _capture_checks(lambda: _run(eg, sigs, cfg, count_same_bar_approvals=True))
     # A 4000, B 4000, C min(4000, cash 2000)=2000, D cash 0 -> rejected
@@ -183,9 +186,10 @@ def test_on_fills_are_never_clipped_by_cash():
     syms = list("ABCDEFG")
     eg = _universe(syms, atrs={s: 1.0 + i for i, s in enumerate(syms)})
     sigs = {s: {eg[s].index[1]: _sig()} for s in syms}
-    cfg = {**RISK_CFG, "max_position_pct": 0.30, "max_total_exposure_pct": 5.0}
+    cfg = {**RISK_CFG, "max_position_pct": 0.30, "max_total_exposure_pct": 1.0}
     res, log = _capture_checks(lambda: _run(eg, sigs, cfg, count_same_bar_approvals=True))
     approved = {e["symbol"]: e["quote"] for e in log if e["allowed"]}
+    assert len(approved) == 4  # 3000 + 3000 + 3000 + 1000: the bar's cash is fully used
     assert _entries(res) == pytest.approx(approved)
     assert sum(approved.values()) <= EQUITY + 1e-9
 
