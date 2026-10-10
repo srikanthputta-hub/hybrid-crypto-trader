@@ -14,12 +14,22 @@ deliberately flip two independent safety switches.
 ```
 universe               src/universe.py   (infrastructure, not a stage)
    Which symbols the bot may open NEW plans on. `universe.mode: static`
-   (the only implemented mode) is exactly `market.symbols`. Symbols with an
-   active plan or position are always walked too, even if they've left the
-   universe, so they keep being monitored (but never get a new plan).
+   (the only implemented mode; `discover` raises NotImplementedError) is
+   exactly `market.symbols`. Every cycle the tradeable members become the risk
+   engine's symbol whitelist. Symbols with an active plan or position are
+   always walked too, even if they've left the universe (tagged
+   `source="held"`), so they keep being monitored and priced (but never get a
+   new plan, and are not scanned for new setups).
    |
    v
-market data (ccxt)
+market data (ccxt)     src/market_data.py   (infrastructure, not a stage)
+   `MarketDataCache` fetches closed-bar OHLCV per symbol and only refetches a
+   symbol once a new bar of `market.timeframe` has closed; held symbols are
+   fetched first. A symbol that is due but fails to fetch is skipped for the
+   cycle (logged as "market data unavailable"), never served from stale data.
+   After each refresh it writes `logs/market_snapshot.json` (last close +
+   recent candles), which the dashboard export reads instead of calling the
+   exchange itself.
    |
    v
 1. SCANNER            src/scanner.py
@@ -53,9 +63,14 @@ market data (ccxt)
    v
 4. RISK ENGINE         src/risk_engine.py
    Position size (risk-based: sized off max_loss_per_trade_pct and the
-   plan's own stop distance), total exposure across all open positions,
-   minimum risk/reward, daily loss limit, market volatility (ATR) filter,
-   symbol whitelist, per-symbol cooldown, kill switch file.
+   plan's own stop distance, tapered down as volatility rises), total
+   exposure across all open positions, minimum risk/reward, daily loss
+   limit, market volatility (ATR) filter, symbol whitelist (the universe's
+   tradeable members), per-symbol cooldown, a global new-entry rate cap
+   (`max_new_entries_per_window` per `new_entry_window_minutes`, across all
+   symbols; restored from the plan store after a restart), an optional
+   minimum order size (`min_order_quote_usd`, ships as 0 = off; rejects,
+   never sizes up), kill switch file. Only ever rejects or shrinks a plan.
    |
    v
    [optional] CLAUDE ADVISOR   src/claude_advisor.py
@@ -69,20 +84,31 @@ market data (ccxt)
    |
    v
 5. 24/7 MONITOR        src/monitor.py
-   Every cycle, for every active plan (in or out of the current universe):
-   fills a PENDING plan once price
-   re-enters the entry zone, discards it if price breaches invalidation
-   first, and closes an OPEN position at its stop loss or take-profit
-   target. This bot executes automatically — there's no separate human
-   alert step.
+   Every cycle, for every active plan (in or out of the current universe;
+   the symbol whitelist is deliberately not consulted here): fills a PENDING
+   plan once price re-enters the entry zone, discards it if price breaches
+   invalidation first, and closes an OPEN position at its stop loss or
+   take-profit target. This bot executes automatically — there's no separate
+   human alert step (an optional Telegram message is sent for new signals,
+   fills and closes if configured).
    |
    v
    paper broker (simulated) or live broker (real order, double-gated)
 ```
 
-Every cycle, for every symbol, one line is written to `logs/audit_log.jsonl`
-regardless of what happened — so "why didn't it trade at 14:32" is always
-answerable from that file alone.
+Each cycle walks the symbols once, in universe order: a symbol with an
+active plan goes straight to the monitor; a symbol whose *base asset* already
+has an active plan on another symbol (e.g. `BTC/USD` vs `BTC/USDT`) is
+skipped (one active plan per base asset); everything else runs through stages
+1-4. Every cycle, for every symbol, one line is written to
+`logs/audit_log.jsonl` regardless of what happened — so "why didn't it trade
+at 14:32" is always answerable from that file alone.
+
+`signal_engine.rank_signals()` (a deterministic engine-score / liquidity /
+symbol ordering for when exposure or rate caps leave only some slots) exists
+and is unit-tested but is **not wired into `src/bot.py`** — the cycle still
+processes symbols in universe (= `market.symbols`) order. See
+`docs/p1c_rank_signals_validation.md`.
 
 This bot is **long-only spot**: a bearish signal is logged for visibility but
 never acted on directly. Exits are governed entirely by an open position's own
@@ -102,6 +128,7 @@ cp .env.example .env
 # disabled. To use the Claude advisor, set ANTHROPIC_API_KEY.
 
 pytest                       # run the test suite
+PYTHONPATH=. python scripts/validate_invariants.py   # safety-switch invariants
 python scripts/run_backtest.py --symbol BTC/USDT --bars 1000
 python scripts/run_paper.py  # runs continuously in paper mode (Ctrl+C to stop)
 ```
@@ -123,13 +150,17 @@ it**.
 | `mode` | `paper` (default) or `live` |
 | `exchange.id` / `exchange.testnet` | any ccxt exchange id; use its sandbox where supported |
 | `market.symbols` | whitelist — the bot only ever opens new plans on these (it keeps monitoring an existing plan until it closes, even if you remove its symbol here). At most one active plan per base asset (e.g. `BTC/USD` and `BTC/USDT` can't both be held) |
-| `universe.*` | where the tradeable symbol list comes from; only `mode: static` (= `market.symbols`) is implemented, other keys are reserved for `discover` mode |
+| `market.timeframe` / `market.history_bars` | candle size the scanner runs on (default `1h`) and how many closed bars are fetched per symbol |
+| `universe.*` | where the tradeable symbol list comes from; only `mode: static` (= `market.symbols`) is implemented and it is the only key read — the rest are reserved for a not-yet-built `discover` mode |
 | `indicators` | EMA fast/slow periods, RSI period (shared by scanner + planner) |
 | `scanner.*` | per-pattern thresholds — lookback windows, volume multiplier, momentum threshold, consolidation range, RSI extremes |
 | `signal_engine.*` | minimum candidate strength, confluence bonus, pattern tie-break priority |
-| `trade_planner.*` | entry zone width, stop/invalidation distance (in ATRs), minimum risk/reward |
-| `risk.*` | position sizing, total exposure cap, max loss per trade, daily loss limit, volatility filter, cooldown, kill switch file |
-| `advisor.*` | turn the Claude second opinion on/off, model, fail-open/closed, timeout |
+| `htf_filter.enabled` | stage 2b daily-trend confirmation gate on/off (default on) |
+| `trade_planner.*` | entry zone width, stop/invalidation distance (in ATRs), minimum risk/reward, ADX trend-regime stop widening |
+| `risk.*` | position sizing (`max_position_pct`, `max_loss_per_trade_pct`, `volatility_scale_floor`), total exposure cap, daily loss limit, volatility filter, per-symbol cooldown, global new-entry rate cap (`max_new_entries_per_window`, `new_entry_window_minutes`), optional minimum order size (`min_order_quote_usd`, 0 = off), kill switch file. `volatility_scale_floor` is not yet passed through by `src/bot.py`; the engine's built-in 0.5 applies |
+| `advisor.*` | turn the Claude second opinion on/off (shipped **off**), model, fail-open/closed, timeout |
+| `loop.poll_interval_seconds` | seconds between full cycles in continuous mode |
+| `logging.*` | audit log / trade log / plan store / market snapshot paths, and `retention_days` pruning (used by `scripts/run_live.py` only) |
 
 ## Going live — read this before you do it
 
@@ -169,13 +200,14 @@ Before you do this:
 ```
 config/config.yaml           settings for every pipeline stage
 src/universe.py               which symbols are tradeable (static mode = market.symbols) + held-symbol tagging
+src/market_data.py            bar-close-aligned OHLCV cache + logs/market_snapshot.json writer
 src/exchange.py               ccxt wrapper (market data + live order placement)
 src/indicators.py             EMA / RSI / ATR
 src/scanner.py                stage 1: Breakout/Pullback/Momentum/Trend/Reversal detectors
-src/signal_engine.py          stage 2: filters + prioritizes candidates into one signal
+src/signal_engine.py          stage 2: filters + prioritizes candidates into one signal (+ rank_signals, not yet wired in)
 src/htf_filter.py             stage 2b: daily-trend confirmation gate (veto only, like risk_engine/claude_advisor)
 src/trade_planner.py          stage 3: entry zone/stop/target/invalidation/confidence
-src/risk_engine.py            stage 4: position sizing, exposure, daily loss, volatility, cooldown
+src/risk_engine.py            stage 4: position sizing, exposure, daily loss, volatility, cooldown, new-entry rate cap, min order size
 src/claude_advisor.py         stage 4b: optional Claude veto + independent confidence score
 src/trade_plan_store.py       PENDING/OPEN/CLOSED lifecycle for every plan (current + history)
 src/monitor.py                stage 5: fills/discards/exits, pure decision logic
@@ -183,11 +215,25 @@ src/portfolio.py              cash/position/PnL bookkeeping shared by both broke
 src/broker_paper.py           simulated fills, no exchange credentials needed
 src/broker_live.py            real order placement, gated by two independent switches
 src/audit.py                  append-only JSONL log of every decision, every cycle
-src/backtest.py               replays the same pipeline over historical OHLCV
+src/backtest.py               replays the pattern/planning pipeline over historical OHLCV (simplified: no advisor, no risk-engine sizing)
+src/pnl.py, src/risk_analytics.py, src/risk_counterfactual.py
+                              read-only reporting on realized trades / rejected plans; never feed back into the risk engine
+src/heartbeat.py, src/notifier.py, src/log_retention.py
+                              optional dead-man's-switch ping, Telegram messages, log pruning
 src/bot.py                    wires every stage together; the main loop
 scripts/run_paper.py          convenience entry point, refuses to run if mode: live
+scripts/run_live.py           always-on host loop: cycle + dashboard export/push + log pruning + heartbeat (paper mode only)
 scripts/run_backtest.py       CLI backtest runner
-tests/                        pytest suite (59 tests) covering every module above
+scripts/export_dashboard_data.py  writes web/data.json from the bot's logs + market snapshot
+scripts/validate_invariants.py    mechanical check of the safety non-negotiables (also run by CI)
+scripts/reset_portfolio.py, diagnose_recent_closes.py, replay_risk_rejections.py
+                              paper-portfolio reset (archives logs) and read-only diagnostics
+strategy_pack_run/            standalone real-pipeline backtest / strategy-evaluation harness and its reports (own README)
+research/v2_signals.py        scaffolding for a prospective v2 strategy; not wired into src/
+docs/                         playbook, design docs and validation write-ups; start at docs/STATUS.md
+deploy/                       systemd unit + notes for running scripts/run_live.py on an always-on host
+web/                          static dashboard (see below)
+tests/                        pytest suite covering every module above
 ```
 
 ## Dashboard
@@ -198,7 +244,9 @@ colored by model tier), a live trade-plan chart using TradingView's
 open-source [lightweight-charts](https://github.com/tradingview/lightweight-charts)
 library (vendored in `web/vendor/`, no external CDN or API key needed), and
 data tables for open positions, pending plans, recent scanner activity, and
-recent risk decisions.
+recent risk decisions. Prices and chart candles come from
+`logs/market_snapshot.json` (written by the bot's `MarketDataCache` each cycle),
+so the export makes no exchange calls of its own.
 
 It's a **snapshot** dashboard, not a live-streaming one: it reads
 `web/data.json`, which you regenerate from the bot's own log files —
