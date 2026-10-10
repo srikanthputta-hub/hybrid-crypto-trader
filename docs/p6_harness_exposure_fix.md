@@ -260,10 +260,36 @@ rationing that the new-entry rate cap used to do:
 **New side effect: small residual approvals.** When a bar's room is nearly used up, the next
 candidate is approved for the remainder, however small. `data/` ON: 6 of 137 approvals are under
 $10, and 14 under $50 (OFF: 0 and 2). `data_long/` ON: 8 under $10, 16 under $50 (OFF: 1 and 3).
-Live does exactly the same at `risk.min_order_quote_usd: 0`. Each such approval uses a new-entry slot
-and starts a cooldown, and an exchange would probably reject it. Because R is per trade, these dust
-trades count fully in avg R. Not changed here (that is a `config.yaml`/Risk Officer question,
-`min_order_quote_usd`, see §6).
+Each such approval uses a new-entry slot and starts a cooldown, and an exchange would probably reject
+it. Because R is per trade, these dust trades count fully in avg R.
+
+- **Floating-point phantoms (independent review, verified here).** 3 of the 8 sub-$10 `data_long/` ON
+  approvals are not dust but rounding residue: room = `0.40*equity - (open + committed)` comes out at
+  about 1.8e-12 to 3.6e-12 USD instead of 0. RiskEngine approves it (`spend > 0`), the harness fills
+  it, and it becomes a full-weight trade. E4 ON has 3 such trades (R 3.21, -1.07, -1.09): avg R
+  0.4931 with them, 0.4939 without; CI [0.339, 0.654] without. `data/` has none. P1e ON:
+  Kraken-universe cases have none; the `long_universe` cases have 1-5 each (static-16 1, $1M 2,
+  $100k 2, flat rows 2 and 5). The largest avg-R shift is $1M long, 0.3958 -> 0.3893 (CI low
+  0.2644 -> 0.2548). Removing them flips no CI-low, later-30% or return/Sharpe gate (their notional
+  is ~1e-12 USD). Placebo-gate check: PLACEBO_CHECK.
+- **"Live does the same" holds only in part.** At zero fee, live rejects those phantoms: its open
+  value is `amount*price`, not the exact gross sum, so the room rounds the other way or to exactly 0.
+  At the paper broker's 0.10% fee, live approves **more** fee-slack dust than the harness. Each fill's
+  position is worth `quote*(1-fee)`, so roughly 0.1% of every committed quote reappears as room. In
+  the reviewer's replay of the live accounting, live made 229 approvals vs the harness's 137 on
+  `data/` (each extra one at most ~$3.7) and 748 vs 552 on `data_long/` (at most ~$15). That replay
+  is the reviewer's and was not re-run here; the parity test's scenario shows the same mechanism
+  ($0.43 and ~$0.0004 live-only approvals). A dust plan holds its symbol's single plan slot and a
+  new-entry slot until it closes. So across bars, live can block a real trade the harness takes.
+  **"Never looser than live" holds within a bar, not across bars.**
+- **Consequence for the design's paper-trial parity check (§5 there):** comparing live entries with
+  the P6 harness would show dust-driven mismatches that the 10% explained-mismatch budget would have
+  to absorb. They are explainable, but they are noise in exactly the check meant to be clean.
+- **Recommendation (Risk Officer / user decision, NOT changed here):** set `risk.min_order_quote_usd`
+  > 0 (at least the exchange's minimum notional, or ~$10) and mirror it in the harness. The harness
+  already forwards that key to its `RiskEngine`, so a config change applies to both automatically.
+  That removes the phantoms, the live fee-slack dust and the dust slot-blocking together. It is a
+  risk-parameter change, so it needs its own written reason and gate run.
 
 ## 4. Re-gated results: E5 (the P1e gate run, all P1e §0 rules unchanged)
 
@@ -291,8 +317,14 @@ seeds, decomposition, risk diagnostics, legacy rows, superset check). The ON out
 | $100k, long_universe | OFF | 980 | 0.40 [0.28, 0.52] | 444.6% | -36.0% | 0.93 (0.82) | 534 / 0.25 | 100 / 94 | P P P P P | **PASS** |
 | $100k, long_universe | **ON** | 965 | **0.32 [0.20, 0.44]** | 525.1% | -32.4% | 1.11 (0.82) | 497 / 0.21 | 100 / **86** | P P P **F** P | **FAIL (4/5)** |
 
-Flat-5bp info rows (never used for a verdict), ON: $1M kraken 0.22 [-0.04, 0.49]; $100k kraken
-0.18 [-0.06, 0.43]; $1M long 0.41 [0.28, 0.54]; $100k long 0.34 [0.22, 0.47].
+Flat-5bp info rows (information only, never used for a verdict; no placebo), OFF -> ON:
+
+| case | OFF avg R [CI], Sharpe, gates 1,2,3,5 | ON avg R [CI], Sharpe, gates 1,2,3,5 |
+|---|---|---|
+| $1M flat 5bp, kraken | 0.44 [0.18, 0.72], 1.06, P P P P | 0.22 [**-0.04**, 0.49], **0.65 (< 0.83)**, P **F** P **F** |
+| $100k flat 5bp, kraken | 0.31 [0.06, 0.57], 0.58, P P P P | 0.18 [**-0.06**, 0.43], 0.70, P **F** P P |
+| $1M flat 5bp, long | 0.44 [0.31, 0.58], 0.92, P P P P | 0.41 [0.28, 0.54], 1.08, P P P P |
+| $100k flat 5bp, long | 0.41 [0.28, 0.54], 0.96, P P P P | 0.34 [0.22, 0.47], 1.17, P P P P |
 
 ### 4.2 Criteria (b), (c) and order robustness
 
@@ -328,6 +360,9 @@ Superset equivalence still holds; the same-bar cash-race clip binds 0 times (OFF
 3. **P1e static-16 on `kraken_720_universe`: newly fails the placebo gate** (avg-R pct 91 -> 85;
    3/5). Same for P1e `$100k` on Kraken (95 -> 87.5).
 4. P1e criterion (b): `$1M` kraken and `$100k` long now regress against their static-16 baselines.
+5. Information-only flat-5bp rows (§4.1): `$1M` Kraken flat now fails CI-low and gate 5; `$100k`
+   Kraken flat now fails CI-low. P1e §4 caveat 4 had used the flat rows to argue the Kraken
+   failures were not mainly cost-driven. On the fixed harness even flat 5bp fails CI-low on Kraken.
 
 **Not changed:** E3 (`data/`) 4/5, failing only CI-low. **E4 (`data_long/`) 5/5**, so the design §4
 item-0 stop rule is not triggered. E7 (both datasets, T1 taker) keeps its CI sign: `data/` still
@@ -385,6 +420,15 @@ After the gate runs, `origin/main` (PR #96/#97/#98: `risk_engine.py` config/inpu
 
 ## 8. Notes for the reviewer
 
+- **Two qualifications to §0.3 from the independent review (§0 itself stays frozen):**
+  (i) **Order.** The harness walks `sorted(symbols)` (or `rank_signals` order). Today's live
+  `bot.py` walks `market.symbols` config order; design rule P2 (sorted order) is not implemented yet.
+  So *which* symbol gets the remaining room on a contested bar matches live only after P2 lands.
+  The P6 accounting itself (later symbols see less room/cash) matches live now.
+  (ii) **A PENDING fill bigger than cash.** The harness fills `min(approved, cash)` at the next open.
+  Live's `Portfolio.apply_buy` raises "insufficient cash" instead. With the option on this can only
+  happen through the PENDING-plan path. It never occurred on these datasets (fills clipped by cash:
+  0 in every run).
 - **Semantics to scrutinise:** gross vs net-of-fee counting (§0.3 item 6). Counting a PENDING plan's
   monitor FILL (never fires on these datasets, since fresh plans always fill at once; covered only by
   a patched test). No room credit for same-bar exits (P3). `equity` held fixed within the bar.
