@@ -3,18 +3,27 @@ from __future__ import annotations
 
 import csv
 import math
+import numbers
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:  # numpy is a project dependency, but this module must not hard-require it.
+    import numpy as _np
+
+    _BOOL_TYPES: tuple[type, ...] = (bool, _np.bool_)
+except ImportError:  # pragma: no cover - numpy is in requirements.txt
+    _BOOL_TYPES = (bool,)
+
 
 def _is_finite_number(value: object) -> bool:
-    """True only for a real, finite number (bool rejected). Same rule as src.risk_engine's
-    helper, duplicated so the portfolio doesn't import the risk engine."""
-    if isinstance(value, bool):
+    """True only for a real, finite number (bool / numpy.bool_ and non-numbers.Real values such
+    as numpy arrays rejected). Same rule as src.risk_engine's helper, duplicated so the
+    portfolio doesn't import the risk engine."""
+    if isinstance(value, _BOOL_TYPES) or not isinstance(value, numbers.Real):
         return False
     try:
-        return math.isfinite(value)  # type: ignore[arg-type]
+        return math.isfinite(value)
     except (TypeError, ValueError, OverflowError):
         return False
 
@@ -119,14 +128,38 @@ class Portfolio:
         return base_amount
 
     def apply_sell(self, symbol: str, price: float, fee_pct: float = 0.001) -> float:
-        """Sell the *entire* position in `symbol` at `price`. Returns net quote proceeds."""
+        """Sell the *entire* position in `symbol` at `price`. Returns net quote proceeds.
+
+        Raises ValueError -- leaving cash and positions exactly as they were (the position
+        stays open, so the next valid price can still close it) -- unless price is a finite
+        number > 0, the held amount is a finite number > 0, fee_pct is finite in [0, 1), and
+        the proceeds are finite and >= 0. +-inf used to reach here from the monitor and set cash to
+        +-inf. Cash that was ALREADY non-finite does not block the sell (closing risk stays
+        possible); only turning finite cash non-finite (overflow) is refused. All new values
+        are computed and checked BEFORE anything is mutated.
+        """
         pos = self.positions.get(symbol)
-        if pos is None or pos.amount <= 0:
+        if pos is None or (_is_finite_number(pos.amount) and pos.amount <= 0):
             raise ValueError(f"no open position in {symbol} to sell")
+        if not _is_finite_number(pos.amount):
+            raise ValueError(f"position in {symbol} has invalid amount {pos.amount!r}; refusing to sell")
+        if not (_is_finite_number(price) and price > 0):
+            raise ValueError(f"invalid sell price {price!r}: must be a finite number > 0")
+        if not (_is_finite_number(fee_pct) and 0 <= fee_pct < 1):
+            raise ValueError(f"invalid fee_pct {fee_pct!r}: must be a finite number in [0, 1)")
         gross = pos.amount * price
         fee = gross * fee_pct
         net = gross - fee
-        self.cash += net
+        new_cash = self.cash + net
+        if not (_is_finite_number(net) and net >= 0) or (
+            _is_finite_number(self.cash) and not _is_finite_number(new_cash)
+        ):
+            # Only reachable with extreme magnitudes (overflow/underflow).
+            raise ValueError(
+                f"sell of {symbol} at {price!r} would produce non-finite or negative proceeds / non-finite cash "
+                f"(net={net!r}, cash={new_cash!r}); state left unchanged"
+            )
+        self.cash = new_cash
         del self.positions[symbol]
         return net
 
