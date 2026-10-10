@@ -148,6 +148,9 @@ def _isolated_raw(raw: dict, logs_dir: Path) -> dict:
         "trade_log_path": str(logs_dir / "trades.csv"),
         "trade_plan_current_path": str(logs_dir / "trade_plans_current.json"),
         "trade_plan_history_path": str(logs_dir / "trade_plans_history.jsonl"),
+        # run_cycle writes the market snapshot too; without this the tests overwrite the real
+        # PROJECT_ROOT/logs/market_snapshot.json that the dashboard export reads.
+        "market_snapshot_path": str(logs_dir / "market_snapshot.json"),
     }
     return raw
 
@@ -607,3 +610,45 @@ def test_closed_plan_frees_the_base_on_the_next_symbol_in_the_same_cycle(tmp_pat
     run_cycle(cfg, *parts)
     assert _events_for(events, "BTC/USDT")[0]["monitor_action"]["action"] == "STOP_LOSS"
     assert _events_for(events, "BTC/USD")[0]["action"] == "planned"
+
+
+# --- issue #87: a NaN close on a held symbol must not open new risk -------------
+
+
+@pytest.mark.parametrize("btc_last_close", [100.0, float("nan")])
+def test_nan_close_on_held_symbol_blocks_new_buys_but_corrupts_nothing(tmp_path, btc_last_close):
+    # A held position whose latest close is NaN makes Portfolio.equity NaN. Before #87 the
+    # risk engine approved ETH's breakout plan with max_quote_amount=nan (and could adopt
+    # NaN as the day's daily-loss baseline); a NaN quote could then reach
+    # Portfolio.apply_buy and make cash NaN for good. Now the buy is rejected with an
+    # explicit reason and no state changes; the finite-close control run is unchanged.
+    logs = tmp_path / "logs"
+    _seed_open_position(logs, "BTC/USDT", fill_price=100.0, stop=90.0, target=130.0)
+    raw = _isolated_raw(_small_raw(["ETH/USDT"]), logs)
+    fake = FakeCcxt(
+        {"ETH/USDT": _breakout_hourly(), "BTC/USDT": _flat_hourly(100.0, last_close=btc_last_close, n=251)}, {}
+    )
+    cfg, parts, events = _components(raw, fake)
+    _exchange, risk_engine, portfolio, _broker, store, _audit, _market_data = parts
+    cash_before = portfolio.cash
+    entries_before = list(risk_engine._recent_entry_times)  # seeded from the OPEN BTC plan
+
+    _tick_to(fake, 250)
+    run_cycle(cfg, *parts)
+
+    eth = _events_for(events, "ETH/USDT")
+    assert len(eth) == 1 and "risk_decision" in eth[0]  # the plan reached the risk engine
+    decision = eth[0]["risk_decision"]
+    if btc_last_close == btc_last_close:  # finite control: approved and planned as usual
+        assert decision["allowed"] and eth[0]["action"] == "planned"
+        assert store.get("ETH/USDT") is not None
+        return
+    assert decision["allowed"] is False and decision["max_quote_amount"] is None
+    assert decision["reason"].startswith("invalid risk input: portfolio_equity")
+    assert eth[0]["action"] == "none"
+    assert store.get("ETH/USDT") is None and "ETH/USDT" not in portfolio.positions
+    assert portfolio.cash == cash_before
+    assert risk_engine._day_start_equity is None  # NaN never became the daily baseline
+    assert risk_engine._recent_entry_times == entries_before and "ETH/USDT" not in risk_engine._last_trade_time
+    # The held position itself is untouched (no exit at a NaN price), still OPEN.
+    assert store.get("BTC/USDT").status == "OPEN" and "BTC/USDT" in portfolio.positions
