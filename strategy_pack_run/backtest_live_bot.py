@@ -59,6 +59,12 @@ METHODOLOGY NOTES / KNOWN SIMPLIFICATIONS (read before trusting the numbers)
    src/bot.py itself (symbols are approved in the same per-cycle loop before any of them have
    necessarily filled) -- not something introduced by this harness, and not something this
    harness's read-only mandate allows "fixing" in src/.
+   CORRECTION (P6, docs/p6_harness_exposure_fix.md): the "mirrors src/bot.py" claim above is wrong.
+   src/bot.py fills a fresh plan IMMEDIATELY (its price is always inside the entry zone), so a
+   later symbol in the same cycle already sees less cash AND less exposure room. The default
+   harness does not, so same-bar approvals can jointly exceed max_total_exposure_pct (observed
+   peak ~70% vs the 40% cap). `simulate_portfolio(count_same_bar_approvals=True)` fixes both:
+   see that parameter's docstring. With it on, this clip can no longer bind.
 6. Only one active plan per symbol at a time (PENDING or OPEN blocks scanning for a new setup),
    matching src/bot.py's run_cycle exactly ("if record is not None: check monitor; else scan").
 7. Position sizing, once a plan is approved, is fixed at approval time (the risk engine's
@@ -346,6 +352,7 @@ def simulate_portfolio(
     timeframe: str = "1d",
     eligible_mask_by_symbol: dict[str, np.ndarray] | None = None,
     costs_by_symbol: dict[str, np.ndarray] | None = None,
+    count_same_bar_approvals: bool = False,
 ) -> Result:
     """Walks the shared global date axis one bar at a time, for every symbol in lockstep, with
     ONE RiskEngine instance and ONE cash/position pool for the whole run -- mirroring how
@@ -365,7 +372,8 @@ def simulate_portfolio(
     new-entry slot (the GLOBAL `max_new_entries_per_window` cap in src/risk_engine.py -- the
     only place per-bar processing order can actually change which symbol wins; see
     docs/p1c_rank_signals_validation.md for why `max_total_exposure_pct` does NOT depend on this
-    order), those symbols are visited in `src.signal_engine.rank_signals` order (highest
+    order -- true only with the default `count_same_bar_approvals=False`; with it on, order also
+    decides who gets the exposure room and cash), those symbols are visited in `src.signal_engine.rank_signals` order (highest
     engine_score first, tie-broken by `trailing_quote_volume` then symbol) instead of
     `sorted(symbols)`. Symbols without a fresh signal this bar (OPEN/PENDING monitor-only, or
     FLAT with nothing new) are visited afterward in the original `sorted(symbols)` order --
@@ -401,7 +409,23 @@ def simulate_portfolio(
     bar. A symbol missing from the dict falls back to the global `costs` at every bar, same as the
     no-override default. Every supplied array must have exactly T entries (the shared global axis
     length) -- a mismatched length raises `ValueError` rather than silently misaligning (same
-    validation as `eligible_mask_by_symbol`, see immediately below)."""
+    validation as `eligible_mask_by_symbol`, see immediately below).
+
+    `count_same_bar_approvals` (P6, docs/p6_harness_exposure_fix.md §0.3 -- default False
+    preserves every existing caller's behavior byte-for-byte, i.e. the original harness that the
+    Daily Backtester Routine's recorded baselines were measured on): when True, quote amounts
+    committed by FILLs queued EARLIER IN THE SAME BAR's decision pass (a fresh plan's immediate
+    FILL, or a PENDING plan's monitor FILL trigger) are counted in every later risk check on that
+    bar -- added to `open_positions_value` and subtracted from `cash_available` -- exactly as
+    src/bot.py's run_cycle sees them after it fills each plan immediately. Without it, every
+    candidate on a bar sees the same room/cash and same-bar approvals can jointly exceed
+    `max_total_exposure_pct`. The running total is per bar (reset each bar), counts the GROSS
+    approved quote (live's paper position is worth quote*(1-fee), so this is at most 0.10% of a
+    position stricter than live, never looser), and does NOT credit exits queued on this bar
+    (they still free room only once they execute at the next open -- unchanged exit semantics,
+    design doc P3). Processing order is unchanged; with this on, order also decides who gets the
+    exposure room. Results produced with it on are labelled harness_version
+    `p6-same-bar-exposure-v1` and are not compared with results produced without it."""
     symbols = sorted(enriched_global)  # fixed, deterministic per-bar processing order
     idx = next(iter(enriched_global.values())).index
     T = len(idx)
@@ -597,6 +621,10 @@ def simulate_portfolio(
         else:
             order_t = symbols
 
+        # P6 (count_same_bar_approvals): quote committed by FILLs queued earlier in THIS bar's
+        # pass. Live (src/bot.py) buys at once on these, so later symbols see less room and cash.
+        committed_this_bar = 0.0
+
         for s in order_t:
             c = close[s][t]
             if math.isnan(c):
@@ -613,6 +641,8 @@ def simulate_portfolio(
                 if action is not None:
                     amt = st.plan.get("approved_quote_amount") if action.action == "FILL" else None
                     st.queued = (action.action, amt)
+                    if count_same_bar_approvals and action.action == "FILL":
+                        committed_this_bar += float(amt or 0.0)
             else:  # FLAT -- look for a brand new setup, same branch src/bot.py takes
                 if not is_eligible(s, t):
                     # P1d point-in-time universe gate (eligible_mask_by_symbol): a currently
@@ -629,12 +659,16 @@ def simulate_portfolio(
                 if plan is None:
                     continue
                 other_value = invested_value(prices_now)  # s itself has no position yet
+                cash_avail = cash
+                if count_same_bar_approvals:
+                    other_value += committed_this_bar
+                    cash_avail = cash - committed_this_bar
                 atr_pct = atr_val / price if price else None
                 decision = risk_engine.check_new_trade(
                     s,
                     "buy",
                     portfolio_equity=equity[t],
-                    cash_available=cash,
+                    cash_available=cash_avail,
                     entry_price=plan.entry_zone[1],
                     stop_loss=plan.stop_loss,
                     risk_reward=plan.risk_reward,
@@ -653,6 +687,8 @@ def simulate_portfolio(
                 if immediate is not None:
                     amt = plan_dict["approved_quote_amount"] if immediate.action == "FILL" else None
                     st.queued = (immediate.action, amt)
+                    if count_same_bar_approvals and immediate.action == "FILL":
+                        committed_this_bar += float(amt or 0.0)
 
     # ---- close_at_end: force-close anything still OPEN, at that symbol's own last available price ----
     for s in symbols:
@@ -733,6 +769,7 @@ def placebo_run(
     timeframe: str = "1d",
     eligible_mask_by_symbol: dict[str, np.ndarray] | None = None,
     costs_by_symbol: dict[str, np.ndarray] | None = None,
+    count_same_bar_approvals: bool = False,
 ) -> pd.DataFrame:
     """Time-shift placebo, adapted from engine.placebo_baseline's pattern: circularly shift WHEN
     each symbol's real signals fired by one random offset shared by every symbol (so clustering/
@@ -758,7 +795,10 @@ def placebo_run(
     what it actually cost to trade then) -- shifting them along with the placebo's fake signal
     timing would silently compare the real run's real universe/costs against a placebo using a
     DIFFERENT, wrong universe/cost regime for each shifted draw, which is not what this placebo is
-    supposed to test and would make gate 4 (beats placebo) a non-like-for-like comparison."""
+    supposed to test and would make gate 4 (beats placebo) a non-like-for-like comparison.
+
+    `count_same_bar_approvals` (P6, default False) is forwarded unchanged to every draw, so a
+    placebo always uses the same exposure accounting as the real run it is compared against."""
     idx = next(iter(enriched_global.values())).index
     T = len(idx)
     dense = {s: _dense_signal_array(sig_map, idx) for s, sig_map in signals_by_symbol.items()}
@@ -782,6 +822,7 @@ def placebo_run(
             enriched_global, shifted, costs, risk_cfg, planner_cfg, start_equity, periods_per_year, project_root,
             use_rank_order=use_rank_order, timeframe=timeframe,
             eligible_mask_by_symbol=eligible_mask_by_symbol, costs_by_symbol=costs_by_symbol,
+            count_same_bar_approvals=count_same_bar_approvals,
         )
         from engine import summarize  # local import: avoids a module-level cycle with run_live_bot_report
 
