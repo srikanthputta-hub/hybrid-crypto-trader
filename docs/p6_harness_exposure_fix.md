@@ -264,3 +264,137 @@ Live does exactly the same at `risk.min_order_quote_usd: 0`. Each such approval 
 and starts a cooldown, and an exchange would probably reject it. Because R is per trade, these dust
 trades count fully in avg R. Not changed here (that is a `config.yaml`/Risk Officer question,
 `min_order_quote_usd`, see §6).
+
+## 4. Re-gated results: E5 (the P1e gate run, all P1e §0 rules unchanged)
+
+`run_universe_gate.py` run twice, OFF and with `--count-same-bar-approvals`: 200 placebo sims, seed 0,
+10 order seeds, rank order, frozen tiered slippage, SHA256SUMS 966/966 OK. **The OFF rerun reproduces
+every field of the committed `p1e_universe_gate_results.json`** (all 10 cases incl. placebo, order
+seeds, decomposition, risk diagnostics, legacy rows, superset check). The ON output is committed as
+`strategy_pack_run/report_p6_universe_gate.md` and `p6_universe_gate_results.json`
+(`params.harness_version = "p1e-universe-v1 + p6-same-bar-exposure-v1"`).
+
+### 4.1 Headline (kraken_T3_taker + tiered slippage, rank order)
+
+| case | harness | trades | avg R [95% CI] | return | maxDD | Sharpe (bench) | later-30% n / avg R | placebo ret / avgR | gates 1-5 | all 5 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| static-16, kraken_720_universe | OFF | 134 | 0.15 [-0.14, 0.46] | 18.6% | -24.0% | 0.58 (0.27) | 42 / 0.45 | 97 / 91 | P F P P P | FAIL (4/5) |
+| static-16, kraken_720_universe | **ON** | 125 | 0.08 [-0.21, 0.39] | 7.2% | -20.9% | 0.32 (0.27) | 44 / 0.36 | 92 / **85** | P F P **F** P | FAIL (3/5) |
+| $1M, kraken_720_universe | OFF | 172 | 0.41 [0.15, 0.69] | 38.9% | -21.4% | 0.99 (0.83) | 83 / 0.56 | 100 / 100 | P P P P P | **PASS** |
+| $1M, kraken_720_universe | **ON** | 167 | **0.19 [-0.07, 0.46]** | 16.9% | -18.8% | **0.59 (0.83)** | 71 / 0.32 | 98 / 92 | P **F** P P **F** | **FAIL (3/5)** |
+| $100k, kraken_720_universe | OFF | 264 | 0.21 [-0.04, 0.45] | 16.5% | -27.4% | 0.47 (0.27) | 121 / 0.06 | 96 / 95 | P F P P P | FAIL (4/5) |
+| $100k, kraken_720_universe | **ON** | 258 | 0.12 [-0.12, 0.37] | 14.0% | -25.0% | 0.46 (0.27) | 114 / 0.29 | 95 / **88** | P F P **F** P | FAIL (3/5) |
+| static-16, long_universe | OFF | 572 | 0.52 [0.37, 0.68] | 312.8% | -30.7% | 0.92 (0.82) | 262 / 0.31 | 100 / 98 | P P P P P | PASS |
+| static-16, long_universe | **ON** | 550 | 0.50 [0.34, 0.66] | 333.9% | -24.3% | 1.04 (0.82) | 240 / 0.32 | 100 / 98 | P P P P P | PASS |
+| $1M, long_universe | OFF | 838 | 0.40 [0.27, 0.53] | 371.3% | -33.8% | 0.90 (0.82) | 418 / 0.16 | 100 / 88.5 | P P P F P | FAIL (4/5) |
+| $1M, long_universe | **ON** | 788 | 0.40 [0.26, 0.53] | 412.8% | -29.8% | 1.04 (0.82) | 369 / 0.21 | 100 / 89.5 | P P P F P | FAIL (4/5) |
+| $100k, long_universe | OFF | 980 | 0.40 [0.28, 0.52] | 444.6% | -36.0% | 0.93 (0.82) | 534 / 0.25 | 100 / 94 | P P P P P | **PASS** |
+| $100k, long_universe | **ON** | 965 | **0.32 [0.20, 0.44]** | 525.1% | -32.4% | 1.11 (0.82) | 497 / 0.21 | 100 / **86** | P P P **F** P | **FAIL (4/5)** |
+
+Flat-5bp info rows (never used for a verdict), ON: $1M kraken 0.22 [-0.04, 0.49]; $100k kraken
+0.18 [-0.06, 0.43]; $1M long 0.41 [0.28, 0.54]; $100k long 0.34 [0.22, 0.47].
+
+### 4.2 Criteria (b), (c) and order robustness
+
+| candidate / dataset | (b) OFF | (b) ON | (c) added avg R OFF -> ON | alt orders failing gates 1,2,3,5/(c): OFF -> ON |
+|---|---|---|---|---|
+| $1M / kraken_720_universe | no regression | **REGRESSION** (b1: fails gate 5, which the static-16 baseline passes) | 0.49 -> 0.33 (PASS) | 6/10 -> **10/10** |
+| $100k / kraken_720_universe | no | no (both fail CI and placebo; avg R 0.12 vs 0.08) | 0.24 -> 0.21 (PASS) | 9/10 -> 10/10 |
+| $1M / long_universe | REGRESSION (b1, b2) | REGRESSION (b1; b2 too, by Sharpe 1.0367 vs 1.0382) | 0.22 -> 0.28 (PASS) | 0/10 -> 0/10 |
+| $100k / long_universe | no (narrowly) | **REGRESSION** (b1: fails placebo, which the baseline passes) | 0.24 -> 0.22 (PASS) | 1/10 -> 0/10 |
+
+Original-16 vs added split on kraken ON: $1M original-16 0.04 [-0.34, 0.42], added 0.33 [-0.03, 0.70];
+$100k original-16 -0.05, added 0.21. On long ON: $1M 0.48 / 0.28; $100k 0.43 / 0.22.
+
+### 4.3 P1e verdict (rule §0.11 of the P1e doc, unchanged)
+
+| candidate | OFF (on record) | ON |
+|---|---|---|
+| `universe-discover-1m` | FAIL | **FAIL** (now fails (a) on BOTH datasets, (b) on both, and 10/10 kraken orders) |
+| `universe-discover-100k` | FAIL | **FAIL** (now fails (a) on both datasets, and (b) on long) |
+
+Legacy rows inside the P1e run, ON: `data/` flat/sorted 137 / 0.17 (= E3 ON); static-16 same harness
+126 trades, 0.08 [-0.22, 0.38], 6.5%, gates P F P F P (unchanged pattern). `data_long/` flat/sorted
+552 / 0.49 (= E4 ON); static-16 same harness 549, 0.49 [0.33, 0.66], 329.0%, 5/5 (unchanged).
+Superset equivalence still holds; the same-bar cash-race clip binds 0 times (OFF and ON).
+
+## 5. Verdict changes, stated plainly
+
+**Changed (gate PASS/FAIL flips, OFF -> ON):**
+1. **P1e `$1M` on `kraken_720_universe`: 5/5 PASS -> 3/5 FAIL** (CI low 0.15 -> -0.07; Sharpe 0.99 ->
+   0.59, below the 0.83 benchmark). This was the only clean 5/5 on Kraken data in the repo's history.
+   It doesn't survive the fidelity fix, and 10 of 10 alternate orders now fail it as well.
+2. **P1e `$100k` on `long_universe`: 5/5 PASS -> 4/5 FAIL** (placebo avg-R percentile 93.5 -> 85.5).
+3. **P1e static-16 on `kraken_720_universe`: newly fails the placebo gate** (avg-R pct 91 -> 85;
+   3/5). Same for P1e `$100k` on Kraken (95 -> 87.5).
+4. P1e criterion (b): `$1M` kraken and `$100k` long now regress against their static-16 baselines.
+
+**Not changed:** E3 (`data/`) 4/5, failing only CI-low. **E4 (`data_long/`) 5/5**, so the design §4
+item-0 stop rule is not triggered. E7 (both datasets, T1 taker) keeps its CI sign: `data/` still
+straddles 0, `data_long/` still clears it. E7g keeps 4/5 and 5/5. P1e static-16 on `long_universe`
+stays 5/5. Both P1e candidates stay FAIL, for more reasons than before.
+
+**What this means for Option A (design doc §1, §4):** the two pieces of live-strategy evidence keep
+their direction (E9 was right). The daily strategy's case on the venue's own 2-year window gets
+weaker in money terms: E3 return 22.5% -> 13.1%, Sharpe 0.68 -> 0.48. E3's Sharpe still clears the
+equal-weight benchmark (0.28), but its placebo avg-R percentile is only 94 and its CI still straddles 0.
+On P1e's tiered-cost Kraken universe dataset, the static-16 strategy now fails 2 of 5 gates. The
+11-year `data_long/` evidence is essentially unchanged (avg R 0.52 -> 0.49, Sharpe 1.00 -> 1.01, 5/5).
+Per design §5 the paper-trial kill thresholds and power must now be **re-simulated on the ON trade
+lists** before the protocol is frozen. Not done here (outside this task).
+
+## 6. How the Daily Backtester Routine and recorded baselines are affected
+
+- **Nothing changes unless someone opts in.** `count_same_bar_approvals` defaults to `False` in
+  `simulate_portfolio`/`placebo_run`, and both runners need an explicit `--count-same-bar-approvals`.
+  Every recorded number reproduces with the default: the 18-configuration bit-for-bit check, the
+  E3/E4 OFF runs, and the full P1e OFF rerun. That holds before and after merging `origin/main`.
+  The default `run_live_bot_report.py` output is byte-identical (the harness-version line is only
+  printed when ON). So the Routine, whose stored prompt lives outside the repo and passes no such
+  flag, measures exactly what it did before, and its baselines (154 / 0.18, 562 / 0.52) stay valid
+  **as baselines of the original harness**.
+- **Recommended default for new gate runs: ON**, labelled `harness_version:
+  "p6-same-bar-exposure-v1"`. The original harness overstates what the live bot can do whenever
+  several symbols signal on one bar.
+- **Switching the Routine** is the user's call (or the CEO's with the user's approval). It means
+  editing the stored Routine prompt to pass `--count-same-bar-approvals`, re-measuring its baselines
+  on the fixed harness (`data/` 137 / 0.17, `data_long/` 552 / 0.49 at T3 taker), and tagging new
+  candidates with `harness_version: "p6-same-bar-exposure-v1"`. Old candidates keep the absent label
+  and are not compared against new ones (P1e convention, now listed in `candidates_schema`). Until
+  then, a Routine-promoted parameter variant is being judged on a harness that over-commits exposure.
+  Also, `min_risk_reward-2p44-20261002`'s recorded comparison is OFF vs OFF and remains internally
+  consistent.
+- `hyperopt_param.py` doesn't forward the flag (unchanged, out of scope). If the Routine switches,
+  that is a one-line follow-up there.
+
+## 7. `origin/main` merge note
+
+After the gate runs, `origin/main` (PR #96/#97/#98: `risk_engine.py` config/input validation,
+`portfolio.py`, `monitor.py`, `broker_live.py`, `validate_invariants.py`) was merged in (`4ee0046`).
+- The harness builds its `RiskEngine` fine from `config/config.yaml` (config changes there are
+  comments only).
+- Two new P6 tests had used `max_total_exposure_pct: 5.0` to get the cap out of the way. That is now
+  rejected at startup. They were rewritten at the 1.0 maximum (where cash and room bind together)
+  and assert the `cash_available` passed per check. The mutation table in §2 was re-run on the merged
+  code (M1 10, M2 2, M3 4, M4 1, M5 11, M6 3 failing tests; all caught).
+- After the merge, the 18-configuration OFF check is still 18/18 identical to the pre-change capture,
+  and the ON `data/` / `data_long/` numbers are unchanged. The new validation only rejects
+  non-finite inputs, which these runs never produce. A P1e canonical-only rerun on the merged code
+  (both modes; 1 placebo sim, no order seeds) matches the full-run JSONs exactly on trades, avg R, CI,
+  return, maxDD, Sharpe, later-30%, decomposition and risk diagnostics for all 10 cases. So every number above holds on the merged branch.
+
+## 8. Notes for the reviewer
+
+- **Semantics to scrutinise:** gross vs net-of-fee counting (§0.3 item 6). Counting a PENDING plan's
+  monitor FILL (never fires on these datasets, since fresh plans always fill at once; covered only by
+  a patched test). No room credit for same-bar exits (P3). `equity` held fixed within the bar.
+- **Small residual approvals (§3):** the fix creates more sub-$50 approvals, and live does too at
+  `min_order_quote_usd: 0`. They count fully in avg R. A Risk Officer / config question, not changed.
+- **Live-side observation (not changed, `src/` out of scope):** in the parity scenario at the paper
+  fee, live approved two dust plans ($0.43 and ~$0.0004) out of fee slack. Each uses a new-entry slot
+  and starts a cooldown.
+- **Thin margins:** E7g `data/` ON gate 5 passes at Sharpe 0.2833 vs 0.2777. P1e `$1M` long ON misses
+  the placebo gate at 89.5 vs 90, and its b2 regression is decided by Sharpe 1.0367 vs 1.0382.
+- **Not done:** `hyperopt_param.py` flag; re-simulating the design §5 kill thresholds on the ON trade
+  lists; design test 7 (live/harness daily parity through `bot.run_cycle`), which needs P1-P5 in
+  `bot.py` first.
