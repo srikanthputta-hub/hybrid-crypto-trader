@@ -10,6 +10,12 @@ Run from strategy_pack_run/ (raw datasets must be present and pass SHA256SUMS.tx
     PYTHONPATH=..:. python3 run_universe_gate.py --cache-dir <scratch dir> --workers 4
 
 Writes report_p1e_universe_gate.md and p1e_universe_gate_results.json next to this file.
+
+--count-same-bar-approvals (P6, docs/p6_harness_exposure_fix.md; default OFF = the P1e run exactly):
+forwards `count_same_bar_approvals=True` to EVERY simulate_portfolio/placebo_run call this runner
+makes (canonical, placebo, order seeds, superset check, legacy rows). Results are harness_version
+`p1e-universe-v1 + p6-same-bar-exposure-v1`. Pass --out-md/--out-json so the committed P1e outputs
+are not overwritten.
 """
 from __future__ import annotations
 
@@ -136,6 +142,7 @@ def run_sim(case: dict, order_seed: int | None = None):
     eg, sig, masks, costs = case_inputs(case)
     kwargs = dict(
         use_rank_order=case["rank"], eligible_mask_by_symbol=masks, costs_by_symbol=costs,
+        **STATE.get("harness_kw", {}),
     )
     args = (eg, sig, COST_PRESETS[COST_NAME], STATE["cfg"].risk, STATE["cfg"].trade_planner, EQUITY, PPY, _REPO_ROOT)
     if order_seed is None:
@@ -182,7 +189,7 @@ def _placebo_worker(case: dict):
     df = placebo_run(
         eg, sig, COST_PRESETS[COST_NAME], STATE["cfg"].risk, STATE["cfg"].trade_planner, EQUITY, PPY, _REPO_ROOT,
         n_sims=STATE["n_placebo"], seed=PLACEBO_SEED, use_rank_order=case["rank"],
-        eligible_mask_by_symbol=masks, costs_by_symbol=costs,
+        eligible_mask_by_symbol=masks, costs_by_symbol=costs, **STATE.get("harness_kw", {}),
     )
     print(f"  placebo done: {case['id']} ({time.time() - t:.0f}s)", flush=True)
     return case["id"], df
@@ -263,8 +270,12 @@ def main() -> None:
     ap.add_argument("--order-seeds", type=int, default=len(ORDER_SEEDS))
     ap.add_argument("--out-md", default=str(_THIS_DIR / "report_p1e_universe_gate.md"))
     ap.add_argument("--out-json", default=str(_THIS_DIR / "p1e_universe_gate_results.json"))
+    ap.add_argument("--count-same-bar-approvals", action="store_true",
+                    help="P6: count same-bar approvals against the exposure cap and cash (bot.py parity)")
     a = ap.parse_args()
     STATE["n_placebo"] = a.placebo_sims
+    STATE["harness_kw"] = {"count_same_bar_approvals": True} if a.count_same_bar_approvals else {}
+    hkw = STATE["harness_kw"]
     seeds = ORDER_SEEDS[: a.order_seeds]
     cache_dir = Path(a.cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -287,7 +298,8 @@ def main() -> None:
         generated_at=pd.Timestamp.now(tz="UTC").isoformat(), sha256sums=f"{ok}/{total} OK",
         params=dict(min_listing_age_days=min_age, exit_volume_ratio=exit_ratio, max_symbols=max_symbols,
                     floors=FLOORS, cost=COST_NAME, placebo_sims=STATE["n_placebo"], placebo_seed=PLACEBO_SEED,
-                    order_seeds=seeds, original_16=orig_list, excluded_bases=sorted(ALL_EXCLUDE_BASES)),
+                    order_seeds=seeds, original_16=orig_list, excluded_bases=sorted(ALL_EXCLUDE_BASES),
+                    **({"harness_version": "p1e-universe-v1 + p6-same-bar-exposure-v1"} if hkw else {})),
         datasets={}, cases={}, legacy={},
     )
 
@@ -437,15 +449,15 @@ def main() -> None:
     # ---- 4) legacy checks on data/ and data_long/ ----
     for name, rel in LEGACY.items():
         eg, sigs, idx = build_live_signals(str(_THIS_DIR / rel), cfg)
-        r_flat = simulate_portfolio(eg, sigs, COST_PRESETS[COST_NAME], cfg.risk, cfg.trade_planner, EQUITY, PPY, _REPO_ROOT)
+        r_flat = simulate_portfolio(eg, sigs, COST_PRESETS[COST_NAME], cfg.risk, cfg.trade_planner, EQUITY, PPY, _REPO_ROOT, **hkw)
         m_flat = metrics_for(r_flat, idx, orig)
         costs = build_costs(eg)
         r_same = simulate_portfolio(eg, sigs, COST_PRESETS[COST_NAME], cfg.risk, cfg.trade_planner, EQUITY, PPY, _REPO_ROOT,
-                                    use_rank_order=True, costs_by_symbol=costs)
+                                    use_rank_order=True, costs_by_symbol=costs, **hkw)
         m_same = metrics_for(r_same, idx, orig)
         bh = buy_hold(eg, list(eg), EQUITY, PPY)
         p = placebo_run(eg, sigs, COST_PRESETS[COST_NAME], cfg.risk, cfg.trade_planner, EQUITY, PPY, _REPO_ROOT,
-                        n_sims=STATE["n_placebo"], seed=PLACEBO_SEED, use_rank_order=True, costs_by_symbol=costs)
+                        n_sims=STATE["n_placebo"], seed=PLACEBO_SEED, use_rank_order=True, costs_by_symbol=costs, **hkw)
         pr_ret = float((p["total_return"] < m_same["total_return"]).mean())
         pr_R = float((p["avg_R"].dropna() < m_same["avg_R"]).mean())
         m_same["placebo"] = dict(pct_return=pr_ret, pct_avg_R=pr_R)
@@ -478,6 +490,8 @@ def render_markdown(out: dict) -> str:
          f"Generated {out['generated_at']}. Dataset snapshot: SHA256SUMS {out['sha256sums']}. "
          f"Rules: docs/p1e_universe_gate_run.md §0. Costs: {out['params']['cost']} fee + frozen tiered slippage "
          f"(5/20/50bp) unless marked flat. Placebo: {out['params']['placebo_sims']} sims, seed {out['params']['placebo_seed']}.\n"]
+    if out["params"].get("harness_version"):
+        L.append(f"Harness version: {out['params']['harness_version']} (docs/p6_harness_exposure_fix.md).\n")
     L.append("## Datasets and eligibility\n")
     L.append("| dataset | symbols loaded | bars | window | floor | rule | top-N | eligible last bar | median eligible | max | ever eligible (of which orig-16) | first bar with any |")
     L.append("|---|---|---|---|---|---|---|---|---|---|---|---|")

@@ -16,6 +16,13 @@ existing invocation's behavior byte-for-byte): which `*_{timeframe}.csv` files t
 --data-dir and which periods-per-year to annualize Sharpe with (run_report.py's own PPY/BPD
 convention, generalized the same way here). Used for the Phase 2.0 1h re-baseline:
     python run_live_bot_report.py --data-dir data_15m --timeframe 1h --out report_live_strategy_1h_rebaseline.md
+
+--count-same-bar-approvals (P6, docs/p6_harness_exposure_fix.md, default OFF so the Daily Backtester
+Routine's existing invocations and baselines are unchanged): forwards
+`count_same_bar_approvals=True` to every simulate_portfolio/placebo_run call, so plans approved
+earlier on the same bar use up exposure room and cash the way src/bot.py's immediate fills do.
+Recommended for every NEW gate run; label its results harness_version `p6-same-bar-exposure-v1`
+and never compare them against results produced without it.
 """
 from __future__ import annotations
 
@@ -129,7 +136,18 @@ def main() -> None:
     ap.add_argument("--sims", type=int, default=200, help="time-shift placebo simulations")
     ap.add_argument("--cost", default="kraken_T3_taker", choices=list(COST_PRESETS))
     ap.add_argument("--out", default="report_live_strategy.md")
+    ap.add_argument("--count-same-bar-approvals", action="store_true",
+                    help="P6: count same-bar approvals against the exposure cap and cash (bot.py parity). "
+                         "Off by default (original harness).")
     a = ap.parse_args()
+    harness_kw = {"count_same_bar_approvals": True} if a.count_same_bar_approvals else {}
+    # Only printed when ON, so the default report stays byte-identical to before P6.
+    harness_line = (
+        ["\nHarness version: p6-same-bar-exposure-v1 (same-bar approvals count against the exposure cap "
+         "and cash, as in src/bot.py; docs/p6_harness_exposure_fix.md).\n"]
+        if a.count_same_bar_approvals
+        else []
+    )
 
     ppy = PPY_BY_TF[a.timeframe]
     limitations = LIMITATIONS_1H if a.timeframe == "1h" else LIMITATIONS_DAILY
@@ -146,6 +164,7 @@ def main() -> None:
         f"(enabled={bool(cfg.htf_filter.get('enabled', True))}) -> src/trade_planner.py -> "
         f"src/risk_engine.py -> src/monitor.py, imported read-only and unmodified. "
         f"Long-only spot, next-open fills for every trigger (FILL/DISCARD/STOP_LOSS/TAKE_PROFIT).\n",
+        *harness_line,
         f"\nWindow: {t0.date()} to {t1.date()} ({len(idx)} bars). "
         f"Raw bullish+HTF-confirmed signals detected across all symbols before any risk-engine "
         f"gating: {n_signals}.\n",
@@ -156,7 +175,7 @@ def main() -> None:
     for name, costs in COST_PRESETS.items():
         res = simulate_portfolio(
             enriched_global, signals_by_symbol, costs, cfg.risk, cfg.trade_planner,
-            a.equity, ppy, _REPO_ROOT, timeframe=a.timeframe,
+            a.equity, ppy, _REPO_ROOT, timeframe=a.timeframe, **harness_kw,
         )
         m = summarize(res)
         results[name] = (res, m)
@@ -188,7 +207,7 @@ def main() -> None:
 
     base = placebo_run(
         enriched_global, signals_by_symbol, COST_PRESETS[a.cost], cfg.risk, cfg.trade_planner,
-        a.equity, ppy, _REPO_ROOT, n_sims=a.sims, timeframe=a.timeframe,
+        a.equity, ppy, _REPO_ROOT, n_sims=a.sims, timeframe=a.timeframe, **harness_kw,
     )
     pr_ret = float((base["total_return"] < m["total_return"]).mean())
     pr_R = float((base["avg_R"].dropna() < m.get("avg_R", -9)).mean()) if m["trades"] else float("nan")
