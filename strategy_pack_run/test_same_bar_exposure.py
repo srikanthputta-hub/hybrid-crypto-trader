@@ -232,22 +232,54 @@ def test_committed_total_resets_each_bar():
 
 
 def test_exit_queued_on_the_bar_does_not_free_room_on_that_bar():
-    """Design P3, unchanged by P6: X's stop-loss triggers on bar 3's close and only executes at
-    bar 4's open, so a bar-3 candidate still sees X as held."""
+    """Design P3, unchanged by P6: A's stop-loss triggers on bar 3's close and only executes at
+    bar 4's open, so a bar-3 candidate still sees A as held. A is named so it sorts FIRST: its
+    exit is decided before B, C, D are checked on the same bar, so a harness that credited a
+    same-bar exit back as room would show up here (reviewer mutation X2)."""
     n = 7
     idx = _idx(n)
-    x = _flat_frame(n)
-    x.loc[idx[3], "close"] = 90.0  # below X's stop (planned on bar 1 at 100, atr 2)
-    eg = {"X": x, "A": _flat_frame(n), "B": _flat_frame(n), "C": _flat_frame(n)}
-    sigs = {"X": {idx[1]: _sig()}, "A": {idx[3]: _sig()}, "B": {idx[3]: _sig()}, "C": {idx[3]: _sig()}}
+    a = _flat_frame(n)
+    a.loc[idx[3], "close"] = 90.0  # below A's stop (planned on bar 1 at 100, atr 2)
+    eg = {"A": a, "B": _flat_frame(n), "C": _flat_frame(n), "D": _flat_frame(n)}
+    sigs = {"A": {idx[1]: _sig()}, "B": {idx[3]: _sig()}, "C": {idx[3]: _sig()}, "D": {idx[3]: _sig()}}
     res, log = _capture_checks(lambda: _run(eg, sigs, count_same_bar_approvals=True))
     bar3 = [e for e in log if e["now"] == idx[3]]
-    # X (qty 15, marked at the bar-3 close of 90 -> 1350) still counted. equity = 8500 + 1350 = 9850,
-    # room = 0.40*9850 - 1350 = 2590: A min(0.15*9850=1477.5, 2590), B 2590-1477.5=1112.5, C none.
-    assert [e["symbol"] for e in bar3] == ["A", "B", "C"]
+    # A (qty 15, marked at the bar-3 close of 90 -> 1350) still counted. equity = 8500 + 1350 = 9850,
+    # room = 0.40*9850 - 1350 = 2590: B min(0.15*9850=1477.5, 2590), C 2590-1477.5=1112.5, D none.
+    assert [e["symbol"] for e in bar3] == ["B", "C", "D"]
     assert [e["open_value"] for e in bar3] == pytest.approx([1350.0, 2827.5, 3940.0])
     assert [e["quote"] for e in bar3] == pytest.approx([1477.5, 1112.5, None])
-    assert res.trades.set_index("symbol").loc["X", "reason"] == "stop_loss"
+    assert res.trades.set_index("symbol").loc["A", "reason"] == "stop_loss"
+
+
+def test_approved_but_not_filled_plan_does_not_use_room_or_cash():
+    """Live only spends on a plan when it fills (bot.py buys only on an immediate FILL), so a plan
+    approved but NOT filled on this bar leaves room and cash untouched for later symbols.
+    Force A's immediate check to say "not yet": B, checked after A on the same bar, must still see
+    zero committed value and full cash (reviewer mutation X3: counting every approval)."""
+    syms = ["A", "B"]
+    eg = _universe(syms, n=6)
+    idx = eg["A"].index
+    sigs = {"A": {idx[1]: _sig()}, "B": {idx[1]: _sig()}}
+    cfg = {**RISK_CFG, "max_position_pct": 0.10, "max_total_exposure_pct": 0.15}
+    real = blb.check_pending
+    calls = {"A": 0}
+
+    def delayed(record, price):
+        if record.symbol == "A":
+            calls["A"] += 1
+            if calls["A"] == 1:
+                return None
+        return real(record, price)
+
+    with patch.object(blb, "check_pending", side_effect=delayed):
+        _, log = _capture_checks(lambda: _run(eg, sigs, cfg, count_same_bar_approvals=True))
+    bar1 = [e for e in log if e["now"] == idx[1]]
+    assert [e["symbol"] for e in bar1] == ["A", "B"]
+    assert [e["allowed"] for e in bar1] == [True, True]
+    assert bar1[1]["open_value"] == pytest.approx(0.0)
+    assert bar1[1]["cash"] == pytest.approx(EQUITY)
+    assert bar1[1]["quote"] == pytest.approx(1000.0)
 
 
 def test_pending_plan_fill_trigger_counts_like_a_fresh_fill():
