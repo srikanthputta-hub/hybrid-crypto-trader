@@ -16,20 +16,34 @@ Every cycle, for every walked symbol, exactly one line is written to the audit
 log regardless of what happened — so "why didn't it trade at 14:32" is always
 answerable from logs/audit_log.jsonl alone.
 
+`loop.bar_parity` (default false = the behaviour above, unchanged) makes a
+cycle decide the way the strategy_pack_run backtest harness does: one decision
+per symbol per CLOSED bar (persisted, so restarts don't re-decide), a monitor
+pass over every held symbol first, then new entries in sorted(symbol) order with
+room/cash as held before this bar's exits, an optional entry-staleness guard
+(`loop.max_entry_delay_minutes`), and at 1d the htf gate on the scan frame. See
+_run_bar_parity_passes and docs/bot_bar_parity.md.
+
 Run one cycle: `python -m src.bot --once`
 Run continuously at the configured poll interval: `python -m src.bot`
 """
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import os
+import re
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
+
+import pandas as pd
 
 from src import claude_advisor, htf_filter, monitor, notifier, scanner, signal_engine, trade_planner, universe
 from src.audit import AuditLog
 from src.broker_paper import PaperBroker
-from src.config import Config, load_config
+from src.config import BarParitySettings, Config, load_config
 from src.exchange import ExchangeClient
 from src.indicators import add_indicators
 from src.market_data import MarketDataCache
@@ -52,8 +66,21 @@ logger = logging.getLogger("bot")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+# P5 (docs/multiday_hold_design.md §3.1 "htf_filter" row): at market.timeframe
+# "1d" with loop.bar_parity on, the daily-trend gate is evaluated on the last
+# this-many bars of the scan frame instead of a separate 31-bar 1d fetch. It is
+# the backtest harness's own window (strategy_pack_run/backtest_live_bot.py
+# SCAN_TAIL_BARS, which the harness's daily htf branch also uses); the gate
+# recomputes its EMAs on exactly these closes, so the same 150 closes give the
+# same decision. tests/test_bot_bar_parity.py asserts the two constants agree.
+HTF_SCAN_TAIL_BARS = 150
+
 
 def build_components(cfg: Config):
+    # Bar-parity keys (loop.bar_parity, loop.max_entry_delay_minutes,
+    # logging.bar_decisions_path, logging.closed_bars_dir) are validated first, so a
+    # bad value stops the process at startup instead of failing every cycle.
+    _ = cfg.bar_parity
     exchange = ExchangeClient(
         exchange_id=cfg.exchange_id,
         api_key=cfg.exchange_api_key,
@@ -289,16 +316,201 @@ def _base_asset(symbol: str) -> str:
         return symbol
 
 
-def _active_plan_on_same_base(store: TradePlanStore, symbol: str) -> str | None:
+def _active_plan_on_same_base(store: TradePlanStore, symbol: str, also_taken=()) -> str | None:
     """Another symbol sharing `symbol`'s base asset with a PENDING/OPEN plan,
     or None. Read live from the store at check time (not snapshotted at cycle
     start), so a plan opened earlier in this same cycle on e.g. BTC/USD blocks
-    BTC/USDT later in the same cycle too."""
+    BTC/USDT later in the same cycle too.
+
+    `also_taken` (bar parity only, P3): symbols whose position was closed
+    earlier in THIS cycle. They still count as holding their base for the rest
+    of the bar, the same way their exposure still counts (the backtest only
+    executes an exit at the next bar's open). Empty by default = unchanged."""
     base = _base_asset(symbol)
     for other, record in store.all_current().items():
         if other != symbol and record.status in ACTIVE_PLAN_STATUSES and _base_asset(other) == base:
             return other
+    for other in also_taken:
+        if other != symbol and _base_asset(other) == base:
+            return other
     return None
+
+
+# --------------------------------------------------------------------------- #
+# Bar parity (P1-P5, docs/multiday_hold_design.md §3.1 and §6; docs/bot_bar_parity.md)
+# --------------------------------------------------------------------------- #
+class BarDecisionLedger:
+    """P1 state: the close time of the last bar each symbol was DECIDED on.
+
+    A symbol's bar counts as decided once the bot has acted on it for that bar
+    in any way: a monitor check of a held symbol (trigger or not), or the start
+    of the entry pass for a FLAT symbol (whatever the outcome, including the P4
+    staleness skip and an exception mid-pipeline). A FLAT symbol is only scanned
+    when its latest closed bar is newer than the recorded one.
+
+    Persisted (write-through, temp file + replace) to `path` as
+    {symbol: ISO bar-close time}, so a restart in the middle of a bar does not
+    decide it again. A missing file means "nothing decided yet". An unreadable
+    file is logged and treated as empty: the bot must keep monitoring stops, and
+    the P4 staleness guard (when enabled) still blocks late entries. A failed
+    write is logged and the in-memory state still gates this process."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self._last: dict[str, pd.Timestamp] = {}
+        try:
+            if self.path.exists():
+                raw = json.loads(self.path.read_text())
+                if not isinstance(raw, dict):
+                    raise ValueError("bar decision ledger is not a JSON object")
+                self._last = {str(sym): self._utc(ts) for sym, ts in raw.items()}
+        except Exception:
+            logger.exception(
+                "could not read bar decision ledger %s -- starting empty (every symbol's current bar counts as new)",
+                self.path,
+            )
+            self._last = {}
+
+    @staticmethod
+    def _utc(value) -> pd.Timestamp:
+        ts = pd.Timestamp(value)
+        return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+    def last(self, symbol: str) -> pd.Timestamp | None:
+        return self._last.get(symbol)
+
+    def is_new(self, symbol: str, bar_close: pd.Timestamp) -> bool:
+        previous = self._last.get(symbol)
+        return previous is None or bar_close > previous
+
+    def mark(self, symbol: str, bar_close: pd.Timestamp) -> None:
+        previous = self._last.get(symbol)
+        if previous is not None and previous >= bar_close:
+            return
+        self._last[symbol] = bar_close
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+            tmp.write_text(json.dumps({s: t.isoformat() for s, t in sorted(self._last.items())}, indent=1))
+            tmp.replace(self.path)
+        except Exception:
+            logger.exception("failed to persist bar decision ledger %s (in-memory state still applies)", self.path)
+
+
+# Module-level, like htf_filter._cache: run_cycle's signature stays unchanged
+# (design doc §3.1 "Pipeline shape / contracts"). Keyed by resolved file path so
+# two configs (e.g. two tests) never share state.
+_bar_ledgers: dict[str, BarDecisionLedger] = {}
+# closed-bar archive: (dir, symbol, timeframe) -> last bar OPEN time written, ms.
+_archived_through_ms: dict[tuple[str, str, str], int] = {}
+
+
+def _resolve_log_path(value: str) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def _bar_ledger(settings: BarParitySettings) -> BarDecisionLedger:
+    path = _resolve_log_path(settings.decisions_path)
+    key = str(path.resolve())
+    ledger = _bar_ledgers.get(key)
+    if ledger is None:
+        ledger = BarDecisionLedger(path)
+        _bar_ledgers[key] = ledger
+    return ledger
+
+
+def _reset_bar_parity_state() -> None:
+    """Forget all in-memory bar-parity state (tests, and simulating a restart)."""
+    _bar_ledgers.clear()
+    _archived_through_ms.clear()
+
+
+def _timeframe_ms(exchange, timeframe: str) -> int:
+    return int(exchange.client.parse_timeframe(timeframe) * 1000)
+
+
+def _last_bar_close(ohlcv: pd.DataFrame, tf_ms: int) -> pd.Timestamp:
+    """Close time of the last CLOSED bar in a fetch_ohlcv_df frame (its
+    `timestamp` column is each bar's OPEN time; the forming bar is already
+    dropped)."""
+    return pd.Timestamp(ohlcv["timestamp"].iloc[-1]) + pd.Timedelta(milliseconds=tf_ms)
+
+
+_UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _closed_bars_file(directory: Path, symbol: str, timeframe: str) -> Path:
+    # BTC/USDT -> BTC_USDT_1d.csv: the same <BASE>_<QUOTE>_<tf>.csv naming as
+    # strategy_pack_run/data*/, so backtest_live_bot.load_dir can read it as is.
+    name = _UNSAFE_FILENAME_CHARS.sub("_", symbol.replace("/", "_"))
+    return directory / f"{name}_{timeframe}.csv"
+
+
+def _archive_closed_bars(directory: Path, symbol: str, timeframe: str, ohlcv: pd.DataFrame) -> None:
+    """Appends every closed bar in `ohlcv` newer than what was already written
+    for this symbol (the whole fetched frame the first time), in the
+    strategy_pack_run data-CSV format: timestamp = bar OPEN time in epoch ms,
+    then open/high/low/close/volume as repr() floats (exact round trip). The
+    weekly parity check (design §5/§6) needs the exact bars the bot decided on.
+    Never pruned by log retention (src/log_retention.py only touches the audit
+    log and plan history). Bars are recorded as first seen: a later exchange
+    revision of an already-written bar is not rewritten."""
+    path = _closed_bars_file(directory, symbol, timeframe)
+    key = (str(directory), symbol, timeframe)
+    last_ms = _archived_through_ms.get(key)
+    if last_ms is None and path.exists():
+        with open(path) as f:
+            lines = [line for line in f.read().splitlines() if line.strip()]
+        if len(lines) > 1:
+            last_ms = int(lines[-1].split(",", 1)[0])
+    if len(ohlcv) == 0:
+        return
+    # pd.Timestamp(...).value is always nanoseconds, whatever resolution the column has.
+    open_ms = [int(pd.Timestamp(ts).value // 1_000_000) for ts in ohlcv["timestamp"]]
+    rows = []
+    for ms, (_, row) in zip(open_ms, ohlcv.iterrows()):
+        if last_ms is not None and ms <= last_ms:
+            continue
+        rows.append(
+            f"{ms},{float(row['open'])!r},{float(row['high'])!r},{float(row['low'])!r},"
+            f"{float(row['close'])!r},{float(row['volume'])!r}\n"
+        )
+    if not rows:
+        _archived_through_ms[key] = last_ms if last_ms is not None else open_ms[-1]
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists() or path.stat().st_size == 0
+    with open(path, "a") as f:
+        if write_header:
+            f.write("timestamp,open,high,low,close,volume\n")
+        f.writelines(rows)
+        f.flush()
+        os.fsync(f.fileno())
+    _archived_through_ms[key] = max(open_ms)
+
+
+@dataclass
+class _Cycle:
+    """Everything one run_cycle pass shares between the per-symbol helpers."""
+
+    cfg: Config
+    exchange: object
+    risk_engine: RiskEngine
+    portfolio: Portfolio
+    broker: object
+    store: TradePlanStore
+    record: object  # callable(event) -> None
+    current_prices: dict[str, float]
+    equity: float
+    # Bar parity only (P3): exposure value / net cash of positions closed earlier
+    # in this cycle, credited back so new entries see the room held at the bar
+    # close, before this bar's exits; and those symbols, for the per-base rule.
+    parity: bool = False
+    exited_value: float = 0.0
+    exit_proceeds: float = 0.0
+    exited_symbols: list[str] = field(default_factory=list)
+    htf_from_scan_frame: bool = False
 
 
 def _execute_monitor_action(action, record, broker, store, risk_engine, event) -> None:
@@ -329,6 +541,224 @@ def _execute_monitor_action(action, record, broker, store, risk_engine, event) -
         event["execution"] = fill.__dict__
 
 
+def _monitor_held_symbol(c: _Cycle, symbol: str, record, price: float, event: dict) -> None:
+    """Stage 5 for a symbol with an active plan: runs for every held symbol,
+    whether it's a tradeable universe member or only walked because it's held
+    (source="held") -- see _execute_monitor_action for why the whitelist isn't
+    consulted here. Records the event itself.
+
+    Bar parity (P3): an exit executed here is remembered on `c` so the entry
+    pass can still count the closed position's exposure (and not its sale
+    proceeds) for the rest of this bar."""
+    action = monitor.check_pending(record, price) or monitor.check_open(record, price)
+    if action is not None:
+        if c.parity and action.action in ("STOP_LOSS", "TAKE_PROFIT"):
+            pos = c.portfolio.positions.get(symbol)
+            held_value = pos.amount * c.current_prices.get(symbol, pos.entry_price) if pos is not None else 0.0
+            cash_before = c.portfolio.cash
+            try:
+                _execute_monitor_action(action, record, c.broker, c.store, c.risk_engine, event)
+            finally:
+                if pos is not None and symbol not in c.portfolio.positions:
+                    c.exited_value += held_value
+                    c.exit_proceeds += c.portfolio.cash - cash_before
+                    c.exited_symbols.append(symbol)
+        else:
+            _execute_monitor_action(action, record, c.broker, c.store, c.risk_engine, event)
+    else:
+        event["action"] = "none"
+        event["note"] = f"{record.status} plan active for {symbol}, no trigger this cycle"
+    c.record(event)
+
+
+def _evaluate_new_entry(c: _Cycle, symbol: str, enriched, price: float, event: dict) -> bool:
+    """Stages 1-4b (+ immediate fill) for a symbol with no active plan.
+
+    Returns True when it has already recorded the event (every "action: none"
+    outcome), False on the "planned" path, where the caller records it. That is
+    exactly the control flow the loop body had before this was extracted, so an
+    exception anywhere in here still reaches the caller's per-symbol except."""
+    cfg = c.cfg
+    indicators_cfg = cfg.indicators
+
+    # Monitor-only symbol (walked because something is held on it, but not
+    # one the risk engine may open NEW plans on): don't scan it for a new
+    # setup. The risk engine's whitelist would reject any plan anyway; this
+    # just skips the wasted scan/daily-trend fetch/planning. Can't trigger on
+    # any symbol that's in market.symbols today.
+    if symbol not in c.risk_engine.symbol_whitelist:
+        event["action"] = "none"
+        event["note"] = f"{symbol} is monitor-only (not in the tradeable universe); no new plan is opened on it"
+        c.record(event)
+        return True
+
+    # One active plan per BASE asset, not just per symbol (design doc §4.1):
+    # e.g. an OPEN BTC/USDT plan blocks a new BTC/USD plan, so a USD/USDT
+    # quote migration can never hold the same coin twice. Checked before the
+    # scan, the same way the per-symbol rule above skips scanning a symbol
+    # that already has a plan.
+    same_base = _active_plan_on_same_base(c.store, symbol, c.exited_symbols)
+    if same_base is not None:
+        event["action"] = "none"
+        event["note"] = (
+            f"blocked: {same_base} already has an active plan on base asset "
+            f"{_base_asset(symbol)} (one active plan per base asset)"
+        )
+        c.record(event)
+        return True
+
+    # No active plan for this symbol or its base — look for a brand new setup.
+    candidates = scanner.scan(enriched, cfg.scanner)
+    event["candidates"] = [
+        {"pattern": cand.pattern, "direction": cand.direction, "strength": round(cand.strength, 3)}
+        for cand in candidates
+    ]
+
+    signal = signal_engine.evaluate(candidates, **cfg.signal_engine)
+    if signal is None:
+        event["action"] = "none"
+        c.record(event)
+        return True
+    event["signal"] = {
+        "direction": signal.direction,
+        "pattern": signal.primary_pattern,
+        "engine_score": round(signal.engine_score, 3),
+        "supporting_patterns": signal.supporting_patterns,
+    }
+
+    if signal.direction == "bearish":
+        # Long-only bot: a bearish signal isn't acted on directly — exits
+        # are governed entirely by an open position's own stop/target
+        # (src.monitor), which is more robust than reacting to every
+        # bearish blip. It's still logged here for visibility.
+        event["action"] = "none"
+        event["note"] = "bearish signal logged only; exits are governed by the open plan's stop/target"
+        c.record(event)
+        return True
+
+    # Pipeline stage 2b — higher-timeframe (daily) trend confirmation gate
+    # (see src/htf_filter.py): top-down multi-timeframe practice, the
+    # daily trend sets bias, this 1h signal only times entries within it.
+    # Never originates a trade, only blocks one -- same "can only say no"
+    # shape as the risk engine and the Claude advisor below.
+    if cfg.htf_filter.get("enabled", True):
+        if c.htf_from_scan_frame:
+            # P5 (bar parity at market.timeframe "1d"): the scan frame IS the
+            # daily chart, so evaluate the gate on its last HTF_SCAN_TAIL_BARS
+            # closes -- the backtest's window -- instead of a separate 31-bar
+            # 1d fetch (which differs on ~3% of signals, design doc E8).
+            daily_confirmed = htf_filter.daily_trend_confirmed_from_df(
+                enriched.tail(HTF_SCAN_TAIL_BARS), indicators_cfg["fast_ema"], indicators_cfg["slow_ema"]
+            )
+            event["daily_trend_source"] = "scan_frame"
+        else:
+            daily_confirmed = htf_filter.daily_trend_confirmed(
+                c.exchange, symbol, indicators_cfg["fast_ema"], indicators_cfg["slow_ema"]
+            )
+        event["daily_trend_confirmed"] = daily_confirmed
+        if not daily_confirmed:
+            event["action"] = "none"
+            event["note"] = "blocked: daily trend not confirmed bullish (higher-timeframe filter)"
+            c.record(event)
+            return True
+
+    atr = float(enriched["atr"].iloc[-1])
+    plan = trade_planner.build_plan(signal, symbol, price, atr, **cfg.trade_planner)
+    if plan is None:
+        event["action"] = "none"
+        c.record(event)
+        return True
+    event["plan"] = {**plan.__dict__}
+
+    other_positions_value = sum(
+        pos.amount * c.current_prices.get(sym, pos.entry_price)
+        for sym, pos in c.portfolio.positions.items()
+        if sym != symbol
+    )
+    cash_available = c.portfolio.cash
+    if c.parity:
+        # P3: room and cash as held at the bar close, before this bar's exits
+        # (the backtest executes them at the next open). Only ever subtracts
+        # room/cash, so it can only shrink or reject a plan, never grow one.
+        # Same-cycle FILLs are already in portfolio.positions/cash (the P6
+        # harness accounting matches this, see docs/p6_harness_exposure_fix.md).
+        other_positions_value += c.exited_value
+        cash_available -= c.exit_proceeds
+    atr_pct = atr / price if price else None
+    decision = c.risk_engine.check_new_trade(
+        symbol,
+        "buy",
+        portfolio_equity=c.equity,
+        cash_available=cash_available,
+        entry_price=plan.entry_zone[1],
+        stop_loss=plan.stop_loss,
+        risk_reward=plan.risk_reward,
+        open_positions_value=other_positions_value,
+        atr_pct=atr_pct,
+    )
+    event["risk_decision"] = decision.__dict__
+    if not decision.allowed:
+        event["action"] = "none"
+        c.record(event)
+        return True
+
+    claude_verdict_dict = None
+    advisor_cfg = cfg.advisor
+    if advisor_cfg.get("enabled"):
+        verdict = claude_advisor.review_trade_plan(
+            api_key=cfg.anthropic_api_key,
+            model=advisor_cfg.get("model", "claude-sonnet-4-5"),
+            symbol=symbol,
+            side="buy",
+            pattern=plan.pattern,
+            entry_zone=plan.entry_zone,
+            stop_loss=plan.stop_loss,
+            take_profit=plan.take_profit,
+            invalidation=plan.invalidation,
+            risk_reward=plan.risk_reward,
+            rule_based_confidence_stars=plan.rule_based_confidence_stars,
+            rationale=plan.rationale,
+            portfolio_context={"cash": c.portfolio.cash, "equity": c.equity},
+            fail_mode=advisor_cfg.get("fail_mode", "closed"),
+            timeout_seconds=advisor_cfg.get("timeout_seconds", 20),
+        )
+        claude_verdict_dict = verdict.__dict__
+        event["advisor_verdict"] = claude_verdict_dict
+        if not verdict.approved:
+            event["action"] = "none"
+            c.record(event)
+            return True
+
+    plan_dict = dict(plan.__dict__)
+    plan_dict["approved_quote_amount"] = decision.max_quote_amount
+    c.store.set_pending(symbol, plan_dict, claude_verdict_dict)
+    c.risk_engine.record_trade(symbol)  # cooldown starts, and the global new-entry cap counts it, at planning time
+    event["action"] = "planned"
+
+    # If price is already inside the entry zone right now, don't wait
+    # for the next tick to fill it.
+    fresh_record = c.store.get(symbol)
+    immediate = monitor.check_pending(fresh_record, price)
+    if immediate is not None and immediate.action == "FILL":
+        fill = c.broker.buy(symbol, plan_dict["approved_quote_amount"], price)
+        c.store.mark_open(symbol, fill_price=fill.price, fill_amount=fill.base_amount)
+        event["execution"] = fill.__dict__
+    return False
+
+
+def _unavailable_event(event: dict, symbol: str, held_set: set[str]) -> dict:
+    event["action"] = "none"
+    event["error"] = "market data unavailable this cycle"
+    if symbol in held_set:
+        # Countable from the audit log (design doc §4.6's "zero 'held symbol
+        # not priced' events" acceptance check). This position's stops can't
+        # be checked this cycle and it's valued at entry_price in equity/
+        # exposure until a fetch succeeds again.
+        event["held_symbol_unpriced"] = True
+        logger.warning("held symbol %s not priced this cycle -- stop/target not checked", symbol)
+    return event
+
+
 def run_cycle(
     cfg: Config,
     exchange,
@@ -343,6 +773,7 @@ def run_cycle(
         audit.write(event)
         _maybe_notify(cfg, event)
 
+    parity = cfg.bar_parity
     indicators_cfg = cfg.indicators
     enriched_by_symbol = {}
     current_prices: dict[str, float] = {}
@@ -385,20 +816,19 @@ def run_cycle(
             logger.exception("failed to enrich market data for %s", symbol)
 
     equity = portfolio.equity(current_prices)
+    cycle = _Cycle(
+        cfg=cfg, exchange=exchange, risk_engine=risk_engine, portfolio=portfolio, broker=broker, store=store,
+        record=_record, current_prices=current_prices, equity=equity,
+    )
+
+    if parity.enabled:
+        _run_bar_parity_passes(cycle, parity, cycle_symbols, held_set, ohlcv_by_symbol, enriched_by_symbol)
+        return
 
     for symbol in cycle_symbols:
         event: dict = {"symbol": symbol, "mode": cfg.mode, "timestamp": now_iso()}
         if symbol not in enriched_by_symbol:
-            event["action"] = "none"
-            event["error"] = "market data unavailable this cycle"
-            if symbol in held_set:
-                # Countable from the audit log (design doc §4.6's "zero 'held symbol
-                # not priced' events" acceptance check). This position's stops can't
-                # be checked this cycle and it's valued at entry_price in equity/
-                # exposure until a fetch succeeds again.
-                event["held_symbol_unpriced"] = True
-                logger.warning("held symbol %s not priced this cycle -- stop/target not checked", symbol)
-            _record(event)
+            _record(_unavailable_event(event, symbol, held_set))
             continue
 
         try:
@@ -407,166 +837,117 @@ def run_cycle(
 
             record = store.get(symbol)
             if record is not None:
-                # Runs for every held symbol, whether it's a tradeable universe member
-                # or only walked because it's held (source="held") -- see
-                # _execute_monitor_action for why the whitelist isn't consulted here.
-                action = monitor.check_pending(record, price) or monitor.check_open(record, price)
-                if action is not None:
-                    _execute_monitor_action(action, record, broker, store, risk_engine, event)
-                else:
-                    event["action"] = "none"
-                    event["note"] = f"{record.status} plan active for {symbol}, no trigger this cycle"
-                _record(event)
+                _monitor_held_symbol(cycle, symbol, record, price, event)
                 continue
 
-            # Monitor-only symbol (walked because something is held on it, but not
-            # one the risk engine may open NEW plans on): don't scan it for a new
-            # setup. The risk engine's whitelist would reject any plan anyway; this
-            # just skips the wasted scan/daily-trend fetch/planning. Can't trigger on
-            # any symbol that's in market.symbols today.
-            if symbol not in risk_engine.symbol_whitelist:
-                event["action"] = "none"
-                event["note"] = f"{symbol} is monitor-only (not in the tradeable universe); no new plan is opened on it"
-                _record(event)
+            if _evaluate_new_entry(cycle, symbol, enriched, price, event):
                 continue
-
-            # One active plan per BASE asset, not just per symbol (design doc §4.1):
-            # e.g. an OPEN BTC/USDT plan blocks a new BTC/USD plan, so a USD/USDT
-            # quote migration can never hold the same coin twice. Checked before the
-            # scan, the same way the per-symbol rule above skips scanning a symbol
-            # that already has a plan.
-            same_base = _active_plan_on_same_base(store, symbol)
-            if same_base is not None:
-                event["action"] = "none"
-                event["note"] = (
-                    f"blocked: {same_base} already has an active plan on base asset "
-                    f"{_base_asset(symbol)} (one active plan per base asset)"
-                )
-                _record(event)
-                continue
-
-            # No active plan for this symbol or its base — look for a brand new setup.
-            candidates = scanner.scan(enriched, cfg.scanner)
-            event["candidates"] = [
-                {"pattern": c.pattern, "direction": c.direction, "strength": round(c.strength, 3)} for c in candidates
-            ]
-
-            signal = signal_engine.evaluate(candidates, **cfg.signal_engine)
-            if signal is None:
-                event["action"] = "none"
-                _record(event)
-                continue
-            event["signal"] = {
-                "direction": signal.direction,
-                "pattern": signal.primary_pattern,
-                "engine_score": round(signal.engine_score, 3),
-                "supporting_patterns": signal.supporting_patterns,
-            }
-
-            if signal.direction == "bearish":
-                # Long-only bot: a bearish signal isn't acted on directly — exits
-                # are governed entirely by an open position's own stop/target
-                # (src.monitor), which is more robust than reacting to every
-                # bearish blip. It's still logged here for visibility.
-                event["action"] = "none"
-                event["note"] = "bearish signal logged only; exits are governed by the open plan's stop/target"
-                _record(event)
-                continue
-
-            # Pipeline stage 2b — higher-timeframe (daily) trend confirmation gate
-            # (see src/htf_filter.py): top-down multi-timeframe practice, the
-            # daily trend sets bias, this 1h signal only times entries within it.
-            # Never originates a trade, only blocks one -- same "can only say no"
-            # shape as the risk engine and the Claude advisor below.
-            if cfg.htf_filter.get("enabled", True):
-                daily_confirmed = htf_filter.daily_trend_confirmed(
-                    exchange, symbol, indicators_cfg["fast_ema"], indicators_cfg["slow_ema"]
-                )
-                event["daily_trend_confirmed"] = daily_confirmed
-                if not daily_confirmed:
-                    event["action"] = "none"
-                    event["note"] = "blocked: daily trend not confirmed bullish (higher-timeframe filter)"
-                    _record(event)
-                    continue
-
-            atr = float(enriched["atr"].iloc[-1])
-            plan = trade_planner.build_plan(signal, symbol, price, atr, **cfg.trade_planner)
-            if plan is None:
-                event["action"] = "none"
-                _record(event)
-                continue
-            event["plan"] = {**plan.__dict__}
-
-            other_positions_value = sum(
-                pos.amount * current_prices.get(sym, pos.entry_price)
-                for sym, pos in portfolio.positions.items()
-                if sym != symbol
-            )
-            atr_pct = atr / price if price else None
-            decision = risk_engine.check_new_trade(
-                symbol,
-                "buy",
-                portfolio_equity=equity,
-                cash_available=portfolio.cash,
-                entry_price=plan.entry_zone[1],
-                stop_loss=plan.stop_loss,
-                risk_reward=plan.risk_reward,
-                open_positions_value=other_positions_value,
-                atr_pct=atr_pct,
-            )
-            event["risk_decision"] = decision.__dict__
-            if not decision.allowed:
-                event["action"] = "none"
-                _record(event)
-                continue
-
-            claude_verdict_dict = None
-            advisor_cfg = cfg.advisor
-            if advisor_cfg.get("enabled"):
-                verdict = claude_advisor.review_trade_plan(
-                    api_key=cfg.anthropic_api_key,
-                    model=advisor_cfg.get("model", "claude-sonnet-4-5"),
-                    symbol=symbol,
-                    side="buy",
-                    pattern=plan.pattern,
-                    entry_zone=plan.entry_zone,
-                    stop_loss=plan.stop_loss,
-                    take_profit=plan.take_profit,
-                    invalidation=plan.invalidation,
-                    risk_reward=plan.risk_reward,
-                    rule_based_confidence_stars=plan.rule_based_confidence_stars,
-                    rationale=plan.rationale,
-                    portfolio_context={"cash": portfolio.cash, "equity": equity},
-                    fail_mode=advisor_cfg.get("fail_mode", "closed"),
-                    timeout_seconds=advisor_cfg.get("timeout_seconds", 20),
-                )
-                claude_verdict_dict = verdict.__dict__
-                event["advisor_verdict"] = claude_verdict_dict
-                if not verdict.approved:
-                    event["action"] = "none"
-                    _record(event)
-                    continue
-
-            plan_dict = dict(plan.__dict__)
-            plan_dict["approved_quote_amount"] = decision.max_quote_amount
-            store.set_pending(symbol, plan_dict, claude_verdict_dict)
-            risk_engine.record_trade(symbol)  # cooldown starts, and the global new-entry cap counts it, at planning time
-            event["action"] = "planned"
-
-            # If price is already inside the entry zone right now, don't wait
-            # for the next tick to fill it.
-            fresh_record = store.get(symbol)
-            immediate = monitor.check_pending(fresh_record, price)
-            if immediate is not None and immediate.action == "FILL":
-                fill = broker.buy(symbol, plan_dict["approved_quote_amount"], price)
-                store.mark_open(symbol, fill_price=fill.price, fill_amount=fill.base_amount)
-                event["execution"] = fill.__dict__
 
         except Exception as exc:  # noqa: BLE001 — one symbol failing must not kill the whole cycle
             logger.exception("cycle failed for %s", symbol)
             event["error"] = str(exc)
 
         _record(event)
+
+
+def _run_bar_parity_passes(
+    c: _Cycle,
+    settings: BarParitySettings,
+    cycle_symbols: list[str],
+    held_set: set[str],
+    ohlcv_by_symbol: dict,
+    enriched_by_symbol: dict,
+) -> None:
+    """run_cycle with loop.bar_parity on (docs/multiday_hold_design.md §3.1,
+    docs/bot_bar_parity.md): the backtest harness's per-bar order of work.
+
+    Pass 1 (monitor), in walk order: every held symbol's fill/discard/exit
+    check, every cycle (idempotent within a bar: the price is the last close).
+    Its bar is recorded as decided (P1), so a symbol that exits on this bar is
+    not re-scanned until the next closed bar.
+
+    Pass 2 (entries), in sorted(symbol) order (P2, the harness's order): each
+    FLAT symbol whose latest closed bar has not been decided yet is recorded as
+    decided and then, unless the bar is older than loop.max_entry_delay_minutes
+    (P4), run through stages 1-4b with room/cash as held before this bar's exits
+    (P3) and, at 1d, the htf gate on the scan frame (P5). An already-decided bar
+    produces a "none" event. Still exactly one audit line per walked symbol."""
+    cfg = c.cfg
+    c.parity = True
+    c.htf_from_scan_frame = cfg.timeframe == "1d"
+    tf_ms = _timeframe_ms(c.exchange, cfg.timeframe)
+    ledger = _bar_ledger(settings)
+
+    if settings.closed_bars_dir is not None:
+        bars_dir = _resolve_log_path(settings.closed_bars_dir)
+        for symbol in cycle_symbols:
+            if symbol not in ohlcv_by_symbol:
+                continue
+            try:
+                _archive_closed_bars(bars_dir, symbol, cfg.timeframe, ohlcv_by_symbol[symbol])
+            except Exception:
+                # Audit-only output: never allowed to stop the monitor below.
+                logger.exception("failed to archive closed bars for %s", symbol)
+
+    bar_close: dict[str, pd.Timestamp] = {}
+    deferred: list[str] = []
+
+    # ---- pass 1: monitor every held symbol, in walk order ----
+    for symbol in cycle_symbols:
+        event: dict = {"symbol": symbol, "mode": cfg.mode, "timestamp": now_iso()}
+        if symbol not in enriched_by_symbol:
+            c.record(_unavailable_event(event, symbol, held_set))
+            continue
+        try:
+            bar_close[symbol] = _last_bar_close(ohlcv_by_symbol[symbol], tf_ms)
+            event["bar_close"] = bar_close[symbol].isoformat()
+            record = c.store.get(symbol)
+            if record is None:
+                deferred.append(symbol)  # FLAT: decided in pass 2, which writes its event
+                continue
+            ledger.mark(symbol, bar_close[symbol])
+            _monitor_held_symbol(c, symbol, record, c.current_prices[symbol], event)
+            continue
+        except Exception as exc:  # noqa: BLE001 — one symbol failing must not kill the whole cycle
+            logger.exception("cycle failed for %s", symbol)
+            event["error"] = str(exc)
+        c.record(event)
+
+    # ---- pass 2: new entries, in sorted(symbol) order, after every monitor check ----
+    now_ms = int(c.exchange.client.milliseconds())
+    for symbol in sorted(deferred):
+        event = {"symbol": symbol, "mode": cfg.mode, "timestamp": now_iso()}
+        try:
+            closed_at = bar_close[symbol]
+            event["bar_close"] = closed_at.isoformat()
+            if not ledger.is_new(symbol, closed_at):
+                event["action"] = "none"
+                event["note"] = (
+                    f"bar closing {closed_at.isoformat()} already decided for {symbol}; "
+                    f"next entry decision on the next closed bar"
+                )
+                c.record(event)
+                continue
+            ledger.mark(symbol, closed_at)  # decided from here on, whatever happens below (P1)
+
+            if settings.max_entry_delay_minutes is not None:
+                delay_minutes = (now_ms - closed_at.value // 1_000_000) / 60_000
+                if delay_minutes > settings.max_entry_delay_minutes:
+                    # P4: an entry this long after the close is outside the evidence
+                    # (the backtest enters at the close / next open). Exits are never
+                    # gated -- pass 1 already ran them.
+                    event["action"] = "none"
+                    event["note"] = "stale bar: entries skipped"
+                    event["entry_delay_minutes"] = round(delay_minutes, 2)
+                    c.record(event)
+                    continue
+
+            if _evaluate_new_entry(c, symbol, enriched_by_symbol[symbol], c.current_prices[symbol], event):
+                continue
+        except Exception as exc:  # noqa: BLE001 — one symbol failing must not kill the whole cycle
+            logger.exception("cycle failed for %s", symbol)
+            event["error"] = str(exc)
+        c.record(event)
 
 
 def main() -> None:
