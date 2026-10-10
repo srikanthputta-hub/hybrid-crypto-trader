@@ -228,6 +228,20 @@ advisor:
 # since every threshold it checks already lives on the trade plan itself.
 loop:
   poll_interval_seconds: 300   # how often the main loop runs a full cycle in live/paper continuous mode
+  # Backtest-parity rules P1-P5 for src/bot.py (docs/multiday_hold_design.md §3.1, docs/bot_bar_parity.md).
+  # false = today's behaviour, unchanged. true = one decision per symbol per CLOSED bar (persisted to
+  # logging.bar_decisions_path, so a restart doesn't re-decide), monitor checks before new entries,
+  # new entries in sorted(symbol) order, entry room/cash counted as if this bar's exits hadn't happened
+  # yet, and at market.timeframe "1d" the htf gate runs on the scan frame (last 150 bars) instead of a
+  # separate 31-bar daily fetch. Exactly how the strategy_pack_run harness decides. Switching it on (and
+  # the 1d timeframe) is a separate, user-approved step.
+  bar_parity: false
+  # Entry staleness guard (P4): no NEW plan from a bar that closed more than this many minutes ago.
+  # Exits are never blocked; a skipped bar still counts as decided. null = off (today's behaviour).
+  # Requires bar_parity: true. The design proposes 60 -- an UNTUNED judgement call, not a measurement:
+  # the evidence only covers entries at the bar close, and in paper the broker fills at the last close
+  # regardless, so the guard only changes which trades exist. Must be null or a finite number > 0.
+  max_entry_delay_minutes: null
 
 logging:
   audit_log_path: "logs/audit_log.jsonl"
@@ -239,6 +253,13 @@ logging:
   # scripts/export_dashboard_data.py reads this instead of making its own
   # independent exchange calls -- see docs/system-redesign-2026-10.md §4.1/§4.3.
   market_snapshot_path: "logs/market_snapshot.json"
+  # loop.bar_parity only: last decided bar-close time per symbol (P1), so a restart mid-bar does not
+  # decide the same bar again. Unused (never created) while bar_parity is false.
+  bar_decisions_path: "logs/bar_decisions.json"
+  # loop.bar_parity only: append every closed bar the bot fetches to <dir>/<BASE>_<QUOTE>_<tf>.csv
+  # (strategy_pack_run data-CSV format) for the weekly paper-trial parity check. null = off. Never
+  # pruned by retention_days. The design's suggested value is "logs/daily_bars" (gitignored).
+  closed_bars_dir: null
   # Only used by scripts/run_live.py (the 24/7 VM loop), once a day: rows
   # older than this many days are pruned from audit_log_path and
   # trade_plan_history_path, so a long-running host's disk doesn't fill up

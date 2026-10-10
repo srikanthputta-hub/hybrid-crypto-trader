@@ -6,6 +6,8 @@ logs/*.jsonl
 logs/*.log
 logs/*.json
 logs/*.csv
+# closed-bar archive for the paper-trial parity check (logging.closed_bars_dir, docs/bot_bar_parity.md)
+logs/daily_bars/
 *.egg-info/
 .venv/
 venv/
