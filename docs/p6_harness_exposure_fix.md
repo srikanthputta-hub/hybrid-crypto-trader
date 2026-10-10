@@ -145,3 +145,122 @@ is written.
 6. `placebo_run` forwards the flag to every draw.
 7. Mutation check: at least 2 deliberate mutations of the fix (e.g. not adding `C_t` to
    `open_positions_value`; not subtracting it from cash; not resetting it per bar) must each be caught.
+
+---
+
+_Everything below was added after the pre-registration commit (`fb66858`)._
+
+## 1. What was built
+
+| File | Change |
+|---|---|
+| `strategy_pack_run/backtest_live_bot.py` | New `count_same_bar_approvals=False` on `simulate_portfolio` and `placebo_run` (forwarded to every draw). Implements §0.3 exactly: a per-bar running total of quote committed by FILLs queued earlier in the bar's step-3 pass, added to `open_positions_value` and subtracted from `cash_available`. Module docstring note 5 corrected (its "mirrors src/bot.py" claim was wrong); the `use_rank_order` docstring now says the order-independence of the exposure term only holds with the option off. |
+| `strategy_pack_run/run_live_bot_report.py` | `--count-same-bar-approvals` (default off). When on, forwards the kwarg to every `simulate_portfolio`/`placebo_run` call and prints a `Harness version: p6-same-bar-exposure-v1` line. Without the flag the report is byte-identical to before. |
+| `strategy_pack_run/run_universe_gate.py` | Same flag for the P1e runner: forwarded to the canonical, placebo, order-seed, superset-check and legacy runs; `params.harness_version = "p1e-universe-v1 + p6-same-bar-exposure-v1"` in the JSON. |
+| `strategy_pack_run/test_same_bar_exposure.py` (new, 17 tests) | §0.8 tests 1-7 plus a real-data invariant on the committed `data/` set. |
+| `scripts/backtest_summary.json` | Text-only: `candidates_schema.harness_version` lists the known ids. No candidate or baseline entry changed. |
+
+Not changed: anything under `src/`, `config/`, `engine.py`, `tiered_slippage.py`, `universe_*.py`, the
+committed reports, `web/`.
+
+## 2. Verification
+
+**Option OFF is bit-for-bit the old harness.** Before touching the code, trades, equity and exposure
+were captured from the unmodified harness for 16 configurations (`data/`, `data_long/` x T3/T1 taker x
+sorted/rank order x flat/tiered costs) plus a 3-draw placebo per dataset. After the change, the same
+18 outputs with the option omitted and with `count_same_bar_approvals=False` were compared with
+`DataFrame.equals` / `Series.equals`: **18/18 identical, both ways.** The full OFF gate runs in §3-§4
+also reproduce every on-record number (154 / 0.18, 562 / 0.52, P1e static-16 134 / 0.15 and 572 /
+0.52, and the P1e candidates).
+
+**Option ON reproduces the independent `b1_check.py` numbers (§0.6):** `data/` 137 trades, avg R
+0.174, CI low -0.109, return 13.1%, Sharpe 0.48; `data_long/` 552 trades, 0.493 [0.337, 0.654],
+340.5%, Sharpe 1.01. Trades in common with the OFF run: 85 of 154 / 413 of 562, as in E9. The only
+printed difference is E3's CI high: 0.4748 here, shown as 0.47; E9 printed +0.48. That is a rounding
+difference in the review's write-up, not a different result.
+
+**The cap now holds** (committed = open value seen by a bar's first check + every approval on that
+bar, over equity):
+
+| dataset | OFF: approval bars over 40% / all approval bars, peak | ON: bars over 40%, peak |
+|---|---|---|
+| `data/` | 26 / 69, peak 69.7% | 0 / 98, peak 40.0% |
+| `data_long/` | 69 / 347, peak 72.7% | 0 / 421, peak 40.0% |
+
+**Tests:** `strategy_pack_run/test_same_bar_exposure.py` has 17 tests. The parity tests use a
+reference loop that mirrors `src/bot.py` ~492-563 with the real `RiskEngine` and `Portfolio`
+(`equity` once per cycle, `other_positions_value` from the portfolio's positions,
+`cash_available=portfolio.cash`, `record_trade`, then immediate `apply_buy`). The scenario is a
+pre-existing position plus 8 same-bar candidates at mixed prices and ATR%, so risk sizing, the
+volatility taper, the position cap, a partial exposure squeeze, rejections and the 5-entry cap all
+take part. Result: identical `(symbol, allowed, max_quote_amount)` decisions at a zero paper fee
+(rel. 1e-12), and the legacy harness fails the same comparison. At the paper broker's 0.10% fee the
+harness is never looser: same symbols checked, every harness approval is also a live approval and is
+no larger.
+
+**Mutation check** (each mutation applied by hand to the fix, then restored; diff confirmed clean):
+
+| mutation | tests failing (of 17) |
+|---|---|
+| M1: committed quote not added to `open_positions_value` | 9 |
+| M2: committed quote not subtracted from `cash_available` | 3 |
+| M3: running total not reset per bar | 4 |
+| M4: a PENDING plan's monitor FILL not counted | 1 (`test_pending_plan_fill_trigger_counts_like_a_fresh_fill`) |
+| M5: a fresh plan's immediate FILL not counted | 10 |
+| M6: `placebo_run` does not forward the flag | 3 |
+
+**Suites:** root `python -m pytest -q`: 385 passed. `cd strategy_pack_run && python -m pytest -q`:
+144 passed (incl. the 17 new tests and the universe real-data tests, data present).
+`PYTHONPATH=. python scripts/validate_invariants.py`: 5/5. `python research/v2_signals.py`: 7 passed.
+
+## 3. Re-gated results: E3, E4, E7 (live strategy on the static-16 datasets)
+
+`run_live_bot_report.py`, `kraken_T3_taker` unless stated, sorted order, flat costs, 200-sim placebo
+(seed 0). OFF and ON were run with identical tooling.
+
+| id | harness | trades | win% | avg R [95% CI] | PF | return | maxDD | Sharpe (bench) | exposure | later-30% n / avg R | placebo pct ret / avgR | gates |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| E3 `data/` | OFF | 154 | 40.3% | 0.18 [-0.08, 0.46] | 1.33 | 22.5% | -24.1% | 0.68 (0.28) | 22.1% | 52 / 0.42 | 98 / 91 | 4/5 (CI-low FAIL) |
+| E3 `data/` | **ON** | **137** | 40.1% | **0.17 [-0.11, 0.47]** | 1.24 | **13.1%** | -24.3% | **0.48** (0.28) | 19.7% | 46 / 0.43 | **96 / 94** | **4/5 (CI-low FAIL)** |
+| E4 `data_long/` | OFF | 562 | 48.0% | 0.52 [0.36, 0.68] | 1.49 | 387.5% | -29.2% | 1.00 (0.81) | 15.8% | 246 / 0.34 | 100 / 98 | 5/5 |
+| E4 `data_long/` | **ON** | **552** | 47.6% | **0.49 [0.34, 0.65]** | 1.49 | **340.5%** | -28.7% | **1.01** (0.81) | 14.4% | 238 / **0.25** | 100 / 98 | **5/5** |
+
+E7 (as defined: the `kraken_T1_taker` row of the same runs, 0.80% fee):
+
+| dataset | OFF | ON |
+|---|---|---|
+| `data/` | 154 trades, 0.09 [-0.18, 0.36], return 13.6%, Sharpe 0.46 | 136 trades, **0.10 [-0.18, 0.40]**, return **6.5%**, Sharpe **0.28** |
+| `data_long/` | 561 trades, 0.44 [0.28, 0.60], return 259.3%, Sharpe 0.83 | 553 trades, **0.41 [0.25, 0.57]**, return 240.6%, Sharpe 0.85 |
+
+E7g (informational: full 5 gates at `kraken_T1_taker`, placebo at T1):
+
+| dataset | harness | later-30% avg R | placebo ret / avgR | gates |
+|---|---|---|---|---|
+| `data/` | OFF | 0.32 | 98 / 92 | 4/5 (CI-low FAIL) |
+| `data/` | ON | 0.37 | 96 / 94 | 4/5 (CI-low FAIL). Gate 5 passes by a hair: Sharpe **0.2833 vs benchmark 0.2777** |
+| `data_long/` | OFF | 0.25 | 100 / 98 | 5/5 (Sharpe 0.8266 vs 0.8121, also thin) |
+| `data_long/` | ON | 0.16 | 100 / 98 | 5/5 (Sharpe 0.8478 vs 0.8121) |
+
+**No E3/E4/E7 gate verdict changes.** E3 stays 4/5, failing only CI-low. E4 stays 5/5, so the design
+§4 item-0 stop rule is not triggered. What moves is the money: E3's return falls from 22.5% to 13.1%
+and Sharpe from 0.68 to 0.48; E4's from 387.5% to 340.5%, with Sharpe unchanged. Avg R barely moves
+(-0.01 / -0.03), because R is per trade and the fix mostly changes position **sizes** and which
+same-bar trades exist. E4's later-30% avg R drops from 0.34 to 0.25 (still > 0).
+
+**Risk-engine rejection mix** (`kraken_T3_taker` canonical runs). The exposure cap now does the
+rationing that the new-entry rate cap used to do:
+
+| dataset | harness | checks | approved | "no room" | rate cap | volatility |
+|---|---|---|---|---|---|---|
+| `data/` | OFF | 669 | 154 | 380 | 38 | 97 |
+| `data/` | ON | 709 | 137 | 462 | 1 | 109 |
+| `data_long/` | OFF | 2405 | 562 | 876 | 78 | 889 |
+| `data_long/` | ON | 2388 | 552 | 984 | 9 | 843 |
+
+**New side effect: small residual approvals.** When a bar's room is nearly used up, the next
+candidate is approved for the remainder, however small. `data/` ON: 6 of 137 approvals are under
+$10, and 14 under $50 (OFF: 0 and 2). `data_long/` ON: 8 under $10, 16 under $50 (OFF: 1 and 3).
+Live does exactly the same at `risk.min_order_quote_usd: 0`. Each such approval uses a new-entry slot
+and starts a cooldown, and an exchange would probably reject it. Because R is per trade, these dust
+trades count fully in avg R. Not changed here (that is a `config.yaml`/Risk Officer question,
+`min_order_quote_usd`, see §6).
