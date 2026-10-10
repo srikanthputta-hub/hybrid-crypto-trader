@@ -34,14 +34,17 @@ can make an order happen that the pre-hardening code wouldn't have placed):
       monitor retries the exit next cycle; on spot, re-selling an already-sold
       amount is rejected by the exchange), HALT new buys, raise
       LiveOrderUnreconciled through bot.py's existing per-symbol error path.
-* create_market_order raising: a ccxt.ExchangeError (InsufficientFunds,
-  InvalidOrder, ...) is a definite rejection -> re-raised unchanged, nothing booked,
-  no halt (unchanged behaviour). Anything else (ccxt.NetworkError/RequestTimeout,
-  any non-ccxt error) leaves it UNKNOWN whether the order was placed -> HALT new buys
-  and raise LiveOrderUnreconciled; nothing booked.
-* Partial sell (exchange reports remaining > 0): book exactly what filled, keep the
-  remainder as the open position, HALT new buys, raise LivePartialFill so bot.py
-  does NOT mark the plan CLOSED -- the monitor keeps managing the remainder.
+* create_market_order raising: a specific ccxt.ExchangeError subclass
+  (InsufficientFunds, InvalidOrder, BadSymbol, AuthenticationError, ...) is a definite
+  rejection -> re-raised unchanged, nothing booked, no halt (unchanged behaviour).
+  Anything else -- a BARE ccxt.ExchangeError (ccxt's catch-all for unmapped/internal
+  exchange errors), ExchangeClosedByUser, DuplicateOrderId, ccxt.NetworkError/
+  RequestTimeout/BadResponse, any non-ccxt error -- leaves it UNKNOWN whether the
+  order was placed -> HALT new buys and raise LiveOrderUnreconciled; nothing booked.
+* Partial sell (exchange reports remaining > 0, or filled < the amount it echoes as
+  ordered): book exactly what filled, keep the remainder as the open position, HALT
+  new buys, raise LivePartialFill so bot.py does NOT mark the plan CLOSED -- the
+  monitor keeps managing the remainder.
 * HALT = every later buy() raises LiveBrokerHalted before touching the exchange
   (sells -- risk-reducing -- stay allowed). Without it, bot.py would retry a PENDING
   plan's FILL next cycle and place a DUPLICATE real order. The halt is held in
@@ -135,6 +138,24 @@ def _parse_fill(order: object, requested_amount: float, price_hint: float) -> tu
     return price, amount, remaining
 
 
+# ExchangeError subclasses that do NOT prove the order was rejected: ExchangeClosedByUser
+# (client torn down mid-request) and DuplicateOrderId (an order with this id already exists,
+# i.e. one may have been placed). A BARE ccxt.ExchangeError is ccxt's catch-all for unmapped /
+# internal exchange errors (e.g. an exchange-side internal_server_error) -- also ambiguous.
+_AMBIGUOUS_EXCHANGE_ERRORS = (ccxt.ExchangeClosedByUser, ccxt.DuplicateOrderId)
+
+
+def _is_definite_rejection(exc: BaseException) -> bool:
+    """True only for a specific, mapped ccxt.ExchangeError subclass (InsufficientFunds,
+    InvalidOrder, BadRequest, BadSymbol, AuthenticationError, OperationRejected, ...):
+    the exchange answered and refused the order, so nothing was placed."""
+    return (
+        isinstance(exc, ccxt.ExchangeError)
+        and type(exc) is not ccxt.ExchangeError
+        and not isinstance(exc, _AMBIGUOUS_EXCHANGE_ERRORS)
+    )
+
+
 def _order_summary(order: object) -> dict:
     """The unified order fields worth recording for a human reconciler (never the raw
     `info` payload), as repr strings so NaN/inf/odd types survive JSON."""
@@ -213,9 +234,9 @@ class LiveBroker:
         other failure leaves the order's fate unknown -> halt + LiveOrderUnreconciled."""
         try:
             return self.exchange.create_market_order(symbol, side, amount)
-        except ccxt.ExchangeError:
-            raise  # the exchange answered and rejected it: nothing was placed
         except Exception as exc:
+            if _is_definite_rejection(exc):
+                raise  # the exchange answered and rejected it: nothing was placed
             self._halt(
                 f"{side} {symbol}: create_market_order raised {type(exc).__name__}; "
                 "the order may or may not be live on the exchange",
@@ -328,7 +349,20 @@ class LiveBroker:
         partial = False
         try:
             filled_price, filled_amount, remaining = _parse_fill(order, held, price_hint)
-            partial = remaining is not None and remaining > 0
+            # Partial = the exchange says some is unfilled (remaining > 0), OR it filled less
+            # than the amount IT echoes back as ordered. That echoed amount is already
+            # truncated to the market's precision by ccxt/the exchange, so legitimate
+            # rounding dust (held - amount, e.g. 0.9 SHIB) never counts as partial; only
+            # float noise is tolerated between filled and amount. No echoed amount ->
+            # remaining-only, exactly as before.
+            ordered = order.get("amount")
+            if ordered is not None and not (
+                _is_finite_number(ordered) and 0 < ordered <= held * (1 + _OVERFILL_TOLERANCE)
+            ):
+                raise _UnusableFill(f"amount={ordered!r} is not a finite number in (0, held {held!r}]")
+            partial = (remaining is not None and remaining > 0) or (
+                ordered is not None and filled_amount < ordered * (1 - _OVERFILL_TOLERANCE)
+            )
             proceeds = filled_amount * filled_price
             new_cash = self.portfolio.cash + proceeds
             left = held - filled_amount

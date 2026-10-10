@@ -472,10 +472,31 @@ def test_sell_full_fill_with_rounding_dust_closes_like_before(tmp_path):
 # --- 4. create_market_order raising ---------------------------------------------------
 
 DEFINITE_REJECTIONS = [ccxt.InsufficientFunds("no funds"), ccxt.InvalidOrder("min notional"),
-                       ccxt.BadSymbol("??"), ccxt.ExchangeError("rejected")]
+                       ccxt.BadSymbol("??"), ccxt.BadRequest("400"), ccxt.AuthenticationError("401"),
+                       ccxt.PermissionDenied("403"), ccxt.MarketClosed("closed"), ccxt.OperationRejected("no"),
+                       ccxt.NotSupported("n/a"), ccxt.AccountSuspended("susp")]
 UNKNOWN_OUTCOMES = [ccxt.RequestTimeout("t/o"), ccxt.NetworkError("reset"), ccxt.ExchangeNotAvailable("503"),
                     ccxt.RateLimitExceeded("429"), ccxt.BadResponse("garbled"), ccxt.NullResponse("empty"),
+                    # ccxt's catch-all for unmapped/internal exchange errors -- NOT proof of rejection
+                    ccxt.ExchangeError('coinbase {"error":"internal_server_error"}'),
+                    ccxt.ExchangeClosedByUser("closed"), ccxt.DuplicateOrderId("dup"),
                     RuntimeError("boom"), ConnectionResetError("rst")]
+
+
+def test_rejection_classification_over_installed_ccxt_hierarchy():
+    # Verified against the INSTALLED ccxt, not a hand-written list: only a specific,
+    # mapped ExchangeError subclass is a definite rejection; everything else is ambiguous.
+    import inspect
+
+    from ccxt.base import errors
+
+    ambiguous_subtrees = (ccxt.ExchangeClosedByUser, ccxt.DuplicateOrderId)
+    classes = [c for _, c in inspect.getmembers(errors, inspect.isclass) if issubclass(c, ccxt.BaseError)]
+    assert ccxt.InsufficientFunds in classes and ccxt.RequestTimeout in classes
+    for cls in classes:
+        expected = (issubclass(cls, ccxt.ExchangeError) and cls is not ccxt.ExchangeError
+                    and not issubclass(cls, ambiguous_subtrees))
+        assert broker_live._is_definite_rejection(cls("x")) is expected, cls.__name__
 
 
 @pytest.mark.parametrize("side", ["buy", "sell"])
@@ -543,6 +564,67 @@ def test_partial_sell_books_filled_part_keeps_remainder_and_halts(tmp_path):
     broker.sell("BTC/USDT", 54_000.0)
     assert exchange.orders[-1] == ("BTC/USDT", "sell", 1.0 - 0.4)
     assert "BTC/USDT" not in portfolio.positions
+
+
+def test_bare_exchange_error_on_sell_exit_keeps_plan_open_and_halts(tmp_path):
+    from src.bot import _execute_monitor_action
+
+    store, risk = _store(tmp_path), _risk(tmp_path)
+    broker, exchange, portfolio = _make(tmp_path, response=_response())
+    store.set_pending("BTC/USDT", {"approved_quote_amount": 100.0, "stop_loss": 45_000.0, "take_profit": 60_000.0})
+    _execute_monitor_action(_fill_action("BTC/USDT", 50_000.0), store.get("BTC/USDT"), broker, store, risk, {})
+    exchange.error = ccxt.ExchangeError("internal_server_error")
+    with pytest.raises(LiveOrderUnreconciled):
+        _execute_monitor_action(_exit_action("BTC/USDT", 45_000.0), store.get("BTC/USDT"), broker, store, risk, {})
+    assert store.get("BTC/USDT").status == "OPEN" and "BTC/USDT" in portfolio.positions
+    assert broker.halted and [side for _s, side, _a in exchange.orders] == ["buy", "sell"]
+
+
+@pytest.mark.parametrize(
+    ("held", "ordered", "filled", "remaining"),
+    [
+        (0.1, 0.1, 0.04, None),          # filled < echoed amount, no remaining
+        (0.1, 0.1, 0.04, 0.0),           # ... even if the exchange says remaining 0
+        (0.1, 0.1, 0.1 * (1 - 1e-6), None),  # small but real shortfall (beyond float noise)
+        (12_345_678.9, 12_345_678.0, 12_000_000.0, None),  # SHIB-like: real partial on top of dust
+    ],
+)
+def test_sell_filled_below_echoed_amount_is_partial(tmp_path, held, ordered, filled, remaining):
+    broker, exchange, portfolio = _make(
+        tmp_path, cash=0.0, positions=_btc(amount=held),
+        response=_sell_response(amount=ordered, filled=filled, remaining=remaining),
+    )
+    with pytest.raises(LivePartialFill):
+        broker.sell("BTC/USDT", 55_000.0)
+    assert portfolio.positions["BTC/USDT"].amount == held - filled
+    assert portfolio.cash == 0.0 + filled * 55_000.0
+    assert broker.halted
+
+
+@pytest.mark.parametrize(
+    ("held", "ordered", "filled"),
+    [
+        (12_345_678.9, 12_345_678.0, 12_345_678.0),   # SHIB-like integer precision: 0.9 dust
+        (3.7, 3.0, 3.0),                              # coarse precision: 19% dust, still a full close
+        (0.123456789, 0.123456, 0.123456),            # 6-dp precision dust
+        (0.1, 0.1, 0.1 * (1 - 1e-12)),                # float noise between filled and amount
+        (0.1, 0.1 * (1 + 1e-12), 0.1),                # echoed amount float-noise above held
+    ],
+)
+def test_sell_rounding_dust_close_is_full_without_halt(tmp_path, held, ordered, filled):
+    broker, exchange, portfolio = _make(tmp_path, positions=_btc(amount=held),
+                                        response=_sell_response(amount=ordered, filled=filled, remaining=0.0))
+    broker.sell("BTC/USDT", 55_000.0)
+    assert "BTC/USDT" not in portfolio.positions and not broker.halted
+
+
+@pytest.mark.parametrize("ordered", [NAN, INF, 0.0, -0.1, True, "0.1", 0.2], ids=repr)
+def test_sell_garbage_echoed_amount_is_unusable(tmp_path, ordered):
+    broker, exchange, portfolio = _make(tmp_path, positions=_btc(), response=_sell_response(amount=ordered))
+    before = _state(portfolio)
+    with pytest.raises(LiveOrderUnreconciled, match="amount="):
+        broker.sell("BTC/USDT", 55_000.0)
+    _assert_sell_kept_position_and_halted(broker, exchange, portfolio, before, tmp_path)
 
 
 def test_sell_with_zero_remaining_is_a_full_close(tmp_path):
@@ -631,13 +713,16 @@ def _exit_action(symbol, price):
     return MonitorAction(symbol=symbol, action="STOP_LOSS", price=price, reason="stop")
 
 
-def test_unknown_outcome_on_deferred_fill_never_places_a_duplicate_order(tmp_path):
+@pytest.mark.parametrize(
+    "error", [ccxt.RequestTimeout("t/o"), ccxt.ExchangeError("internal_server_error")], ids=lambda e: type(e).__name__
+)
+def test_unknown_outcome_on_deferred_fill_never_places_a_duplicate_order(tmp_path, error):
     # Pre-hardening: the exception left the plan PENDING and the next cycle's FILL
     # placed a SECOND real order. Now the retry is refused before the exchange.
     from src.bot import _execute_monitor_action
 
     store, risk = _store(tmp_path), _risk(tmp_path)
-    broker, exchange, _ = _make(tmp_path, error=ccxt.RequestTimeout("t/o"))
+    broker, exchange, _ = _make(tmp_path, error=error)
     store.set_pending("BTC/USDT", {"approved_quote_amount": 100.0, "stop_loss": 45_000.0, "take_profit": 60_000.0})
     with pytest.raises(LiveOrderUnreconciled):
         _execute_monitor_action(_fill_action("BTC/USDT", 50_000.0), store.get("BTC/USDT"), broker, store, risk, {})
