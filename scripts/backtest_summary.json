@@ -150,7 +150,7 @@
     "based_on": "live_strategy, or null for a from-scratch new strategy",
     "dataset": "kraken_720 | long | kraken_720_universe | long_universe -- which strategy_pack_run dataset this run used (kraken_720_universe / long_universe are P1e one-offs: gitignored data, not Routine-runnable)",
     "cost_preset": "which strategy_pack_run/engine.py COST_PRESETS entry was used (kraken_T3_taker is standard for gating)",
-    "harness_version": "OPTIONAL (added P1e): harness semantics id. Absent = the original harness. Results with different harness_version values are never compared (design doc s7).",
+    "harness_version": "OPTIONAL (added P1e): harness semantics id. Absent = the original harness. Results with different harness_version values are never compared (design doc s7). Known ids: p1e-universe-v1 (rank order + per-bar tiered slippage + point-in-time eligibility); p6-same-bar-exposure-v1 (simulate_portfolio count_same_bar_approvals=True / --count-same-bar-approvals: same-bar approvals count against the 40% exposure cap and cash as in src/bot.py, docs/p6_harness_exposure_fix.md; ids combine with ' + ', e.g. p1e-universe-v1 + p6-same-bar-exposure-v1).",
     "trades": "int",
     "win_rate_pct": "float",
     "avg_r": "float",
