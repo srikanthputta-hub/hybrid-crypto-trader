@@ -209,8 +209,17 @@ no larger.
 | M5: a fresh plan's immediate FILL not counted | 10 |
 | M6: `placebo_run` does not forward the flag | 3 |
 
-**Suites:** root `python -m pytest -q`: 385 passed. `cd strategy_pack_run && python -m pytest -q`:
-144 passed (incl. the 17 new tests and the universe real-data tests, data present).
+**Suites:** root `python -m pytest -q`: 385 passed before the `origin/main` merge, **1030 passed
+after it** (§7). `cd strategy_pack_run && python -m pytest -q`: 144 passed with the original 17 new
+tests; **145 passed** after the review follow-ups (18 new tests; universe real-data tests run, data
+present).
+
+**Review follow-ups (tests):** `test_approved_but_not_filled_plan_does_not_use_room_or_cash` (new)
+catches the reviewer's mutation X3 (count every approval, filled or not), which no earlier test
+caught. `test_exit_queued_on_the_bar_does_not_free_room_on_that_bar` now names the exiting symbol `A`
+so its exit is decided before the same-bar candidates. Mutation X2 (credit same-bar exits back as
+room) is now caught by it, not only by the real-data invariant test. M1-M6 were re-run after both
+changes and are all still caught.
 `PYTHONPATH=. python scripts/validate_invariants.py`: 5/5. `python research/v2_signals.py`: 7 passed.
 
 ## 3. Re-gated results: E3, E4, E7 (live strategy on the static-16 datasets)
@@ -271,9 +280,14 @@ it. Because R is per trade, these dust trades count fully in avg R.
   Kraken-universe cases have none; the `long_universe` cases have 1-5 each (static-16 1, $1M 2,
   $100k 2, flat rows 2 and 5). The largest avg-R shift is $1M long, 0.3958 -> 0.3893 (CI low
   0.2644 -> 0.2548). Removing them flips no CI-low, later-30% or return/Sharpe gate (their notional
-  is ~1e-12 USD). Placebo-gate check: PLACEBO_CHECK.
-- **"Live does the same" holds only in part.** At zero fee, live rejects those phantoms: its open
-  value is `amount*price`, not the exact gross sum, so the room rounds the other way or to exactly 0.
+  is ~1e-12 USD). Placebo-gate check, against the
+  saved 200-draw placebo distributions (they reproduce the recorded percentiles exactly), real
+  run stripped, placebo draws as recorded: static-16 long avg-R pct 98.5 -> 98.5, $1M long 89.5
+  -> 88.5 (already FAIL), $100k long 85.5 -> 85.5 (already FAIL); E4 ON avg R rises by 0.0008 from
+  a 98th percentile. **No verdict flips because of them.**
+- **"Live does the same" holds only in part.** At zero fee, live rejects those phantoms (per the
+  review's replay; live sums `amount*price` per position rather than the gross quotes, so its
+  rounding residue differs).
   At the paper broker's 0.10% fee, live approves **more** fee-slack dust than the harness. Each fill's
   position is worth `quote*(1-fee)`, so roughly 0.1% of every committed quote reappears as room. In
   the reviewer's replay of the live accounting, live made 229 approvals vs the harness's 137 on
@@ -432,8 +446,11 @@ After the gate runs, `origin/main` (PR #96/#97/#98: `risk_engine.py` config/inpu
 - **Semantics to scrutinise:** gross vs net-of-fee counting (§0.3 item 6). Counting a PENDING plan's
   monitor FILL (never fires on these datasets, since fresh plans always fill at once; covered only by
   a patched test). No room credit for same-bar exits (P3). `equity` held fixed within the bar.
-- **Small residual approvals (§3):** the fix creates more sub-$50 approvals, and live does too at
-  `min_order_quote_usd: 0`. They count fully in avg R. A Risk Officer / config question, not changed.
+- **Small residual approvals and phantoms (§3):** the fix creates more sub-$50 approvals plus a few
+  ~1e-12 USD floating-point phantoms that count as full trades. Live at the 0.10% paper fee makes
+  *more* dust, from fee slack, and dust can block later real trades across bars. Recommended fix:
+  `min_order_quote_usd` > 0 in config, which the harness already mirrors. A Risk Officer / user
+  decision, not changed here.
 - **Live-side observation (not changed, `src/` out of scope):** in the parity scenario at the paper
   fee, live approved two dust plans ($0.43 and ~$0.0004) out of fee slack. Each uses a new-entry slot
   and starts a cooldown.
