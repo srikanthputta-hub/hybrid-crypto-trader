@@ -148,6 +148,9 @@ def _isolated_raw(raw: dict, logs_dir: Path) -> dict:
         "trade_log_path": str(logs_dir / "trades.csv"),
         "trade_plan_current_path": str(logs_dir / "trade_plans_current.json"),
         "trade_plan_history_path": str(logs_dir / "trade_plans_history.jsonl"),
+        # run_cycle writes the market snapshot too; without this the tests overwrite the real
+        # PROJECT_ROOT/logs/market_snapshot.json that the dashboard export reads.
+        "market_snapshot_path": str(logs_dir / "market_snapshot.json"),
     }
     return raw
 
