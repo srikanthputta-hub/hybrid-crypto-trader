@@ -32,6 +32,14 @@ market data (ccxt)     src/market_data.py   (infrastructure, not a stage)
    exchange itself.
    |
    v
+   bar gate (only with `loop.bar_parity: true`)   src/bot.py
+   Decides each symbol once per closed `market.timeframe` bar (persisted in
+   `logs/bar_decisions.json`), runs every monitor check before any new entry,
+   then new entries in sorted(symbol) order with room/cash as held before this
+   bar's exits, optionally skipping entries from a bar older than
+   `loop.max_entry_delay_minutes`. Orchestration, not a stage. Off by default.
+   |
+   v
 1. SCANNER            src/scanner.py
    Scans OHLCV 24/7 for five pattern types: Breakout, Pullback, Momentum,
    Trend Continuation, Reversal. Reports every candidate it sees with a raw
@@ -52,7 +60,9 @@ market data (ccxt)     src/market_data.py   (infrastructure, not a stage)
    the risk engine and Claude advisor, this stage can only veto, never
    originate or resize a trade. Fails closed on insufficient daily history or
    a fetch error. Cached per symbol per UTC day, since daily candles only
-   change once a day.
+   change once a day. With `loop.bar_parity: true` at `market.timeframe: "1d"`
+   it is evaluated on the scan frame's last 150 bars instead (no fetch), the
+   same window the backtest harness uses.
    |
    v
 3. TRADE PLANNER       src/trade_planner.py
@@ -88,7 +98,9 @@ market data (ccxt)     src/market_data.py   (infrastructure, not a stage)
    the symbol whitelist is deliberately not consulted here): fills a PENDING
    plan once price re-enters the entry zone, discards it if price breaches
    invalidation first, and closes an OPEN position at its stop loss or
-   take-profit target. This bot executes automatically — there's no separate
+   take-profit target. Triggers use the last CLOSED bar's close (at 1d: one
+   check per daily close; an intrabar move that recovers by the close does not
+   trigger). This bot executes automatically — there's no separate
    human alert step (an optional Telegram message is sent for new signals,
    fills and closes if configured).
    |
@@ -100,14 +112,19 @@ Each cycle walks the symbols once, in universe order: a symbol with an
 active plan goes straight to the monitor; a symbol whose *base asset* already
 has an active plan on another symbol (e.g. `BTC/USD` vs `BTC/USDT`) is
 skipped (one active plan per base asset); everything else runs through stages
-1-4. Every cycle, for every symbol, one line is written to
+1-4. With `loop.bar_parity: true` (default `false`) the cycle is two passes
+instead, matching how `strategy_pack_run/backtest_live_bot.py` decides a bar:
+a monitor pass over every held symbol, then an entry pass over FLAT symbols
+whose latest closed bar is not decided yet, in sorted(symbol) order (see
+`docs/bot_bar_parity.md`). Every cycle, for every symbol, one line is written to
 `logs/audit_log.jsonl` regardless of what happened — so "why didn't it trade
 at 14:32" is always answerable from that file alone.
 
 `signal_engine.rank_signals()` (a deterministic engine-score / liquidity /
 symbol ordering for when exposure or rate caps leave only some slots) exists
 and is unit-tested but is **not wired into `src/bot.py`** — the cycle still
-processes symbols in universe (= `market.symbols`) order. See
+processes symbols in universe (= `market.symbols`) order, or sorted(symbol)
+order with `loop.bar_parity: true`. See
 `docs/p1c_rank_signals_validation.md`.
 
 This bot is **long-only spot**: a bearish signal is logged for visibility but
@@ -160,7 +177,8 @@ it**.
 | `risk.*` | position sizing (`max_position_pct`, `max_loss_per_trade_pct`, `volatility_scale_floor`), total exposure cap, daily loss limit, volatility filter, per-symbol cooldown, global new-entry rate cap (`max_new_entries_per_window`, `new_entry_window_minutes`), optional minimum order size (`min_order_quote_usd`, 0 = off), kill switch file. `volatility_scale_floor` is not yet passed through by `src/bot.py`; the engine's built-in 0.5 applies |
 | `advisor.*` | turn the Claude second opinion on/off (shipped **off**), model, fail-open/closed, timeout |
 | `loop.poll_interval_seconds` | seconds between full cycles in continuous mode |
-| `logging.*` | audit log / trade log / plan store / market snapshot paths, and `retention_days` pruning (used by `scripts/run_live.py` only) |
+| `loop.bar_parity` / `loop.max_entry_delay_minutes` | backtest-parity cycle rules P1-P5 (one decision per symbol per closed bar, monitor before entries, sorted entry order, pre-exit room, 1d htf on the scan frame) and the entry-staleness guard; both off by default (`false` / `null` = today's behaviour). See `docs/bot_bar_parity.md` |
+| `logging.*` | audit log / trade log / plan store / market snapshot paths, the bar-parity decision ledger (`bar_decisions_path`) and optional closed-bar archive (`closed_bars_dir`), and `retention_days` pruning (used by `scripts/run_live.py` only) |
 
 ## Going live — read this before you do it
 
@@ -220,7 +238,7 @@ src/pnl.py, src/risk_analytics.py, src/risk_counterfactual.py
                               read-only reporting on realized trades / rejected plans; never feed back into the risk engine
 src/heartbeat.py, src/notifier.py, src/log_retention.py
                               optional dead-man's-switch ping, Telegram messages, log pruning
-src/bot.py                    wires every stage together; the main loop
+src/bot.py                    wires every stage together; the main loop (+ the optional bar-parity cycle: bar gate, decision ledger, closed-bar archive)
 scripts/run_paper.py          convenience entry point, refuses to run if mode: live
 scripts/run_live.py           always-on host loop: cycle + dashboard export/push + log pruning + heartbeat (paper mode only)
 scripts/run_backtest.py       CLI backtest runner
