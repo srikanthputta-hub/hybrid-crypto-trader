@@ -107,6 +107,9 @@ def _assert_no_token(caplog, capsys):
     for blob in (caplog.text, out.out, out.err, *[r.getMessage() for r in caplog.records]):
         assert TOKEN not in blob
         assert TOKEN.split(":")[1] not in blob
+        assert TOKEN[-8:] not in blob  # tail fragment: a partial redaction must not leak the end of the secret
+        assert TOKEN.split(":")[1][-8:] not in blob
+        assert TOKEN.replace(":", "%3A") not in blob
     for r in caplog.records:
         assert r.exc_info is None and not r.exc_text
 
@@ -296,3 +299,60 @@ def test_retry_happens_only_once_and_only_for_parse_errors(caplog, capsys):
         send_telegram_message(TOKEN, "42", "x")
     assert len(calls) == 1  # a non-parse 400 is not retried
     _assert_no_token(caplog, capsys)
+
+
+# ---- hardening ------------------------------------------------------------
+
+def test_redact_secrets_covers_secret_half_and_url_encoded_forms():
+    secret = TOKEN.split(":", 1)[1]
+    encoded = TOKEN.replace(":", "%3A")
+    for text in (f"x {secret} y", f"x {encoded} y", f"x {TOKEN.replace(':', '%3a')} y", f"x /bot{encoded}/sendMessage y"):
+        out = redact_secrets(text, TOKEN)
+        assert secret not in out and secret[-8:] not in out and encoded not in out
+    # regex-only (token unknown, as in the urllib3 filter) handles the encoded URL form too
+    out = redact_secrets(f"POST /bot{encoded}/sendMessage")
+    assert secret not in out and secret[-8:] not in out
+
+
+def test_redaction_regex_covers_whole_secret_including_underscore_and_dash():
+    out = redact_secrets(f"/bot{TOKEN}/sendMessage")
+    assert "_abc-DEF1234567" not in out and "Secret" not in out
+
+
+class _PathologicalHTTPError(requests.HTTPError):
+    @property
+    def response(self):
+        raise RuntimeError(f"boom {URL}")
+
+    @response.setter
+    def response(self, value):  # requests' __init__ assigns it
+        pass
+
+
+def test_pathological_exc_response_never_escapes_or_leaks(caplog, capsys):
+    caplog.set_level(logging.DEBUG)
+    with patch("src.notifier.requests.post", side_effect=_PathologicalHTTPError(f"500 for url: {URL}")):
+        send_telegram_message(TOKEN, "42", "hello")  # must not raise
+    assert "_PathologicalHTTPError" in caplog.text
+    _assert_no_token(caplog, capsys)
+
+
+def test_pathological_response_on_retry_path_never_escapes():
+    class BadResp(FakeResponse):
+        @property
+        def status_code(self):
+            raise RuntimeError("boom")
+
+        @status_code.setter
+        def status_code(self, v):
+            pass
+
+    with patch("src.notifier.requests.post", return_value=BadResp(400, {"description": "x"})):
+        send_telegram_message(TOKEN, "42", "hello")  # must not raise
+
+
+@pytest.mark.parametrize("exc_type", [KeyboardInterrupt, SystemExit])
+def test_keyboard_interrupt_and_system_exit_still_propagate(exc_type):
+    with patch("src.notifier.requests.post", side_effect=exc_type()):
+        with pytest.raises(exc_type):
+            send_telegram_message(TOKEN, "42", "hello")

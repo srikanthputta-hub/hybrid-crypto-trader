@@ -32,8 +32,9 @@ TELEGRAM_API_BASE = "https://api.telegram.org"
 
 _REDACTED = "<redacted>"
 # A Telegram bot token is "<numeric bot id>:<35-char secret>"; in a URL it follows "bot".
-_BOT_URL_TOKEN_RE = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
-_BARE_TOKEN_RE = re.compile(r"\b\d{5,}:[A-Za-z0-9_-]{20,}")
+_BOT_URL_TOKEN_RE = re.compile(r"bot\d+(?::|%3[Aa])[A-Za-z0-9_-]+")
+_BARE_TOKEN_RE = re.compile(r"\b\d{5,}(?::|%3[Aa])[A-Za-z0-9_-]{20,}")
+_MIN_SECRET_LITERAL = 6  # don't blank-out tiny literals (test tokens) -- real secrets are ~35 chars
 _MD_SPECIAL_RE = re.compile(r"([_*`\[])")
 _MD_ESCAPED_RE = re.compile(r"\\([_*`\[])")
 _MAX_DESCRIPTION_CHARS = 200
@@ -46,17 +47,25 @@ def escape_md(value: object) -> str:
 
 
 def redact_secrets(text: str, bot_token: str | None = None) -> str:
-    """Strips bot-token patterns (and the configured token value itself) from text."""
+    """Strips bot-token patterns (and the configured token value itself, its
+    secret half, and their URL-encoded ``%3A`` forms) from text."""
     text = _BOT_URL_TOKEN_RE.sub("bot" + _REDACTED, text)
     text = _BARE_TOKEN_RE.sub(_REDACTED, text)
     if bot_token:
-        text = text.replace(bot_token, _REDACTED)
+        literals = {bot_token, bot_token.replace(":", "%3A"), bot_token.replace(":", "%3a")}
+        if ":" in bot_token:
+            literals.add(bot_token.split(":", 1)[1])
+        for literal in sorted(literals, key=len, reverse=True):
+            if len(literal) >= _MIN_SECRET_LITERAL or literal == bot_token:
+                text = text.replace(literal, _REDACTED)
     return text
 
 
 class _RedactTokenFilter(logging.Filter):
     """Defence in depth: urllib3 logs ``"POST /bot<TOKEN>/sendMessage ..."`` at
-    DEBUG; if anyone ever raises the log level, the token must still not land in a file."""
+    DEBUG; if anyone ever raises the log level, the token must still not land in a file.
+    Covers only records emitted through the ``urllib3.connectionpool`` logger -- NOT
+    ``http.client``'s ``debuglevel`` output, which uses print() straight to stdout."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
@@ -90,7 +99,10 @@ def _error_details(exc: BaseException, bot_token: str | None) -> tuple[object, s
 
 
 def _is_parse_error(exc: BaseException, bot_token: str | None) -> bool:
-    status, description = _error_details(exc, bot_token)
+    try:
+        status, description = _error_details(exc, bot_token)
+    except Exception:  # noqa: BLE001 — a pathological exc.response must not escape
+        return False
     return status == 400 and "can't parse entities" in description.lower()
 
 
@@ -119,7 +131,10 @@ def send_telegram_message(bot_token: str | None, chat_id: str | None, text: str)
     except Exception as exc:  # noqa: BLE001 — a notification failure must never break a trading cycle
         # Deliberately NOT logging str(exc) / exc_info: requests' exception text contains the
         # request URL, and with it the bot token.  Class name + status + description only.
-        status, description = _error_details(exc, bot_token)
+        try:
+            status, description = _error_details(exc, bot_token)
+        except Exception:  # noqa: BLE001 — a pathological exc.response must never escape the notifier
+            status, description = None, ""
         logger.warning(
             "Telegram notification failed: %s%s%s",
             type(exc).__name__,
