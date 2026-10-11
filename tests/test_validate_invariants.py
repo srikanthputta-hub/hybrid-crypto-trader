@@ -14,6 +14,7 @@ import yaml
 
 from scripts.validate_invariants import (
     check_bar_parity_config,
+    check_notifier_config,
     check_claude_advisor_fail_closed,
     check_config_mode_is_paper,
     check_env_example_documents_live_confirm,
@@ -517,3 +518,49 @@ class TestBarParityConfig:
     def test_bar_parity_config_passes_on_valid_values(self, config) -> None:
         result = self._check(config)
         assert result.passed, result.message
+
+
+class TestNotifierConfig:
+    """Test invariant 7: notifier.label parses exactly as src/bot.py's startup does (tightening only)."""
+
+    def test_notifier_config_passes_on_real_repo(self) -> None:
+        result = check_notifier_config()
+        assert result.passed, result.message
+        assert "label=None" in result.message  # merging must not switch a label on
+
+    def _check(self, config: dict):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_file = Path(tmpdir) / "config.yaml"
+            with open(config_file, "w") as f:
+                yaml.dump(config, f)
+            with patch("scripts.validate_invariants.Path") as mock_path:
+                mock_path.return_value = config_file
+                return check_notifier_config()
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"notifier": {"label": "PAPER_TRIAL"}},
+            {"notifier": {"label": ""}},
+            {"notifier": {"label": "x" * 33}},
+            {"notifier": {"label": "two\nlines"}},
+            {"notifier": {"label": 7}},
+            {"notifier": {"lable": "PAPER TRIAL"}},
+            {"notifier": "PAPER TRIAL"},
+        ],
+    )
+    def test_notifier_config_fails_on_bad_values(self, config) -> None:
+        result = self._check(config)
+        assert not result.passed
+        assert "notifier" in result.message
+
+    @pytest.mark.parametrize("config", [{}, {"notifier": {"label": None}}, {"notifier": {"label": "PAPER TRIAL"}}])
+    def test_notifier_config_passes_on_valid_values(self, config) -> None:
+        assert self._check(config).passed
+
+    def test_notifier_config_fails_when_config_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("scripts.validate_invariants.Path") as mock_path:
+                mock_path.return_value = Path(tmpdir) / "nope.yaml"
+                result = check_notifier_config()
+        assert not result.passed and "not found" in result.message
