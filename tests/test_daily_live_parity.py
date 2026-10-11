@@ -217,13 +217,24 @@ def same_decision(h: dict, b: dict) -> bool:
             return False
     if h["allowed"]:
         return bool(np.isclose(h["quote"], b["quote"], rtol=1e-9, atol=1e-9))
-    if h["reason"] == b["reason"]:
+    if _reason_key(h["reason"]) == _reason_key(b["reason"]):
         return True
     # Float residue: the same "nothing left" decision worded two ways (see module docstring).
     reasons = {h["reason"].split(" (")[0].split(";")[0], b["reason"].split(" (")[0].split(";")[0]}
     return any(r.startswith(NO_ROOM) for r in reasons) and any(BELOW_MIN in r for r in reasons) and all(
         r.startswith(NO_ROOM) or _phantom_size(r) < PHANTOM_USD for r in reasons
     )
+
+
+def _reason_key(reason: str) -> str:
+    """The decision part of a rejection reason, without clock-dependent text: the rate cap's
+    "; next slot opens in <timedelta>" (the harness passes `now` as a pandas Timestamp, so it
+    prints "0 days 02:00:00"; the bot uses datetime and prints "2:00:00", one minute later) and
+    the cooldown's "<timedelta> remaining"."""
+    key = reason.split(";")[0]
+    if key.startswith("cooldown active for "):
+        key = key.split(":")[0]
+    return key
 
 
 def _phantom_size(reason: str) -> float:
@@ -330,3 +341,16 @@ def test_committed_config_divergence_is_fee_slack_dust(tmp_path, monkeypatch):
         if k >= first:
             break
         assert H[k]["allowed"] == B[k]["allowed"], k
+
+
+def test_same_decision_ignores_only_clock_dependent_reason_text():
+    base = dict(allowed=False, equity=1.0, entry=1.0, stop=0.9, rr=2.0, quote=None)
+    cap = "new-entry rate cap hit: 5 new entries already approved across all symbols in the last 120 minutes (max 5)"
+    h = {**base, "reason": cap + "; next slot opens in 0 days 02:00:00"}
+    b = {**base, "reason": cap + "; next slot opens in 1:59:00"}
+    assert same_decision(h, b)
+    assert not same_decision(h, {**base, "reason": "market volatility too high (9.00% > max 8.00%); skipping"})
+    assert same_decision({**base, "reason": "cooldown active for X/USD: 0 days 00:59:00 remaining"},
+                         {**base, "reason": "cooldown active for X/USD: 0:58:00 remaining"})
+    assert not same_decision({**base, "reason": "cooldown active for X/USD: 1:00:00 remaining"},
+                             {**base, "reason": "cooldown active for Y/USD: 1:00:00 remaining"})
