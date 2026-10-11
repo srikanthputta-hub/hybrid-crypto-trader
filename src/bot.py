@@ -43,6 +43,7 @@ import pandas as pd
 from src import claude_advisor, htf_filter, monitor, notifier, scanner, signal_engine, trade_planner, universe
 from src.audit import AuditLog
 from src.broker_paper import PaperBroker
+from src.config import HTF_SCAN_TAIL_BARS as _CONFIG_HTF_SCAN_TAIL_BARS
 from src.config import BarParitySettings, Config, load_config
 from src.exchange import ExchangeClient
 from src.indicators import add_indicators
@@ -73,7 +74,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # SCAN_TAIL_BARS, which the harness's daily htf branch also uses); the gate
 # recomputes its EMAs on exactly these closes, so the same 150 closes give the
 # same decision. tests/test_bot_bar_parity.py asserts the two constants agree.
-HTF_SCAN_TAIL_BARS = 150
+HTF_SCAN_TAIL_BARS = _CONFIG_HTF_SCAN_TAIL_BARS  # 150; defined in src/config.py, which validates history_bars against it
 
 
 def build_components(cfg: Config):

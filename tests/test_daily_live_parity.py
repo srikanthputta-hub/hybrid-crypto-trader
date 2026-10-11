@@ -260,7 +260,7 @@ def test_live_loop_matches_p6_harness_exactly_on_gapless_zero_fee_data(tmp_path,
     rows, axis = load_rows(n_bars, gapless=True)
     h_checks, h_exits, res = run_harness(rows, fee=0.0, min_order=PHANTOM_USD, tmp=tmp_path / "h")
     b_checks, b_exits, events, per_cycle_scans, fake = run_bot(
-        rows, axis, fee=0.0, min_order=PHANTOM_USD, history_bars=n_bars + 5, tmp=tmp_path / "b", monkeypatch=monkeypatch
+        rows, axis, fee=0.0, min_order=PHANTOM_USD, history_bars=max(n_bars + 5, 200), tmp=tmp_path / "b", monkeypatch=monkeypatch
     )
     H = {(c["bar"], c["symbol"]): c for c in h_checks}
     B = {(c["bar"], c["symbol"]): c for c in b_checks}
@@ -275,7 +275,7 @@ def test_live_loop_matches_p6_harness_exactly_on_gapless_zero_fee_data(tmp_path,
     # Bar parity really engaged: the second tick of every bar scanned nothing (P1), and the
     # htf gate never fetched (P5) -- every fetch was the market-data one.
     assert all(n == 0 for k, n in per_cycle_scans if k == 1)
-    assert {limit for _sym, _tf, limit in fake.calls} == {n_bars + 6}
+    assert {limit for _sym, _tf, limit in fake.calls} == {max(n_bars + 5, 200) + 1}
 
     # Not vacuous.
     approvals = [c for c in h_checks if c["allowed"]]

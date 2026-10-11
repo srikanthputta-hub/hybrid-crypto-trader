@@ -497,6 +497,7 @@ class TestBarParityConfig:
             ({"loop": {"bar_parity": True, "max_entry_delay_minutes": float("nan")}}, "max_entry_delay_minutes"),
             ({"loop": {"bar_parity": False, "max_entry_delay_minutes": 60}}, "requires loop.bar_parity"),
             ({"loop": {"bar_parity": False}, "logging": {"closed_bars_dir": "logs/daily_bars"}}, "requires"),
+            ({"loop": {"bar_parity": True}, "market": {"timeframe": "1d", "history_bars": 100}}, "history_bars"),
         ],
     )
     def test_bar_parity_config_fails_on_bad_values(self, config, expected) -> None:

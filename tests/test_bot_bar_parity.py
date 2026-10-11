@@ -178,6 +178,22 @@ def test_inconsistent_or_malformed_settings_are_refused(raw, match):
         parse_bar_parity_settings(raw)
 
 
+@pytest.mark.parametrize("history_bars, ok", [(149, False), (150, True), (200, True), (True, False), (150.0, False)])
+def test_p5_needs_150_history_bars_at_1d(history_bars, ok):
+    raw = {"loop": {"bar_parity": True}, "market": {"timeframe": "1d", "history_bars": history_bars}}
+    if ok:
+        assert parse_bar_parity_settings(raw).enabled
+    else:
+        with pytest.raises(ValueError, match="history_bars"):
+            parse_bar_parity_settings(raw)
+
+
+def test_history_bars_rule_only_applies_to_bar_parity_at_1d():
+    assert parse_bar_parity_settings({"loop": {"bar_parity": True}, "market": {"timeframe": "1d"}}).enabled  # default 200
+    assert parse_bar_parity_settings({"loop": {"bar_parity": True}, "market": {"timeframe": "1h", "history_bars": 50}}).enabled
+    assert not parse_bar_parity_settings({"market": {"timeframe": "1d", "history_bars": 50}}).enabled
+
+
 def test_build_components_refuses_bad_parity_settings_at_startup(tmp_path):
     raw = _parity_raw(["ETH/USDT"], tmp_path / "logs", max_entry_delay_minutes=float("nan"))
     with pytest.raises(ValueError, match="max_entry_delay_minutes"):

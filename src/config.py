@@ -14,6 +14,10 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_BAR_DECISIONS_PATH = "logs/bar_decisions.json"
+# P5: with loop.bar_parity at market.timeframe "1d" the htf gate runs on the scan frame's last
+# this-many closes -- the backtest harness's window (strategy_pack_run/backtest_live_bot.py
+# SCAN_TAIL_BARS). Exact only if at least this many bars are fetched (market.history_bars).
+HTF_SCAN_TAIL_BARS = 150
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -71,6 +75,9 @@ def parse_bar_parity_settings(raw: dict[str, Any]) -> BarParitySettings:
       string.
     - max_entry_delay_minutes and closed_bars_dir require bar_parity: true (a
       guard that silently does nothing is worse than a startup error).
+    - with bar_parity: true at market.timeframe "1d", market.history_bars (default
+      200) must be an integer >= HTF_SCAN_TAIL_BARS (150), or the P5 htf gate would
+      see a shorter window than the backtest.
     Absent keys reproduce today's behaviour exactly."""
     loop = _section(raw, "loop")
     log_cfg = _section(raw, "logging")
@@ -100,6 +107,21 @@ def parse_bar_parity_settings(raw: dict[str, Any]) -> BarParitySettings:
     bars_dir = log_cfg.get("closed_bars_dir")
     if bars_dir is not None and (not isinstance(bars_dir, str) or not bars_dir.strip()):
         raise ValueError(f"logging.closed_bars_dir must be null (off) or a non-empty string, got {bars_dir!r}")
+
+    if enabled:
+        market = _section(raw, "market")
+        if market.get("timeframe") == "1d":
+            history_bars = market.get("history_bars", 200)
+            if (
+                isinstance(history_bars, bool)
+                or not isinstance(history_bars, int)
+                or history_bars < HTF_SCAN_TAIL_BARS
+            ):
+                raise ValueError(
+                    f"market.history_bars must be an integer >= {HTF_SCAN_TAIL_BARS} with loop.bar_parity at "
+                    f"timeframe 1d (the htf gate needs the backtest's {HTF_SCAN_TAIL_BARS}-bar window), "
+                    f"got {history_bars!r}"
+                )
 
     if not enabled:
         if delay is not None:
