@@ -25,8 +25,8 @@ equality against today's default harness is not achievable"):
 The realistic configuration (real opens, the 0.10% paper fee, the live 200-bar history) is
 measured against the design's 10% explained-mismatch budget by
 test_realistic_config_with_a_dust_floor_is_within_the_mismatch_budget, and the committed
-config's (min_order_quote_usd: 0) known fee-slack-dust divergence is pinned by
-test_committed_config_divergence_is_fee_slack_dust.
+config's (min_order_quote_usd: 0) known float-phantom divergence is pinned by
+test_committed_config_divergence_is_a_float_phantom.
 
 The 719-bar full replay takes a few minutes; it runs when HCT_FULL_PARITY=1. The default run
 covers the first DEFAULT_BARS bars (which already contain same-bar contention for the exposure
@@ -296,17 +296,18 @@ def _entry_mismatch(h_checks, b_checks) -> tuple[float, set, set]:
     return len(h ^ b) / max(1, len(h)), h, b
 
 
-def test_realistic_config_with_a_dust_floor_is_within_the_mismatch_budget(tmp_path, monkeypatch):
+@pytest.mark.parametrize("floor", [1.0, 10.0])
+def test_realistic_config_with_a_dust_floor_is_within_the_mismatch_budget(tmp_path, monkeypatch, floor):
     """Real opens (fill-price residual), the 0.10% paper fee, the live 200-bar history
-    (indicator warm-up), with min_order_quote_usd = 10 on both sides. Measured over all 719 bars
-    (docs/bot_bar_parity.md §4.3): 132/132 entries and 123/123 exits identical, i.e. a 0%
+    (indicator warm-up), with min_order_quote_usd = floor on both sides. Measured over all 719
+    bars (docs/bot_bar_parity.md §4.2): $1 and $10 both give identical entries and exits, a 0%
     mismatch; sizes differ slightly (fill price, warm-up), decisions don't. Budget: the design's
     10% explained-mismatch budget (§5)."""
     n_bars = 719 if FULL else DEFAULT_BARS
     rows, axis = load_rows(n_bars, gapless=False)
-    h_checks, h_exits, _ = run_harness(rows, fee=0.001, min_order=10.0, tmp=tmp_path / "h")
+    h_checks, h_exits, _ = run_harness(rows, fee=0.001, min_order=floor, tmp=tmp_path / "h")
     b_checks, b_exits, _, _, _ = run_bot(
-        rows, axis, fee=0.001, min_order=10.0, history_bars=200, tmp=tmp_path / "b", monkeypatch=monkeypatch
+        rows, axis, fee=0.001, min_order=floor, history_bars=200, tmp=tmp_path / "b", monkeypatch=monkeypatch
     )
     share, h_entries, b_entries = _entry_mismatch(h_checks, b_checks)
     assert len(h_entries) >= 30
@@ -314,15 +315,16 @@ def test_realistic_config_with_a_dust_floor_is_within_the_mismatch_budget(tmp_pa
     assert len(h_exits ^ b_exits) <= REALISTIC_ENTRY_MISMATCH_BUDGET * max(1, len(h_exits))
 
 
-def test_committed_config_divergence_is_fee_slack_dust(tmp_path, monkeypatch):
+def test_committed_config_divergence_is_a_float_phantom(tmp_path, monkeypatch):
     """The committed configuration (min_order_quote_usd: 0) with real opens, the 0.10% paper fee
-    and the live 200-bar history does NOT stay within the budget -- measured over all 719 bars:
-    see docs/bot_bar_parity.md §4.3. The cause is one known live-side mechanism (P6 doc §3):
-    a paper position is worth quote*(1-fee), so ~0.1% of every same-bar fill reappears as
-    exposure room in live only, and live approves sub-$1 "dust" plans the harness rejects; each
-    holds its symbol's plan slot, and the portfolios diverge from there. This test pins that the
-    FIRST divergence is exactly that (never a structural difference), and that every decision
-    before it agrees."""
+    and the live 200-bar history. Bar parity counts same-bar fills at their gross quote like the
+    harness, so the fee-slack dust that used to dominate (82% entry mismatch over 719 bars) is
+    gone; what is left is float residue: when room is used up exactly, it comes out at ~1e-12 USD
+    on one side and 0 on the other (different summation order), and with no order floor that
+    phantom is approved as a full plan slot. Over 719 bars this still exceeds the 10% budget
+    (13% entries; docs/bot_bar_parity.md §4.2), which is why a small min_order floor remains
+    advisable. This test pins that the FIRST divergence is exactly such a phantom (never a
+    structural difference) and that every decision before it agrees."""
     n_bars = 719 if FULL else DEFAULT_BARS
     rows, axis = load_rows(n_bars, gapless=False)
     h_checks, _, _ = run_harness(rows, fee=0.001, min_order=0.0, tmp=tmp_path / "h")
@@ -333,10 +335,11 @@ def test_committed_config_divergence_is_fee_slack_dust(tmp_path, monkeypatch):
     B = {(c["bar"], c["symbol"]): c for c in b_checks}
     keys = sorted(set(H) | set(B))
     first = next((k for k in keys if k not in H or k not in B or H[k]["allowed"] != B[k]["allowed"]), None)
-    assert first is not None  # known not to match: that is the finding
+    assert first is not None  # known not to match without a floor: that is the finding
     h, b = H.get(first), B.get(first)
     assert h is not None and b is not None, (first, h, b)
-    assert b["allowed"] and not h["allowed"] and 0 < b["quote"] < 1.0, (first, h, b)  # live-only dust
+    approved = b if b["allowed"] else h
+    assert approved["allowed"] and 0 < approved["quote"] < 1e-6, (first, h, b)  # a float phantom
     for k in keys:
         if k >= first:
             break
