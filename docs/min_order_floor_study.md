@@ -278,8 +278,27 @@ makes live match the harness and removes fee-slack dust *in parity mode*. Once t
 still has the fee slack;
 (c) a portfolio-level margin above exchange minimums.
 
-Any floor > 0 handles (a). In parity mode, $5's single failure on `data_long/` would disappear.
-That was not the registered setup, so the verdict stays $10. A post-hoc replay at that commit is in §3.1.
+Any floor > 0 handles (a). In parity mode, $5's single failure on `data_long/` (fee-slack dust)
+should disappear. That is expected but was not run (§3.1 covers floors 0 and 10 only), and it was not
+the registered setup, so the verdict stays $10.
+
+### 3.1 Post-hoc: parity replay at the bar-parity head `9ce341d` (gross same-bar counting; information only)
+
+Same driver and settings as §2.3, run on an extracted copy of `9ce341d`:
+
+| dataset | floor | entries H / L (common) | entry mismatch | exits H / L | exit mismatch | live-only / harness-only | first divergence |
+|---|---|---|---|---|---|---|---|
+| `data/` | 0 | 135 / 137 (127) | **13.3%** (over the 10% budget) | 125 / 128 | 7.2% | 10 / 8 | 2024-11-12 AVAX, live-only **9.1e-13 USD** phantom (harness: no room) |
+| `data/` | 10 | 132 / 132 | 0% | 123 / 123 | 0% | 0 / 0 | none |
+| `data_long/` | 0 | 546 / 544 (532) | 4.8% | 534 / 531 | 3.2% | 12 / 14 | 2023-10-02 BTC, live-only **3.6e-12 USD** phantom |
+| `data_long/` | 10 | 545 / 545 | 0% | 533 / 533 | 0% | 0 / 0 | none |
+
+This confirms the coordinator's point. With gross counting, fee-slack dust is gone. A floor of 0 still
+does not give parity, though, because live approves ~1e-12 USD float phantoms that the harness
+rejects. Each one holds its symbol's plan slot and cascades: on `data/` this puts the result over the
+design's 10% budget. A $10 floor gives 0% on both datasets at this head too. A floor is still needed
+before the paper trial's parity check, now mainly for phantoms, plus the exchange-minimum margin and
+the default (non-parity) path.
 
 ## 4. Proposed change (NOT applied; needs the user's approval)
 
