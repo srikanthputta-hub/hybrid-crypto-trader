@@ -421,7 +421,8 @@ def test_p1_decisions_survive_a_restart(tmp_path, monkeypatch):
     run_cycle(cfg, *parts)
     assert events[0]["action"] == "none" and "kill switch" in events[0]["risk_decision"]["reason"].lower()
     ledger = json.loads((logs / "bar_decisions.json").read_text())
-    assert ledger == {"ETH/USDT": pd.Timestamp(T0_MS + 251 * H_MS, unit="ms", tz="UTC").isoformat()}
+    assert ledger == {"timeframe": "1h",
+                      "bars": {"ETH/USDT": pd.Timestamp(T0_MS + 251 * H_MS, unit="ms", tz="UTC").isoformat()}}
 
     # Restart mid-bar (new process: fresh in-memory state, fresh components), kill switch gone.
     (logs / "KILL_SWITCH").unlink()
@@ -444,7 +445,61 @@ def test_p1_unreadable_ledger_starts_empty_and_keeps_monitoring(tmp_path):
     run_cycle(cfg, *parts)
     assert _events_for(events, "BTC/USDT")[0]["monitor_action"]["action"] == "STOP_LOSS"
     assert "candidates" in _events_for(events, "ETH/USDT")[0]
-    assert set(json.loads((logs / "bar_decisions.json").read_text())) == {"BTC/USDT", "ETH/USDT"}
+    assert set(json.loads((logs / "bar_decisions.json").read_text())["bars"]) == {"BTC/USDT", "ETH/USDT"}
+
+
+_BAR_230_CLOSE = pd.Timestamp(T0_MS + 231 * H_MS, unit="ms", tz="UTC")
+
+
+@pytest.mark.parametrize(
+    "ledger",
+    [
+        {"timeframe": "1h", "bars": {"ETH/USDT": None}},
+        {"timeframe": "1h", "bars": {"ETH/USDT": ""}},
+        {"timeframe": "1h", "bars": {"ETH/USDT": "NaT"}},
+        {"timeframe": "1h", "bars": {"ETH/USDT": "not a time"}},
+        {"timeframe": "1h", "bars": {"ETH/USDT": 12345}},
+        # later than the exchange clock: no closed bar can be
+        {"timeframe": "1h", "bars": {"ETH/USDT": (_BAR_230_CLOSE + pd.Timedelta(days=3)).isoformat()}},
+        # written at another timeframe (e.g. a daily close ahead of today's hourly bars after 1d -> 1h,
+        # or hourly closes after 1h -> 1d): ignored as a whole
+        {"timeframe": "1d", "bars": {"ETH/USDT": _BAR_230_CLOSE.isoformat()}},
+        # the pre-timeframe flat format, or no timeframe at all
+        {"ETH/USDT": _BAR_230_CLOSE.isoformat()},
+        {"bars": {"ETH/USDT": _BAR_230_CLOSE.isoformat()}},
+    ],
+)
+def test_p1_untrustworthy_ledger_entries_are_decided_once_not_blocked(tmp_path, monkeypatch, caplog, ledger):
+    logs = tmp_path / "logs"
+    logs.mkdir(parents=True)
+    (logs / "bar_decisions.json").write_text(json.dumps(ledger))
+    raw = _parity_raw(["ETH/USDT"], logs)
+    fake = FakeCcxt({"ETH/USDT": _flat_hourly(50.0)}, {})
+    cfg, parts, events = _components(raw, fake)
+    calls = _scan_spy(monkeypatch)
+    _tick_to(fake, 230)
+    with caplog.at_level("WARNING", logger="bot"):
+        run_cycle(cfg, *parts)
+    assert len(calls) == 1 and "candidates" in events[0]  # decided once more
+    assert any(r.levelname in ("WARNING", "ERROR") and "ledger" in r.getMessage() for r in caplog.records)
+    assert json.loads((logs / "bar_decisions.json").read_text()) == {
+        "timeframe": "1h", "bars": {"ETH/USDT": _BAR_230_CLOSE.isoformat()}}
+    run_cycle(cfg, *parts)  # and then gated as usual
+    assert len(calls) == 1
+
+
+def test_p1_valid_ledger_entry_for_the_current_bar_still_gates(tmp_path, monkeypatch):
+    # Control for the test above: the same file shape with a valid, current value blocks.
+    logs = tmp_path / "logs"
+    logs.mkdir(parents=True)
+    (logs / "bar_decisions.json").write_text(json.dumps({"timeframe": "1h", "bars": {"ETH/USDT": _BAR_230_CLOSE.isoformat()}}))
+    raw = _parity_raw(["ETH/USDT"], logs)
+    fake = FakeCcxt({"ETH/USDT": _flat_hourly(50.0)}, {})
+    cfg, parts, events = _components(raw, fake)
+    calls = _scan_spy(monkeypatch)
+    _tick_to(fake, 230)
+    run_cycle(cfg, *parts)
+    assert calls == [] and "already decided" in events[0]["note"]
 
 
 def test_p2_entries_run_in_sorted_order_regardless_of_config_order(tmp_path):

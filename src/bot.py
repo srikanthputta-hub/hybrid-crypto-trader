@@ -349,31 +349,64 @@ class BarDecisionLedger:
     when its latest closed bar is newer than the recorded one.
 
     Persisted (write-through, temp file + replace) to `path` as
-    {symbol: ISO bar-close time}, so a restart in the middle of a bar does not
-    decide it again. A missing file means "nothing decided yet". An unreadable
-    file is logged and treated as empty: the bot must keep monitoring stops, and
-    the P4 staleness guard (when enabled) still blocks late entries. A failed
-    write is logged and the in-memory state still gates this process."""
+    {"timeframe": <market.timeframe>, "bars": {symbol: ISO bar-close time}}, so a
+    restart in the middle of a bar does not decide it again. A missing file means
+    "nothing decided yet".
 
-    def __init__(self, path: Path) -> None:
+    Anything that cannot be trusted is treated as unreadable -- logged, and that
+    symbol's (or the whole file's) current bar is decided once more -- rather
+    than allowed to block a symbol: an unparseable file, a different or missing
+    timeframe (e.g. a 1h ledger after a switch to 1d: its hourly closes would
+    otherwise block every daily bar until the next day), and per entry a
+    null/empty/unparseable/NaT value (NaT would make is_new() False forever) or
+    a time later than `now` (no closed bar can be). Re-deciding once is safe: the
+    P4 staleness guard, when on, still skips a late entry. A failed write is
+    logged and the in-memory state still gates this process."""
+
+    def __init__(self, path: Path, timeframe: str, now: pd.Timestamp | None = None) -> None:
         self.path = Path(path)
+        self.timeframe = timeframe
         self._last: dict[str, pd.Timestamp] = {}
+        if not self.path.exists():
+            return
         try:
-            if self.path.exists():
-                raw = json.loads(self.path.read_text())
-                if not isinstance(raw, dict):
-                    raise ValueError("bar decision ledger is not a JSON object")
-                self._last = {str(sym): self._utc(ts) for sym, ts in raw.items()}
+            raw = json.loads(self.path.read_text())
+            if not isinstance(raw, dict) or not isinstance(raw.get("bars"), dict):
+                raise ValueError('not a {"timeframe": ..., "bars": {...}} JSON object')
         except Exception:
             logger.exception(
-                "could not read bar decision ledger %s -- starting empty (every symbol's current bar counts as new)",
+                "could not read bar decision ledger %s -- starting empty (every symbol's current bar is decided again)",
                 self.path,
             )
-            self._last = {}
+            return
+        if raw.get("timeframe") != timeframe:
+            logger.warning(
+                "bar decision ledger %s was written for timeframe %r, running %r -- ignoring it "
+                "(every symbol's current bar is decided again)", self.path, raw.get("timeframe"), timeframe,
+            )
+            return
+        for sym, value in raw["bars"].items():
+            ts = self._parse(value)
+            if ts is None:
+                logger.warning("bar decision ledger %s: unreadable entry %r for %s -- deciding its bar again",
+                               self.path, value, sym)
+                continue
+            if now is not None and ts > now:
+                logger.warning("bar decision ledger %s: entry %s for %s is later than now (%s) -- deciding its bar again",
+                               self.path, ts.isoformat(), sym, now.isoformat())
+                continue
+            self._last[str(sym)] = ts
 
     @staticmethod
-    def _utc(value) -> pd.Timestamp:
-        ts = pd.Timestamp(value)
+    def _parse(value) -> pd.Timestamp | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            ts = pd.Timestamp(value)
+        except (ValueError, TypeError, OverflowError):
+            return None
+        if pd.isna(ts):
+            return None
         return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
 
     def last(self, symbol: str) -> pd.Timestamp | None:
@@ -391,7 +424,8 @@ class BarDecisionLedger:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-            tmp.write_text(json.dumps({s: t.isoformat() for s, t in sorted(self._last.items())}, indent=1))
+            payload = {"timeframe": self.timeframe, "bars": {s: t.isoformat() for s, t in sorted(self._last.items())}}
+            tmp.write_text(json.dumps(payload, indent=1))
             tmp.replace(self.path)
         except Exception:
             logger.exception("failed to persist bar decision ledger %s (in-memory state still applies)", self.path)
@@ -410,12 +444,14 @@ def _resolve_log_path(value: str) -> Path:
     return path if path.is_absolute() else PROJECT_ROOT / path
 
 
-def _bar_ledger(settings: BarParitySettings) -> BarDecisionLedger:
+def _bar_ledger(settings: BarParitySettings, timeframe: str, now: pd.Timestamp) -> BarDecisionLedger:
+    """The process's ledger for this file, loaded on first use (validated against
+    `timeframe` and `now`, the exchange clock)."""
     path = _resolve_log_path(settings.decisions_path)
     key = str(path.resolve())
     ledger = _bar_ledgers.get(key)
     if ledger is None:
-        ledger = BarDecisionLedger(path)
+        ledger = BarDecisionLedger(path, timeframe, now)
         _bar_ledgers[key] = ledger
     return ledger
 
@@ -896,7 +932,8 @@ def _run_bar_parity_passes(
     c.parity = True
     c.htf_from_scan_frame = cfg.timeframe == "1d"
     tf_ms = _timeframe_ms(c.exchange, cfg.timeframe)
-    ledger = _bar_ledger(settings)
+    now_ms = int(c.exchange.client.milliseconds())
+    ledger = _bar_ledger(settings, cfg.timeframe, pd.Timestamp(now_ms, unit="ms", tz="UTC"))
 
     if settings.closed_bars_dir is not None:
         bars_dir = _resolve_log_path(settings.closed_bars_dir)
@@ -934,7 +971,6 @@ def _run_bar_parity_passes(
         c.record(event)
 
     # ---- pass 2: new entries, in sorted(symbol) order, after every monitor check ----
-    now_ms = int(c.exchange.client.milliseconds())
     for symbol in sorted(deferred):
         event = {"symbol": symbol, "mode": cfg.mode, "timestamp": now_iso()}
         try:
