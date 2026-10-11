@@ -510,6 +510,11 @@ class _Cycle:
     exited_value: float = 0.0
     exit_proceeds: float = 0.0
     exited_symbols: list[str] = field(default_factory=list)
+    # Bar parity only (P3/P6): gross approved quote of every fill made earlier in this
+    # cycle (a PENDING plan's monitor FILL or a fresh plan's immediate fill), by symbol.
+    # The paper broker books such a position at quote*(1-fee); the harness counts the
+    # gross quote. Entry checks count the gross quote (never less than the booked value).
+    same_bar_fills: dict[str, float] = field(default_factory=dict)
     htf_from_scan_frame: bool = False
 
 
@@ -565,6 +570,8 @@ def _monitor_held_symbol(c: _Cycle, symbol: str, record, price: float, event: di
                     c.exited_symbols.append(symbol)
         else:
             _execute_monitor_action(action, record, c.broker, c.store, c.risk_engine, event)
+            if c.parity and action.action == "FILL" and symbol in c.portfolio.positions:
+                c.same_bar_fills[symbol] = float(record.plan["approved_quote_amount"])
     else:
         event["action"] = "none"
         event["note"] = f"{record.status} plan active for {symbol}, no trigger this cycle"
@@ -684,6 +691,17 @@ def _evaluate_new_entry(c: _Cycle, symbol: str, enriched, price: float, event: d
         # harness accounting matches this, see docs/p6_harness_exposure_fix.md).
         other_positions_value += c.exited_value
         cash_available -= c.exit_proceeds
+        # Same-bar fills at their gross approved quote, as the P6 harness counts them
+        # (count_same_bar_approvals): the paper position is worth quote*(1-fee), so without
+        # this ~0.1% of every same-bar fill reappears as room for live-only "dust" plans
+        # (docs/bot_bar_parity.md §4.2). max(0, ...): can only shrink room, never grow it.
+        # Cash needs no adjustment: Portfolio.apply_buy already debits the gross quote.
+        for sym, gross_quote in c.same_bar_fills.items():
+            pos = c.portfolio.positions.get(sym)
+            if sym == symbol or pos is None:
+                continue
+            booked = pos.amount * c.current_prices.get(sym, pos.entry_price)
+            other_positions_value += max(0.0, gross_quote - booked)
     atr_pct = atr / price if price else None
     decision = c.risk_engine.check_new_trade(
         symbol,
@@ -741,6 +759,8 @@ def _evaluate_new_entry(c: _Cycle, symbol: str, enriched, price: float, event: d
     immediate = monitor.check_pending(fresh_record, price)
     if immediate is not None and immediate.action == "FILL":
         fill = c.broker.buy(symbol, plan_dict["approved_quote_amount"], price)
+        if c.parity:
+            c.same_bar_fills[symbol] = float(plan_dict["approved_quote_amount"])
         c.store.mark_open(symbol, fill_price=fill.price, fill_amount=fill.base_amount)
         event["execution"] = fill.__dict__
     return False

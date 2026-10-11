@@ -43,6 +43,7 @@ from tests.test_bot_universe_wiring import (
     _isolated_raw,
     _random_walk_hourly,
     _seed_open_position,
+    _seed_pending_plan,
     _small_raw,
     _strip_wall_clock,
     _tick_to,
@@ -535,6 +536,60 @@ def test_p3_same_bar_exit_still_holds_its_base(tmp_path):
     assert _events_for(events, "BTC/USDT")[0]["monitor_action"]["action"] == "STOP_LOSS"
     btc_usd = _events_for(events, "BTC/USD")[0]
     assert btc_usd["action"] == "none" and "BTC/USDT" in btc_usd["note"] and "candidates" not in btc_usd
+
+
+def _spy_open_value(risk_engine):
+    seen: dict[str, tuple[float, float]] = {}
+    original = risk_engine.check_new_trade
+
+    def spy(symbol, side, portfolio_equity, cash_available, **kwargs):
+        seen[symbol] = (kwargs["open_positions_value"], cash_available)
+        return original(symbol, side, portfolio_equity, cash_available, **kwargs)
+
+    risk_engine.check_new_trade = spy
+    return seen
+
+
+@pytest.mark.parametrize("parity", [True, False])
+def test_p3_same_bar_fill_counts_at_its_gross_quote(tmp_path, parity):
+    # ADA plans and fills first (sorted / config order); the paper broker books it at
+    # quote*(1-0.1%). With bar parity, XRP's check sees the GROSS quote as exposure (what
+    # the P6 harness counts), so fee slack can't become room for a live-only dust plan.
+    logs = tmp_path / "logs"
+    symbols = ["ADA/USDT", "XRP/USDT"]
+    raw = _parity_raw(symbols, logs) if parity else _isolated_raw(_small_raw(symbols), logs)
+    fake = FakeCcxt({"ADA/USDT": _breakout_hourly(), "XRP/USDT": _breakout_hourly()}, {})
+    cfg, parts, events = _components(raw, fake)
+    seen = _spy_open_value(parts[1])
+    _tick_to(fake, 250)
+    run_cycle(cfg, *parts)
+    ada = _events_for(events, "ADA/USDT")[0]
+    quote = ada["risk_decision"]["max_quote_amount"]
+    assert ada["action"] == "planned" and "execution" in ada
+    cash_after_ada = 10000 - quote
+    other, cash = seen["XRP/USDT"]
+    assert cash == pytest.approx(cash_after_ada, rel=1e-12)  # gross debit either way
+    if parity:
+        assert other == pytest.approx(quote, rel=1e-12)
+    else:
+        assert other == pytest.approx(quote * 0.999, rel=1e-12)  # unchanged default
+
+
+@pytest.mark.parametrize("parity", [True, False])
+def test_p3_pending_fill_in_the_monitor_pass_counts_at_its_gross_quote(tmp_path, parity):
+    logs = tmp_path / "logs"
+    _seed_pending_plan(logs, "BTC/USDT", entry_zone=(99.0, 101.0), invalidation=90.0)  # approved 500
+    symbols = ["BTC/USDT", "ETH/USDT"]
+    raw = _parity_raw(symbols, logs) if parity else _isolated_raw(_small_raw(symbols), logs)
+    fake = FakeCcxt({"BTC/USDT": _flat_hourly(100.0, n=251), "ETH/USDT": _breakout_hourly()}, {})
+    cfg, parts, events = _components(raw, fake)
+    seen = _spy_open_value(parts[1])
+    _tick_to(fake, 250)
+    run_cycle(cfg, *parts)
+    assert _events_for(events, "BTC/USDT")[0]["monitor_action"]["action"] == "FILL"
+    other, cash = seen["ETH/USDT"]
+    assert cash == pytest.approx(9500.0)
+    assert other == pytest.approx(500.0 if parity else 500.0 * 0.999, rel=1e-12)
 
 
 def _stale_setup(tmp_path, minutes_after_close: float, delay=60):
