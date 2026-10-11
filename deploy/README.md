@@ -138,3 +138,23 @@ cd ~/hybrid-crypto-trader
 git pull
 sudo systemctl restart hybrid-crypto-trader
 ```
+
+### After deploying the notifier/heartbeat log-redaction fix
+
+Earlier versions logged the full exception text on a failed Telegram send (and
+a failed heartbeat ping). `requests` puts the request URL in that text, so the
+Telegram bot token (`.../bot<TOKEN>/sendMessage`) and the healthchecks.io ping
+URL (its UUID works as a credential) could have been written to `logs/` and
+`journalctl`. Once this fix is deployed:
+
+1. Check for leaks: `grep -rl 'api.telegram.org/bot' logs/` and
+   `journalctl -u hybrid-crypto-trader | grep -c 'api.telegram.org/bot'` (also
+   grep for your healthchecks.io ping UUID). Anything found means the secret
+   was exposed.
+2. Rotate the Telegram bot token: in BotFather send `/revoke`, pick the bot,
+   then put the new token in `.env` (`TELEGRAM_BOT_TOKEN`) and restart the service.
+   If your healthchecks.io URL showed up, regenerate the check's ping URL too
+   and update `HEALTHCHECK_PING_URL`.
+3. Delete the old logs that contain the secret (and vacuum the journal:
+   `sudo journalctl --vacuum-time=1s`, or `--rotate` first). Don't paste log
+   contents anywhere while doing this.
