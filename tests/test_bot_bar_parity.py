@@ -53,8 +53,11 @@ D_MS = 24 * H_MS
 
 
 @pytest.fixture(autouse=True)
-def _isolate_global_state(monkeypatch):
+def _isolate_global_state(monkeypatch, tmp_path):
     monkeypatch.setattr(htf_filter, "_cache", {})
+    # A config without logging.bar_decisions_path would otherwise use the repo's real
+    # logs/bar_decisions.json (relevant only if the parity path ever ran with the flag off).
+    monkeypatch.setattr("src.config.DEFAULT_BAR_DECISIONS_PATH", str(tmp_path / "default_bar_decisions.json"))
     monkeypatch.setattr("src.risk_engine.datetime", _FakeDatetime)
     _Clock.now = datetime.fromtimestamp(T0_MS / 1000, tz=timezone.utc)
     bot._reset_bar_parity_state()
@@ -115,14 +118,16 @@ def _events_for(events, symbol):
 # --- 0. startup validation ----------------------------------------------------
 
 
-def test_absent_keys_mean_today_behaviour():
+def test_absent_keys_mean_today_behaviour(monkeypatch):
+    monkeypatch.setattr("src.config.DEFAULT_BAR_DECISIONS_PATH", "logs/bar_decisions.json")  # undo the fixture
     assert parse_bar_parity_settings({}) == BarParitySettings()
     s = parse_bar_parity_settings({"loop": {"poll_interval_seconds": 300}, "logging": {}})
     assert s.enabled is False and s.max_entry_delay_minutes is None and s.closed_bars_dir is None
     assert s.decisions_path == "logs/bar_decisions.json"
 
 
-def test_real_config_parses_to_defaults():
+def test_real_config_parses_to_defaults(monkeypatch):
+    monkeypatch.setattr("src.config.DEFAULT_BAR_DECISIONS_PATH", "logs/bar_decisions.json")  # undo the fixture
     # Merging this branch must not change the running paper bot: config.yaml spells the
     # keys out with their off values.
     s = load_config().bar_parity

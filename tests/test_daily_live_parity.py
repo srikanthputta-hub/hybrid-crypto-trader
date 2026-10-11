@@ -235,8 +235,9 @@ def _phantom_size(reason: str) -> float:
 
 
 @pytest.fixture(autouse=True)
-def _isolate(monkeypatch):
+def _isolate(monkeypatch, tmp_path):
     monkeypatch.setattr(htf_filter, "_cache", {})
+    monkeypatch.setattr("src.config.DEFAULT_BAR_DECISIONS_PATH", str(tmp_path / "default_bar_decisions.json"))
     monkeypatch.setattr("src.risk_engine.datetime", _FakeDatetime)
     bot._reset_bar_parity_state()
     yield
