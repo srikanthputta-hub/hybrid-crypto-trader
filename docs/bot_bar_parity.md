@@ -23,7 +23,7 @@
 | `.gitignore` | `logs/daily_bars/` (top-level `logs/*.csv` did not cover a subdirectory). |
 | `README.md` | Architecture diagram (bar gate, 2b at 1d, stage 5 close-only), cycle paragraph, config table, layout. |
 | `tests/_pre_bar_parity_run_cycle.py` | Frozen copy of `origin/main`'s `run_cycle` (the "before" half of the default-mode identity tests). |
-| `tests/test_bot_bar_parity.py` | 60 tests: validation, default-mode identity, P1-P5, archive. |
+| `tests/test_bot_bar_parity.py` | 80 tests: validation, default-mode identity, P1-P5, gross same-bar accounting, ledger robustness, archive. |
 | `tests/test_daily_live_parity.py` | Design test 7: `bot.run_cycle` vs `simulate_portfolio(count_same_bar_approvals=True)` on the committed Kraken daily data. |
 | `tests/test_validate_invariants.py` | 11 tests for the new check. |
 
@@ -39,6 +39,8 @@
 | `logging.closed_bars_dir` | off | `null` (off) or non-empty string | `""`, non-strings; **any value while `bar_parity` is false** |
 
 A dependent key without `bar_parity: true` is a startup error rather than silently ignored.
+With `bar_parity: true` at `market.timeframe: "1d"`, `market.history_bars` (default 200) must be an
+integer >= 150, or P5's htf window would be shorter than the backtest's (review item 4).
 A `loop:`/`logging:` section that is not a mapping is also refused (it would crash later anyway).
 **Deviation:** design §6's `src/config.py` row says "default 60 if absent" for
 `max_entry_delay_minutes`. Here absent means **off**, because the task's merge-safety constraint
@@ -75,14 +77,19 @@ Market-data refresh, indicator enrichment and `equity` are exactly as before. Th
 - Consequences: no re-scan of the same bar (design (a)/(c)); no re-entry on the exit bar, because
   the exit's monitor check already decided the bar (design (a)); no rate-cap refill on the same
   bar's stale signals (design (c)).
-- **Persisted** (write-through, temp file + `replace`) to `logging.bar_decisions_path` as
-  `{symbol: ISO bar close}`. **Deviation (additive):** the design's §6 sketch keeps this in a
+- **Persisted** (write-through, temp file + `replace`; `logs/*.tmp` is gitignored) to
+  `logging.bar_decisions_path` as `{"timeframe": <market.timeframe>, "bars": {symbol: ISO bar close}}`. **Deviation (additive):** the design's §6 sketch keeps this in a
   module-level dict and relies on the staleness guard for restarts. The task requires
   persistence, so a restart mid-bar never re-decides a bar even with P4 off. The state is still
   module-level (keyed by file path), so `run_cycle`'s signature is unchanged.
-- An unreadable ledger is logged and treated as empty (the bot must keep monitoring stops); a
-  failed write is logged and the in-memory state still gates the process. Naive timestamps are
-  read as UTC.
+- **Untrustworthy ledger content is treated as unreadable, never as a block** (review item 3):
+  an unparseable file, the flat pre-timeframe form, a missing or different `timeframe` (e.g. a 1h
+  ledger after switching to 1d, whose hourly closes would otherwise block every daily bar until
+  the next day), and per entry a null/empty/non-string/unparseable/NaT value (NaT would make
+  `is_new` False forever) or a time later than the exchange clock (no closed bar can be). Each is
+  logged (warning) and that symbol's (or every symbol's) current bar is decided once more. With
+  P4 on, a late re-decision is still skipped as stale. A failed write is logged and the
+  in-memory state still gates the process. Naive timestamps are read as UTC.
 - `scripts/reset_portfolio.py` deliberately does not archive the ledger: keeping it means a reset
   mid-bar does not let the fresh portfolio enter on a bar the old one already decided (design §5:
   trial day 0 is the first close after deploy).
@@ -106,9 +113,13 @@ the per-base rule treats the exited symbols' bases as still taken.
   needed for exact parity: the harness's `cash_available` excludes exit proceeds until the next
   open, and its exiting symbol still holds its slot on that bar. Both can only shrink or block an
   entry, never enlarge one.
-- Same-cycle FILLs (a fresh plan's immediate fill, or a PENDING plan's monitor FILL in pass 1)
-  are already in `portfolio.positions`/`cash`, which is what the P6 harness's
-  `count_same_bar_approvals` reproduces. Verified, not changed (§4).
+- **Same-cycle FILLs count at their gross approved quote** (review item 2). A fresh plan's
+  immediate fill, or a PENDING plan's monitor FILL in pass 1, is already in `portfolio.cash` at the
+  gross quote (`Portfolio.apply_buy` debits it), but the paper broker books the position at
+  `quote*(1-fee)`. The P6 harness counts the gross quote. In bar-parity mode, every later entry
+  check in the cycle adds `max(0, gross_quote - booked_value)` per same-cycle fill to
+  `open_positions_value`. That is orchestration only (no change to risk_engine, portfolio or
+  broker), and it can only shrink or block an entry. The default path is unchanged.
 - `equity` is computed once per cycle before any exit, as before (= the harness's `equity[t]`).
 
 ### P4: entry staleness guard (`loop.max_entry_delay_minutes`)
@@ -188,17 +199,23 @@ Compared: every risk check keyed by (bar, symbol) (approved, size, equity, entry
 per-bar order of checks, and every exit (decision bar, symbol, reason).
 
 Results over the **full 719 bars** (scratch runs of the same code; the default test run uses the
-first 130 bars, `HCT_FULL_PARITY=1` runs all 719):
+first 130 bars, `HCT_FULL_PARITY=1` runs all 719: 5 passed). Rows A-B5 and B0/B1 were measured
+before the gross same-bar accounting (review item 2); the "gross" rows after it:
 
 | run | data | paper fee / harness fee | live history | min order (both) | risk checks H / B | entries H / B, mismatch | exits H / B, mismatch |
 |---|---|---|---|---|---|---|---|
-| **A (exact)** | gapless (open = prev close) | 0 / 0 | covers fixture | 0.01 | 721 / 721, same keys, all decisions equal (15 are the same "nothing left" rejection worded as "no room" vs "below minimum 0.01" for a ~9e-13 USD size) | 133 / 133, 0% | 124 / 124, 0% |
+| **A (exact)** | gapless (open = prev close) | 0 / 0 | covers fixture | 0.01 | 721 / 721, same keys, all decisions equal (15 are the same "nothing left" rejection worded as "no room" vs "below minimum 0.01" for a ~9e-13 USD size; 1, SOL/USD 2026-03-17, is the same rate-cap rejection whose "next slot opens in" text prints a pandas `0 days 02:00:00` in the harness vs `2:00:00` in the bot -- the first version of the test compared that text verbatim and failed the full run; reasons are now compared up to the first `;`) | 133 / 133, 0% | 124 / 124, 0% |
 | B5 (warm-up only) | gapless | 0 / 0 | 200 | 0.01 | 721 / 721 | 133 / 133, 0% | 124 / 124, 0% |
 | B4 (fill price only) | real | 0 / 0 | covers | 0.01 | 721 / 721 | 133 / 133, 0% | 124 / 124, 0% |
 | B3 (fee only) | gapless | 0.10% / 0.10% | covers | 10 | 722 / 722 | 132 / 132, 0% | 123 / 123, 0% |
 | **B2 (realistic + floor)** | real | 0.10% / 0.10% | 200 | 10 | 722 / 722 | 132 / 132, 0% | 123 / 123, 0% |
 | B1 | real | 0.10% / 0.10% | 200 | 1 | 721 / 720 | 133 / 135, **4.5%** (first: 2026-05-07, a live-only $1.008 ALGO approval) | 124 / 126, 3.2% |
-| **B0 (committed config)** | real | 0.10% / 0.10% | 200 | **0** | 715 / 533 | 135 / 174, **82%** (99 in common) | 125 / 160, **65%** |
+| **B0 (committed config), net commit** | real | 0.10% / 0.10% | 200 | **0** | 715 / 533 | 135 / 174, **82%** (99 in common) | 125 / 160, **65%** |
+| **gross, floor 0** | real | 0.10% / 0.10% | 200 | 0 | 715 / 702 | 135 / 137, **13.3%** (first: 2024-11-12 AVAX, a live-only 9.1e-13 USD phantom) | 125 / 128, 7.2% |
+| gross, floor $0.01 | real | 0.10% / 0.10% | 200 | 0.01 | 720 / 720 | 134 / 134, **0%** | 125 / 125, 0% |
+| gross, floor $1 | real | 0.10% / 0.10% | 200 | 1 | 721 / 721 | 133 / 133, **0%** | 124 / 124, 0% |
+| gross, floor $10 | real | 0.10% / 0.10% | 200 | 10 | 722 / 722 | 132 / 132, **0%** | 123 / 123, 0% |
+| gross, zero fee, floor 0 | gapless | 0 / 0 | covers | 0 | 706 / 707 | 135 / 134, 11.1% (first: a live-only 9.1e-13 phantom) | 125 / 125, 6.4% |
 
 "Mismatch" is the design §5 metric: symmetric difference of (bar, symbol) entries over the
 harness count. In B2-B5 sizes differ slightly (fill price, warm-up ~1e-7), decisions do not.
@@ -210,26 +227,35 @@ What this shows:
    fetch happens.
 2. **The fill-price residual, the paper fee and the 200-bar warm-up each change no decision**
    over 719 bars once dust is excluded (B2-B5).
-3. **With the committed `min_order_quote_usd: 0` and the 0.10% paper fee, the live loop does not
-   stay within the design's 10% budget (B0).** The first divergence (2024-11-08, bar ~27) is a
+3. **With net commit (the first version) and the committed `min_order_quote_usd: 0`, the live
+   loop did not stay within the design's 10% budget (B0).** The first divergence (2024-11-08, bar ~27) is a
    live-only approval of a $0.999 and then a $0.001 plan: a paper position is worth
    `quote*(1-fee)`, so ~0.1% of every same-bar fill reappears as exposure room in live only (P6
    doc §3 predicted this). Each dust plan holds its symbol's plan slot until it closes, the
    portfolios diverge, and it cascades. This is not a defect of P1-P5; it is the live/harness
-   accounting residual that P6 deliberately left (gross vs net). The test pins that the first
-   divergence is exactly this mechanism and every earlier decision agrees.
-4. **Recommendation (Risk Officer / user decision, not changed here):** before the §5 trial,
-   set `risk.min_order_quote_usd` > 0. $1 brings the mismatch inside the budget (B1: 4.5%, its residual is a $1.008 fee-slack approval just above the floor); $10 removes it (B2: 0%), as the P6
-   doc already recommends for dust and phantoms. It is a risk-parameter change, so it needs its
-   own written reason and gate run (the harness already mirrors the key). Without it, the weekly
-   parity check will report this divergence every week.
+   accounting residual that P6 deliberately left (gross vs net). The independent review proved the
+   whole gap is this: with the harness patched to commit net-of-fee, the mismatch is 0.0%.
+4. **Fixed in bar-parity mode by committing same-bar fills gross (the orchestration-only
+   alternative, §2 P3).** Floor 0 drops from 82% to 13.3% (entries) and 65% to 7.2% (exits).
+   What remains is **float phantoms**, not fee slack: when the room is used up exactly, it comes
+   out at ~1e-12 USD on one side and 0 on the other (different summation order), and with no order
+   floor the side with 1e-12 approves it as a full plan, which holds a slot and cascades. It
+   happens at zero fee too (last row). Any positive floor removes it: $0.01, $1 and $10 all give
+   0% over 719 bars. `tests/test_daily_live_parity.py` pins that the floor-0 first divergence is
+   such a phantom (quote < 1e-6) and every earlier decision agrees, and checks the budget at $1
+   and $10.
+5. **A small `risk.min_order_quote_usd` floor therefore remains advisable before the §5 trial**
+   (even a cent removes the phantoms; the P6 doc's ~$10 also covers exchange minimums). Not
+   changed here: it is a risk-parameter change owned by a separate study (written reason + gate
+   run; the harness already mirrors the key).
 
 ## 5. Mutation check
 
 Each guard broken by hand (`/tmp` script, applied to `src/bot.py`, tests run, file restored and
 `git diff` confirmed clean):
 
-Unit tests = `tests/test_bot_bar_parity.py` (60 tests); e2e = the exact 130-bar
+Unit tests = `tests/test_bot_bar_parity.py` (60 tests at M1-M15; M16-M22 run it plus
+`tests/test_validate_invariants.py`, 146 tests); e2e = the exact 130-bar
 `test_live_loop_matches_p6_harness_exactly_on_gapless_zero_fee_data`.
 
 | mutation | unit tests failing | e2e exact test |
@@ -249,13 +275,34 @@ Unit tests = `tests/test_bot_bar_parity.py` (60 tests); e2e = the exact 130-bar
 | M13 archive writes duplicates | 1 | not run |
 | M14 parity path taken with the flag off | 12 (all default-identity tests) | not run |
 | M15 P3 exit bookkeeping disabled | 4 | fails |
+| M16 same-bar fill not counted at its gross quote | 2 | not run |
+| M17 PENDING monitor FILL not counted gross | 1 | not run |
+| M18 ledger NaT accepted | 1 | not run |
+| M19 ledger future time accepted | 1 | not run |
+| M20 ledger timeframe ignored | 2 | not run |
+| M21 history_bars >= 150 not checked (`src/config.py`) | 2 (incl. `validate_invariants` test) | not run |
+| M22 ledger empty/non-string value accepted | 1 | not run |
 
 Every mutation is caught by at least one test.
 
 ## 6. Residual risks and notes
 
-- **Fee-slack dust and float phantoms** (§4.2): the only measured source of live/harness decision
-  divergence. Fix is a risk-parameter decision (`min_order_quote_usd`).
+- **Float phantoms** (§4.2): with the gross same-bar accounting, the only measured source of
+  live/harness decision divergence. Removed by any positive `min_order_quote_usd` (a separate
+  risk-parameter decision).
+- **P3 only credits exits from the same cycle.** If a FLAT symbol's bar is first decided on a
+  later tick than a same-bar exit (e.g. its fetch failed on the first tick after the close), that
+  later cycle no longer knows about the exit, so the symbol sees the freed room and cash. This
+  happens in live only (the harness decides every symbol at once) and is bounded by P4 when it is on.
+- **Live-only P3 gap on partial LiveBroker sells.** If a live sell fills only partly, the position
+  stays (so P3 credits nothing) while cash has grown, so the freed room leaks to same-bar entries.
+  Not reachable in paper (PaperBroker sells the whole position), and live mode is untouched.
+- **The ledger is last-writer-wins.** Two processes on the same `bar_decisions_path` (e.g. the VM
+  loop and a manual `--once`) can overwrite each other's marks, which re-decides a bar. Run one
+  process, as `scripts/run_live.py` already requires.
+- **Timeframe switch.** A ledger written at another timeframe is ignored at startup (logged), so
+  after 1h -> 1d every symbol's current daily bar is decided once more. Do the switch right after
+  00:00 UTC (or with P4 on) so that this re-decision is the day's normal one.
 - **PENDING fills ordering.** The harness interleaves a PENDING plan's monitor FILL with the
   bar's new-entry checks in sorted order; live runs every monitor check first (design P2). At 1d
   a fresh plan always fills at once (its entry zone contains the close), so a PENDING plan only
@@ -266,8 +313,8 @@ Every mutation is caught by at least one test.
   change of its own: flip it together with the 1d switch, or on its own only with approval.
 - **Clock.** P4 uses the host clock via ccxt; NTP drift of minutes is irrelevant at a 60-min
   guard. The exchange's bar timestamps are trusted as bar opens (as `fetch_ohlcv_df` already does).
-- **Ledger loss** (deleted/corrupt file) during a bar re-decides that bar once; with P4 on it is
-  then skipped as stale unless within the delay.
+- **Ledger loss** (deleted/corrupt/untrustworthy file) during a bar re-decides that bar once; with
+  P4 on it is then skipped as stale unless within the delay.
 - **Startup strictness:** `build_components` now raises on a malformed `loop:`/`logging:` section
   or bad bar-parity key, before anything else. `validate_invariants.py` check 6 catches the same in
   CI (6/6 instead of 5/5).
