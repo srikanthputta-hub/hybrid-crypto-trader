@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 from scripts.validate_invariants import (
+    check_bar_parity_config,
     check_claude_advisor_fail_closed,
     check_config_mode_is_paper,
     check_env_example_documents_live_confirm,
@@ -467,3 +468,52 @@ class TestEnvExampleLiveConfirm:
                 result = check_env_example_documents_live_confirm()
                 assert not result.passed
                 assert "not documented" in result.message
+
+
+class TestBarParityConfig:
+    """Test invariant 6: the bar-parity loop keys parse exactly as src/bot.py's startup does."""
+
+    def test_bar_parity_config_passes_on_real_repo(self) -> None:
+        result = check_bar_parity_config()
+        assert result.passed, result.message
+        assert "bar_parity=False" in result.message  # merging must not switch it on
+
+    def _check(self, config: dict):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_file = Path(tmpdir) / "config.yaml"
+            with open(config_file, "w") as f:
+                yaml.dump(config, f)
+            with patch("scripts.validate_invariants.Path") as mock_path:
+                mock_path.return_value = config_file
+                return check_bar_parity_config()
+
+    @pytest.mark.parametrize(
+        "config, expected",
+        [
+            ({"loop": {"bar_parity": "yes"}}, "loop.bar_parity"),
+            ({"loop": {"bar_parity": True, "max_entry_delay_minutes": 0}}, "max_entry_delay_minutes"),
+            ({"loop": {"bar_parity": True, "max_entry_delay_minutes": -5}}, "max_entry_delay_minutes"),
+            ({"loop": {"bar_parity": True, "max_entry_delay_minutes": True}}, "max_entry_delay_minutes"),
+            ({"loop": {"bar_parity": True, "max_entry_delay_minutes": float("nan")}}, "max_entry_delay_minutes"),
+            ({"loop": {"bar_parity": False, "max_entry_delay_minutes": 60}}, "requires loop.bar_parity"),
+            ({"loop": {"bar_parity": False}, "logging": {"closed_bars_dir": "logs/daily_bars"}}, "requires"),
+            ({"loop": {"bar_parity": True}, "market": {"timeframe": "1d", "history_bars": 100}}, "history_bars"),
+        ],
+    )
+    def test_bar_parity_config_fails_on_bad_values(self, config, expected) -> None:
+        result = self._check(config)
+        assert not result.passed
+        assert expected in result.message
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {},
+            {"loop": {"bar_parity": True, "max_entry_delay_minutes": 60},
+             "logging": {"closed_bars_dir": "logs/daily_bars"}},
+            {"loop": {"bar_parity": True, "max_entry_delay_minutes": None}},
+        ],
+    )
+    def test_bar_parity_config_passes_on_valid_values(self, config) -> None:
+        result = self._check(config)
+        assert result.passed, result.message

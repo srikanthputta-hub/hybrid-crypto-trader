@@ -10,6 +10,7 @@ Each invariant maps to something that could break the bot's core safety properti
   3. Config mode is paper — live mode must only be set by explicit operator action.
   4. Risk config sanity bounds — malformed risk values disable every safety check.
   5. Environment docs — LIVE_TRADING_CONFIRM must remain discoverable in .env.example.
+  6. Bar-parity loop keys well-formed — a bad value stops the bot at startup (restart loop).
 
 Exit 0 if all pass, 1 if any fail.
 """
@@ -306,6 +307,35 @@ def check_risk_config_bounds() -> InvariantResult:
         return InvariantResult("risk_config_bounds", False, f"FAIL: Unexpected error: {e}")
 
 
+def check_bar_parity_config() -> InvariantResult:
+    """Verify the bar-parity loop keys (loop.bar_parity, loop.max_entry_delay_minutes,
+    logging.bar_decisions_path, logging.closed_bars_dir) are well-formed. src/bot.py's
+    build_components refuses to start on a bad value -- on the VM that is a restart loop with
+    no stop-losses executed, so catch it in CI. Uses the bot's own startup parser
+    (src.config.parse_bar_parity_settings), so this can never accept what the bot rejects.
+    Only checks well-formedness: it does not require any particular on/off setting."""
+    try:
+        from src.config import parse_bar_parity_settings
+
+        config_path = Path("config/config.yaml")
+        if not config_path.exists():
+            return InvariantResult("bar_parity_config", False, f"FAIL: {config_path} not found")
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+        try:
+            settings = parse_bar_parity_settings(config)
+        except ValueError as e:
+            return InvariantResult("bar_parity_config", False, f"FAIL: {e}")
+        return InvariantResult(
+            "bar_parity_config",
+            True,
+            f"PASS: bar-parity keys valid (bar_parity={settings.enabled}, "
+            f"max_entry_delay_minutes={settings.max_entry_delay_minutes})",
+        )
+    except Exception as e:
+        return InvariantResult("bar_parity_config", False, f"FAIL: Unexpected error: {e}")
+
+
 def check_env_example_documents_live_confirm() -> InvariantResult:
     """Verify .env.example documents LIVE_TRADING_CONFIRM."""
     try:
@@ -345,6 +375,7 @@ def main() -> int:
         check_config_mode_is_paper,
         check_risk_config_bounds,
         check_env_example_documents_live_confirm,
+        check_bar_parity_config,
     ]
 
     results = [check() for check in checks]
