@@ -46,12 +46,15 @@ Background research: [crypto_bot_upgrade_playbook.md](crypto_bot_upgrade_playboo
 - **P6 harness fix** - done (`count_same_bar_approvals`), see [p6_harness_exposure_fix.md](p6_harness_exposure_fix.md).
 - **#87** - `risk_engine` fails open on NaN `portfolio_equity` / `cash_available` (open issue). It should fail closed.
   Touches `src/risk_engine.py`: Opus-level review required.
-- **Weekly parity check + Telegram label** - built on the local branch `claude/parity-check-and-label` (off `af99b64`), **not
-  pushed, no PR**: `scripts/paper_parity_check.py` and `notifier.label` / the 1d "Valid until" lines, with tests and
+- **Weekly parity check + Telegram label** - built on the branch `claude/parity-check-and-label` (off `af99b64`, merged with
+  `origin/main`); independently reviewed and fixed per that review; **awaiting the user's decision to push/merge** (agents do
+  not): `scripts/paper_parity_check.py` and `notifier.label` / the 1d "Valid until" lines, with tests and
   [paper_parity_check.md](paper_parity_check.md). Both are inert until the user starts a trial: the label ships `null`, and
-  the check needs `loop.bar_parity` + `logging.closed_bars_dir` on. Touches `src/bot.py` (2 display-only hunks): Architect
-  read-through requested. Before a trial: set `retention_days: 0` (or archive the audit log), and the `min_order_quote_usd`
-  floor decision from the study above is still open.
+  the check needs `loop.bar_parity` + `logging.closed_bars_dir` on. Touches `src/bot.py` (2 display-only hunks, 19 lines):
+  Architect read-through requested. Before a trial: set `retention_days: 0`, and decide `risk.min_order_quote_usd`
+  (> 0 is required for the parity budget to hold; the study above recommends 10). The check's early-budget relaxation
+  (evaluate from 20 entries; `--strict-early-budget` restores the pre-registered rule) is a proposed change that needs the
+  user's acceptance.
 - **Paper trial** - a time-boxed paper run of whatever candidate the user approves; none is approved today.
 - Not built: `universe.mode: discover` (raises `NotImplementedError`), wiring `rank_signals` into `bot.py`,
   passing `risk.volatility_scale_floor` through `bot.py` (the engine's 0.5 default applies).

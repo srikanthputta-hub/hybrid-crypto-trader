@@ -54,23 +54,24 @@ def T(s: str) -> pd.Timestamp:
 # --------------------------------------------------------------------------- #
 # C. the generated fixture
 # --------------------------------------------------------------------------- #
-def _generate_trial(directory: Path) -> SimpleNamespace:
+def _generate_trial(directory: Path, start: int = TRIAL_START_BAR, bars: int = TRIAL_BARS, ticks: int = 2,
+                    floor: float = 10.0, label: str | None = LABEL) -> SimpleNamespace:
     """Runs the real bot loop and returns where its logs landed and which Telegram messages it sent."""
     mp = pytest.MonkeyPatch()
     messages: list[str] = []
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        rows, axis = load_rows(TRIAL_START_BAR + TRIAL_BARS + 1, gapless=False)
+        rows, axis = load_rows(start + bars + 1, gapless=False)
         raw = copy.deepcopy(load_config().raw)
         raw["mode"] = "paper"
         raw["advisor"] = {"enabled": False}
         raw["market"].update(symbols=sorted(rows), timeframe="1d", history_bars=200)
         # A $10 order floor, as in tests/test_daily_live_parity.py's realistic-config run: the committed
         # floor of 0 produces known float-phantom divergences (docs/bot_bar_parity.md §4.2).
-        raw["risk"]["min_order_quote_usd"] = 10.0
+        raw["risk"]["min_order_quote_usd"] = floor
         raw["risk"]["kill_switch_file"] = str(directory / "NO_KILL_SWITCH")
         raw["loop"] = {"poll_interval_seconds": 300, "bar_parity": True, "max_entry_delay_minutes": DELAY_MINUTES}
-        raw["notifier"] = {"label": LABEL}
+        raw["notifier"] = {"label": label}
         raw["logging"] = {k: str(directory / v) for k, v in {
             "audit_log_path": "audit.jsonl", "trade_log_path": "trades.csv",
             "trade_plan_current_path": "plans.json", "trade_plan_history_path": "plans.jsonl",
@@ -104,8 +105,8 @@ def _generate_trial(directory: Path) -> SimpleNamespace:
             return out
 
         mp.setattr(bot, "add_indicators", cached)
-        for ts in axis[TRIAL_START_BAR:TRIAL_START_BAR + TRIAL_BARS]:
-            for k in range(2):
+        for ts in axis[start:start + bars]:
+            for k in range(ticks):
                 fake.now_ms = ts + D_MS + 60_000 + k * 300_000
                 _Clock.now = datetime.fromtimestamp(fake.now_ms / 1000, tz=timezone.utc)
                 bot.run_cycle(cfg, exchange, risk_engine, portfolio, broker, store, audit, market_data)
@@ -295,6 +296,58 @@ def test_cli_exit_codes_via_subprocess(trial, work, tmp_path):
     assert err.returncode == 2 and err.stdout == "" and "audit.jsonl:1" in err.stderr
 
 
+# ----- C2. a realistic run: 110 bars, $10 floor (B1) -----
+
+
+@pytest.fixture(scope="module")
+def long_trial(tmp_path_factory):
+    """110 daily bars from data bar 200 (2025-05-01 .. 2025-08-18), one tick per bar, 16 symbols, the real bot loop at a
+    $10 order floor and the live 200-bar history. Real opens and the 0.10% paper fee, so every fill-price residual is
+    present (the short fixture is too short to show them)."""
+    return _generate_trial(tmp_path_factory.mktemp("long"), start=200, bars=110, ticks=1, floor=10.0, label=None)
+
+
+def test_a_correct_bot_passes_over_110_real_loop_bars_at_a_10_dollar_floor(long_trial):
+    r = run_check(long_trial.dir, "--days", "110")
+    assert r["status"] == ppc.PASS, r["message"] + json.dumps(r["mismatches"][:3], indent=1)[:1500]
+    assert r["window"]["decided_bars"] == 110
+    assert r["entries"]["harness"] >= 20 and r["entries"]["harness"] == r["entries"]["bot"] == r["entries"]["matched"]
+    assert r["exits"]["harness"] >= 15 and r["exits"]["harness"] == r["exits"]["bot"] == r["exits"]["matched"]
+    assert r["budget_evaluated"] is True and r["trial_to_date"]["unexplained_count"] == 0
+    # the fill-price residual is visible but small; the report says how large it got
+    assert 0.0 <= r["size_drift_max"] < ppc.DEFAULT_SIZE_RTOL
+    # ... and rejected-for-size decisions carry different sized amounts on the two sides (the old B1 failure)
+    events = [json.loads(l) for l in (long_trial.dir / "audit.jsonl").read_text().splitlines()]
+    assert any("sized order" in str((e.get("risk_decision") or {}).get("reason")) for e in events)
+
+
+def test_the_floor_zero_warning_is_a_note(trial, work):
+    raw = yaml.safe_load((work / "config.yaml").read_text())
+    raw["risk"]["min_order_quote_usd"] = 0
+    (work / "config.yaml").write_text(yaml.safe_dump(raw))
+    r = run_check(work, "--days", str(TRIAL_BARS))
+    assert any("min_order_quote_usd is 0" in n and "needs a floor > 0" in n for n in r["notes"])
+    assert not any("min_order_quote_usd" in n for n in run_check(trial.dir)["notes"])
+
+
+def test_harness_riskengine_patch_is_restored_after_the_replay_and_after_a_failure(trial, monkeypatch):
+    from strategy_pack_run import backtest_live_bot as harness
+
+    original = harness.RiskEngine
+    run_check(trial.dir)
+    assert harness.RiskEngine is original
+    real = harness.simulate_portfolio
+
+    def boom(*a, **kw):
+        raise RuntimeError("replay blew up")
+
+    monkeypatch.setattr(harness, "simulate_portfolio", boom)
+    with pytest.raises(RuntimeError, match="blew up"):
+        run_check(trial.dir)
+    monkeypatch.setattr(harness, "simulate_portfolio", real)
+    assert harness.RiskEngine is original
+
+
 # ----- D. mutated copies: each fault is reported -----
 
 
@@ -362,23 +415,27 @@ def test_a_wrong_exit_reason_fails(work):
     assert any(m["kind"] == "exit_harness_only" and "bot exits on" in m["detail"] for m in report["mismatches"])
 
 
-def test_a_staleness_skip_is_explained_but_counts_against_the_budget(work):
+def test_a_staleness_skip_is_explained_and_the_early_budget_is_not_yet_evaluable(work):
     events = read_events(work)
     target = planned_events(events)[0]
+    drop_trade_rows(work, {target["execution"]["timestamp"]})  # a skipped entry never filled
     for key in ("risk_decision", "plan", "signal", "execution", "candidates", "daily_trend_confirmed"):
         target.pop(key, None)
     target["action"], target["note"], target["entry_delay_minutes"] = "none", "stale bar: entries skipped", 75.0
     write_events(work, events)
-    # Default 10% budget: one missed entry out of ~8 is 12.5% -> FAIL, naming the budget.
-    strict = run_check(work, "--days", str(TRIAL_BARS))
+    # The pre-registered rule (budget from the first entry): one missed entry out of ~7 is >10% -> FAIL, naming the budget.
+    strict = run_check(work, "--days", str(TRIAL_BARS), "--strict-early-budget")
     assert strict["status"] == ppc.FAIL and "exceeds the 10% budget" in strict["message"]
     first = strict["mismatches"][0]
     assert first["explained_by"] == ppc.EXPLAINED_STALE and first["symbol"] == target["symbol"]
     assert strict["unexplained_count"] == 0  # nothing unexplained: later fallout is "downstream"
     assert all(m["explained_by"] for m in strict["mismatches"])
-    # With a looser budget the same logs are a WARN (exit 0): explained, listed, not hidden.
-    loose = run_check(work, "--days", str(TRIAL_BARS), "--budget", "0.5")
-    assert loose["status"] == ppc.WARN and loose["exit_code"] == 0 and loose["mismatch_count"] >= 1
+    # Default: fewer than 20 harness entries -> the budget is "not yet evaluable"; explained mismatches are a WARN.
+    default = run_check(work, "--days", str(TRIAL_BARS))
+    assert default["status"] == ppc.WARN and default["exit_code"] == 0 and default["mismatch_count"] >= 1
+    assert default["budget_evaluated"] is False and any("budget not yet evaluable" in n for n in default["notes"])
+    # An explicit looser budget under the strict flag is a WARN too.
+    assert run_check(work, "--days", str(TRIAL_BARS), "--strict-early-budget", "--budget", "0.5")["status"] == ppc.WARN
 
 
 def test_downstream_label_only_follows_an_explained_mismatch(work):
@@ -393,16 +450,53 @@ def test_downstream_label_only_follows_an_explained_mismatch(work):
     assert not any(m["explained_by"] == ppc.EXPLAINED_DOWNSTREAM for m in report["mismatches"][:1])
 
 
-def test_a_bar_with_no_bot_events_is_a_bot_gap(work):
+def drop_trade_rows(work, stamps):
+    lines = (work / "trades.csv").read_text().splitlines()
+    (work / "trades.csv").write_text("\n".join(l for l in lines if l.split(",")[0] not in stamps) + "\n")
+
+
+def _drop_bar_events(work, bar_close):
+    """Removes every audit line of one bar and the trade-log rows of the fills they reported (the bot was down)."""
     events = read_events(work)
-    target = planned_events(events)[0]
-    key = (target["bar_close"], target["symbol"])
-    events = [e for e in events if (e.get("bar_close"), e.get("symbol")) != key]
-    write_events(work, events)
+    gone = [e for e in events if e.get("bar_close") == bar_close]
+    stamps = {e["execution"]["timestamp"] for e in gone if e.get("execution")}
+    write_events(work, [e for e in events if e.get("bar_close") != bar_close])
+    drop_trade_rows(work, stamps)
+
+
+def test_a_bar_with_no_bot_events_at_all_is_a_bot_gap(work):
+    target = planned_events(read_events(work))[0]
+    _drop_bar_events(work, target["bar_close"])
     report = run_check(work, "--days", str(TRIAL_BARS), "--budget", "1.0")
     first = report["mismatches"][0]
     assert first["kind"] == "harness_only_check" and first["explained_by"] == ppc.EXPLAINED_GAP
     assert report["unexplained_count"] == 0 and report["status"] == ppc.WARN
+
+
+def test_one_symbol_missing_from_a_bar_the_bot_otherwise_decided_is_not_a_gap(work):
+    events = read_events(work)
+    target = planned_events(events)[0]
+    key = (target["bar_close"], target["symbol"])
+    write_events(work, [e for e in events if (e.get("bar_close"), e.get("symbol")) != key])
+    report = run_check(work, "--days", str(TRIAL_BARS), "--budget", "1.0")
+    assert report["status"] == ppc.FAIL
+    first = report["mismatches"][0]
+    assert (first["kind"], first["symbol"], first["explained_by"]) == ("harness_only_check", target["symbol"], None)
+    assert not any(m["explained_by"] == ppc.EXPLAINED_GAP for m in report["mismatches"])
+
+
+def test_a_lost_deciding_line_with_a_surviving_echo_is_an_integrity_failure(work):
+    events = read_events(work)
+    echo = next(e for e in events if "already decided" in str(e.get("note")))
+    key = (echo["bar_close"], echo["symbol"])
+    deciding = [e for e in events if (e.get("bar_close"), e.get("symbol")) == key and "candidates" in e]
+    assert len(deciding) == 1
+    write_events(work, [e for e in events if e is not deciding[0]])
+    report = run_check(work, "--days", str(TRIAL_BARS), "--budget", "1.0")
+    assert report["status"] == ppc.FAIL
+    lost = [m for m in report["mismatches"] if m["kind"] == "missing_decision_event"]
+    assert len(lost) == 1 and lost[0]["symbol"] == echo["symbol"] and lost[0]["explained_by"] is None
+    assert not any(m["explained_by"] == ppc.EXPLAINED_GAP for m in report["mismatches"])
 
 
 def test_a_tampered_archive_bar_is_caught(work):
@@ -455,25 +549,67 @@ def test_a_trade_log_row_without_an_audit_fill_is_caught(work):
     assert pd.Timestamp(m["bar"]) <= pd.Timestamp(report["window"]["until"]) and pd.Timestamp(m["bar"]).year == 2025
 
 
-def test_a_mismatch_outside_the_window_is_not_this_weeks_failure(work):
+def _plan_levels_fault(work):
+    """One unexplained mismatch that cannot cascade: an early plan whose stop is 2% off."""
     events = read_events(work)
     target = planned_events(events)[0]  # early in the trial
-    target["risk_decision"] = {"allowed": False, "reason": "position would exceed the cap", "max_quote_amount": None}
-    target["action"] = "none"
-    target.pop("execution", None)
+    target["plan"]["stop_loss"] = target["plan"]["stop_loss"] * 1.02
     write_events(work, events)
+    return target
+
+
+def test_an_unexplained_mismatch_that_left_the_window_still_pauses_the_trial(work):
+    target = _plan_levels_fault(work)
     bar = pd.Timestamp(target["bar_close"])
-    assert bar < pd.Timestamp(max(e["bar_close"] for e in events if "bar_close" in e)) - pd.Timedelta(days=5)
-    # last 3 bars only: the early mismatch is not in the window ...
+    assert bar < pd.Timestamp(max(e["bar_close"] for e in read_events(work) if "bar_close" in e)) - pd.Timedelta(days=5)
+    # last 3 bars only: the mismatch is not in the window ...
     late = run_check(work, "--days", "3", "--budget", "1.0")
     assert late["mismatch_count"] == 0 and late["mismatches"] == []
-    assert late["trial_to_date"]["unexplained_count"] >= 1  # ... but is still in the trial record
-    assert any("from before this window" in n for n in late["notes"])
-    assert late["status"] == ppc.PASS
-    # ... and it still counts against the cumulative budget.
-    assert run_check(work, "--days", "3")["status"] == ppc.FAIL
+    assert late["trial_to_date"]["unexplained_count"] == 1
+    # ... but the trial stays paused (FAIL) until it is fixed and acknowledged.
+    assert late["status"] == ppc.FAIL and late["exit_code"] == 1
+    assert "earlier in the trial still pause it" in late["message"] and target["symbol"] in late["message"]
     # The window that contains it reports it.
-    assert run_check(work, "--since", bar.isoformat(), "--until", bar.isoformat(), "--min-bars", "1", "--budget", "1.0")["status"] == ppc.FAIL
+    inside = run_check(work, "--since", bar.isoformat(), "--until", bar.isoformat(), "--min-bars", "1")
+    assert inside["status"] == ppc.FAIL and inside["mismatches"][0]["kind"] == "plan_levels"
+
+
+def test_acknowledging_a_mismatch_is_explicit_listed_and_unused_acks_are_reported(work, tmp_path):
+    target = _plan_levels_fault(work)
+    day = pd.Timestamp(target["bar_close"]).strftime("%Y-%m-%d")
+    spec = f"{day}:{target['symbol']}"
+    ok = run_check(work, "--days", "3", "--ack", spec)
+    assert ok["status"] == ppc.PASS and ok["acknowledged"] == [spec] and ok["trial_to_date"]["unexplained_count"] == 0
+    # in a window containing it, it is listed as acknowledged, status WARN
+    full = run_check(work, "--days", str(TRIAL_BARS), "--ack", spec)
+    assert full["status"] == ppc.WARN and full["mismatches"][0]["explained_by"] == ppc.EXPLAINED_ACK
+    # --ack-file: comments and blank lines allowed; an ack that matches nothing is a note
+    f = tmp_path / "acks.txt"
+    f.write_text(f"# fixed in commit abc\n{spec}  # plan stop\n\n2031-01-01:ZZZ/USD\n")
+    viafile = run_check(work, "--days", "3", "--ack-file", str(f))
+    assert viafile["status"] == ppc.PASS and any("ZZZ/USD" in n and "matches no mismatch" in n for n in viafile["notes"])
+    # a wrong symbol or day acknowledges nothing
+    assert run_check(work, "--days", "3", "--ack", f"{day}:ETH/USD")["status"] == ppc.FAIL
+
+
+def test_bad_acknowledgements_are_input_errors(work, capsys):
+    for bad in ("nonsense", "2025-10-02:", ":BTC/USD", "notadate:BTC/USD"):
+        assert ppc.main(_argv(work, "--ack", bad)) == ppc.EXIT_INPUT_ERROR
+        assert "acknowledgement" in capsys.readouterr().err
+    assert ppc.main(_argv(work, "--ack-file", str(work / "missing.txt"))) == ppc.EXIT_INPUT_ERROR
+    assert "--ack-file" in capsys.readouterr().err
+
+
+def test_an_acknowledgement_does_not_explain_what_followed_it(work):
+    events = read_events(work)
+    target = exit_events(events)[0]  # an exit the bot "missed": unexplained, and nothing portfolio-wise follows
+    target.pop("monitor_action"), target.pop("execution")
+    write_events(work, events)
+    spec = f"{pd.Timestamp(target['bar_close']).strftime('%Y-%m-%d')}:{target['symbol']}"
+    r = run_check(work, "--days", str(TRIAL_BARS), "--ack", spec)
+    explained = [m for m in r["mismatches"] if m["explained_by"] == ppc.EXPLAINED_ACK]
+    assert explained and {m["symbol"] for m in explained} == {target["symbol"]}  # the exit and its lost fill row
+    assert not any(m["explained_by"] == ppc.EXPLAINED_DOWNSTREAM for m in r["mismatches"])
 
 
 def test_window_bounds_select_bars(trial):
@@ -491,6 +627,175 @@ def test_an_explicit_trial_start_changes_the_replay(work):
     later = run_check(work, "--days", str(TRIAL_BARS), "--trial-start", "2025-10-04T00:00:00+00:00", "--budget", "1.0")
     assert later["status"] == ppc.FAIL
     assert any(m["kind"] in ("exit_bot_only", "bot_only_check") for m in later["mismatches"])
+
+
+def test_pattern_and_plan_level_mismatches_are_never_tagged_downstream(work):
+    events = read_events(work)
+    planned = planned_events(events)
+    first, second, third = planned[0], planned[1], planned[2]
+    drop_trade_rows(work, {first["execution"]["timestamp"]})
+    for key in ("risk_decision", "plan", "signal", "execution", "candidates", "daily_trend_confirmed"):
+        first.pop(key, None)
+    first["action"], first["note"] = "none", "stale bar: entries skipped"  # explained: starts the cascade
+    second["signal"]["pattern"] = "PULLBACK" if second["signal"]["pattern"] != "PULLBACK" else "BREAKOUT"
+    third["plan"]["stop_loss"] *= 1.02
+    write_events(work, events)
+    r = run_check(work, "--days", str(TRIAL_BARS), "--budget", "1.0")
+    by_kind = {m["kind"]: m for m in r["mismatches"] if m["symbol"] in (second["symbol"], third["symbol"])}
+    assert by_kind["pattern"]["explained_by"] is None and by_kind["plan_levels"]["explained_by"] is None
+    assert r["mismatches"][0]["explained_by"] == ppc.EXPLAINED_STALE
+    assert r["status"] == ppc.FAIL and r["exit_code"] == 1
+
+
+def test_downstream_eligibility_by_kind_and_state():
+    stale = bot_bar(B1, "X/USD", None, stale=True)
+    first = {(B1, "X/USD"): stale}
+    h = {(B1, "X/USD"): CHK}
+
+    def after(bot_map, hmap, signal_keys=()):
+        r = cmp({**first, **bot_map}, ppc.HarnessResult(checks={**h, **hmap}, exits=set(), last_bar={"X/USD": B4, "Y/USD": B4}, n_bars=4,
+                                                         signal_keys=set(signal_keys)))
+        return [(m.kind, m.symbol, m.explained_by) for m in r["mismatches"] if m.symbol == "Y/USD"]
+
+    # pattern / plan levels: never
+    p = dict(CHK, pattern="BREAKOUT")
+    assert after({(B2, "Y/USD"): bot_bar(B2, "Y/USD", dict(CHK, pattern="PULLBACK"))}, {(B2, "Y/USD"): p}) == [("pattern", "Y/USD", None)]
+    assert after({(B2, "Y/USD"): bot_bar(B2, "Y/USD", dict(CHK, stop=96.0))}, {(B2, "Y/USD"): CHK}) == [("plan_levels", "Y/USD", None)]
+    # the harness had a check, the bot had no signal (state independent): not downstream
+    assert after({(B2, "Y/USD"): bot_bar(B2, "Y/USD", None)}, {(B2, "Y/USD"): CHK}) == [("harness_only_check", "Y/USD", None)]
+    # ... but if the bot was HOLDING a plan there, it is portfolio state: downstream
+    held = bot_bar(B2, "Y/USD", None, held_note="OPEN plan active for Y/USD, no trigger this cycle")
+    assert after({(B2, "Y/USD"): held}, {(B2, "Y/USD"): CHK}) == [("harness_only_check", "Y/USD", ppc.EXPLAINED_DOWNSTREAM)]
+    # bot-only check: downstream only if the harness had a signal there (so it held a position instead)
+    assert after({(B2, "Y/USD"): bot_bar(B2, "Y/USD", CHK)}, {}) == [("bot_only_check", "Y/USD", None)]
+    assert after({(B2, "Y/USD"): bot_bar(B2, "Y/USD", CHK)}, {}, signal_keys=[(B2, "Y/USD")]) == [("bot_only_check", "Y/USD", ppc.EXPLAINED_DOWNSTREAM)]
+    # entry decision / rejection reason / size are portfolio dependent
+    assert after({(B2, "Y/USD"): bot_bar(B2, "Y/USD", REJ)}, {(B2, "Y/USD"): CHK}) == [("entry_decision", "Y/USD", ppc.EXPLAINED_DOWNSTREAM)]
+    assert after({(B2, "Y/USD"): bot_bar(B2, "Y/USD", dict(CHK, quote=900.0))}, {(B2, "Y/USD"): CHK}) == [("size", "Y/USD", ppc.EXPLAINED_DOWNSTREAM)]
+
+
+def test_gap_needs_proof_unit():
+    ev_all = ppc.Evidence(bars_with_events={B1})
+    ev_fetch = ppc.Evidence(bars_with_events={B1}, fetch_failed={(B1, "X/USD")})
+    only = lambda ev, bot_map: cmp(bot_map, hres({(B1, "X/USD"): CHK}), evidence=ev)["mismatches"][0].explained_by  # noqa: E731
+    assert only(ppc.Evidence(), {}) == ppc.EXPLAINED_GAP                                   # nobody decided this bar
+    assert only(ev_all, {(B1, "Y/USD"): bot_bar(B1, "Y/USD")}) is None                     # others did: no gap
+    assert only(ev_fetch, {(B1, "Y/USD"): bot_bar(B1, "Y/USD")}) == ppc.EXPLAINED_FETCH    # proven fetch failure
+    echo_only = bot_bar(B1, "X/USD", None, n_decision_events=0)
+    assert only(ev_fetch, {(B1, "X/USD"): echo_only}) is None                              # echo present: line lost
+
+
+def test_a_fetch_failure_in_the_audit_log_explains_a_missing_decision(work):
+    events = read_events(work)
+    target = planned_events(events)[0]
+    day = pd.Timestamp(target["bar_close"]).strftime("%Y-%m-%d")
+    drop_trade_rows(work, {target["execution"]["timestamp"]})
+    kept = [e for e in events if (e.get("bar_close"), e.get("symbol")) != (target["bar_close"], target["symbol"])]
+    kept.append({"symbol": target["symbol"], "mode": "paper", "timestamp": f"{day}T00:05:00+00:00", "action": "none",
+                 "error": "market data unavailable this cycle"})
+    write_events(work, kept)
+    r = run_check(work, "--days", str(TRIAL_BARS), "--budget", "1.0")
+    first = r["mismatches"][0]
+    assert (first["kind"], first["symbol"], first["explained_by"]) == ("harness_only_check", target["symbol"], ppc.EXPLAINED_FETCH)
+
+
+def test_a_rescan_without_a_risk_check_is_a_duplicate_decision(work):
+    events = read_events(work)
+    scan = next(e for e in events if "candidates" in e and "risk_decision" not in e and e.get("action") == "none"
+                and "already decided" not in str(e.get("note")))
+    events.insert(events.index(scan) + 1, copy.deepcopy(scan))
+    write_events(work, events)
+    r = run_check(work, "--days", str(TRIAL_BARS), "--budget", "1.0")
+    dup = [m for m in r["mismatches"] if m["kind"] == "duplicate_decision"]
+    assert len(dup) == 1 and dup[0]["symbol"] == scan["symbol"] and r["status"] == ppc.FAIL
+
+
+def test_size_tolerance_is_10_percent_with_a_dollar_floor():
+    assert ppc.DEFAULT_SIZE_RTOL == 0.10
+    b = lambda q: {(B1, "X/USD"): bot_bar(B1, "X/USD", dict(CHK, quote=q))}  # noqa: E731
+    h = hres({(B1, "X/USD"): CHK})
+    assert cmp(b(540.0), h)["mismatches"] == []                                        # +8%
+    assert [m.kind for m in cmp(b(580.0), h)["mismatches"]] == ["size"]                # +16%
+    tiny = dict(CHK, quote=0.40)
+    assert cmp({(B1, "X/USD"): bot_bar(B1, "X/USD", dict(CHK, quote=0.22))}, hres({(B1, "X/USD"): tiny}))["mismatches"] == []
+    assert cmp(b(540.0), h)["size_drift_max"] == pytest.approx(40 / 540)
+
+
+# ----- truncated / pruned audit logs (B5, M6) -----
+
+
+def test_a_missing_end_of_the_audit_log_is_an_input_error_naming_the_cause(work, capsys):
+    events = read_events(work)
+    bars = sorted({e["bar_close"] for e in events if "bar_close" in e})
+    write_events(work, [e for e in events if e.get("bar_close") not in bars[-2:]])
+    assert ppc.main(_argv(work)) == ppc.EXIT_INPUT_ERROR
+    err = capsys.readouterr().err
+    assert "END of the audit log is missing" in err and "ledger" in err and "retention" not in err
+
+
+def test_trade_rows_after_the_audited_tail_are_caught_without_a_ledger(work):
+    events = read_events(work)
+    last = max(e["bar_close"] for e in events if "bar_close" in e)
+    assert any(e.get("bar_close") == last and e.get("execution") for e in events)  # a fill on the final bar
+    (work / "bar_decisions.json").unlink()
+    write_events(work, [e for e in events if e.get("bar_close") != last])
+    r = run_check(work, "--days", str(TRIAL_BARS), "--budget", "1.0")
+    assert r["status"] == ppc.FAIL
+    assert any(m["kind"] == "trade_log_audit" and m["explained_by"] is None for m in r["mismatches"])
+
+
+def test_pruned_audit_log_older_trades_is_an_error_unless_trial_start_is_given(work, capsys):
+    events = read_events(work)
+    write_events(work, [e for e in events if "bar_close" not in e or pd.Timestamp(e["bar_close"]) >= T("2025-10-04")])
+    assert ppc.main(_argv(work, "--days", str(TRIAL_BARS))) == ppc.EXIT_INPUT_ERROR
+    err = capsys.readouterr().err
+    assert "pruned" in err and "--trial-start" in err and "retention_days: 0" in err
+    assert ppc.main(_argv(work, "--days", str(TRIAL_BARS), "--trial-start", "2025-10-04")) != ppc.EXIT_INPUT_ERROR
+
+
+def test_a_partly_pruned_first_bar_is_skipped(work):
+    events = read_events(work)
+    first_bar = min(e["bar_close"] for e in events if "bar_close" in e)
+    keep = [e for e in events if e.get("bar_close") != first_bar]
+    keep += [e for e in events if e.get("bar_close") == first_bar][:3]
+    write_events(work, keep)
+    r = run_check(work, "--days", str(TRIAL_BARS))
+    assert r["trial_start"].startswith("2025-09-29") and "partly in the audit log" in r["trial_start_source"]
+    assert r["status"] == ppc.PASS
+
+
+def test_trial_start_in_the_middle_of_a_bar_works(trial):
+    # retention runs at arbitrary hours; the bar closing 2025-09-29 00:00 was decided ~00:05, i.e. BEFORE this time
+    r = run_check(trial.dir, "--days", str(TRIAL_BARS), "--trial-start", "2025-09-29T14:20:00+00:00")
+    assert r["trial_start"].startswith("2025-09-29") and r["status"] == ppc.PASS
+    assert run_check(trial.dir, "--days", str(TRIAL_BARS), "--trial-start", "2025-09-29T00:03:00+00:00")["trial_start"].startswith("2025-09-29")
+
+
+def test_trial_start_after_the_newest_bar_is_an_error(trial, capsys):
+    assert ppc.main(_argv(trial.dir, "--trial-start", "2031-01-01")) == ppc.EXIT_INPUT_ERROR
+    assert "after the newest decided bar" in capsys.readouterr().err
+
+
+# ----- --json-out safety (M7) -----
+
+
+def test_json_out_never_replaces_existing_files_without_force_nor_bot_files_with_it(trial, tmp_path, capsys):
+    mine = tmp_path / "mine.json"
+    mine.write_text("old")
+    assert ppc.main(_argv(trial.dir, "--json-out", str(mine))) == ppc.EXIT_INPUT_ERROR
+    assert "already exists" in capsys.readouterr().err and mine.read_text() == "old"
+    assert ppc.main(_argv(trial.dir, "--json-out", str(mine), "--force")) == 0
+    assert json.loads(mine.read_text())["status"] == "PASS"
+    capsys.readouterr()
+    # files the bot itself writes (the config's logging: block) are refused even with --force
+    errors = ""
+    for name in ("plans.json", "plans.jsonl", "snapshot.json", "trades.csv", "audit.jsonl", "bar_decisions.json", "daily_bars/new.json"):
+        victim = trial.dir / name
+        before = victim.read_bytes() if victim.exists() else None
+        assert ppc.main(_argv(trial.dir, "--json-out", str(victim), "--force")) == ppc.EXIT_INPUT_ERROR, name
+        assert (victim.read_bytes() if victim.exists() else None) == before, name
+        errors += capsys.readouterr().err
+    assert "the bot writes" in errors and "would overwrite an input" in errors
 
 
 # ----- E. short / empty / corrupt inputs -----
@@ -688,7 +993,6 @@ EQUIVALENCE_CASES = [
     ("cooldown active for X/USD: 1:00:00 remaining", "cooldown active for Y/USD: 1:00:00 remaining"),
     ("no room left to size this trade (cap 0.4)", "sized order 9.094947e-13 is below the minimum order size 0.01 (x)"),
     ("no room left to size this trade", "sized order 5.0 is below the minimum order size 0.01"),
-    ("sized order 1e-13 is below the minimum order size 0.01", "sized order 2e-13 is below the minimum order size 0.01"),
     ("kill switch file present at /a", "kill switch file present at /b"),
 ]
 
@@ -697,6 +1001,19 @@ EQUIVALENCE_CASES = [
 def test_reason_equivalence_matches_the_daily_live_parity_tests(h, b):
     base = dict(allowed=False, equity=1.0, entry=1.0, stop=0.9, rr=2.0, quote=None)
     assert ppc.reasons_equivalent(h, b) == same_decision({**base, "reason": h}, {**base, "reason": b})
+
+
+def test_sized_order_amount_is_ignored_but_the_minimum_is_not():
+    """Deliberate loosening of same_decision (B1): the leftover room that was sized differs by the fill-price
+    residual between paper (close) and harness (next open); the decision is 'below the configured minimum'."""
+    a = "sized order 0.4263005 is below the minimum order size 10 (min_order_quote_usd); rejected, not resized up"
+    b = "sized order 0.22184695 is below the minimum order size 10 (min_order_quote_usd); rejected, not resized up"
+    assert ppc.reasons_equivalent(a, b)
+    assert not ppc.reasons_equivalent(a, b.replace("size 10", "size 25"))
+    assert not ppc.reasons_equivalent(a, "market volatility too high (9.00% > max 8.00%); skipping")
+    # other numbers in reasons are NOT normalised
+    v = "market volatility too high (9.00% > max 8.00%); skipping"
+    assert not ppc.reasons_equivalent(v, v.replace("9.00", "7.00"))
 
 
 def test_reason_key_cuts_at_the_first_semicolon():
@@ -732,7 +1049,8 @@ def hres(checks=None, exits=None, last=None) -> ppc.HarnessResult:
 
 
 def cmp(bot_map, h, since=B1, until=B4, **kw):
-    return ppc.compare(bot_map, h, since, until, level_rtol=kw.get("level_rtol", 1e-6), size_rtol=kw.get("size_rtol", 0.25))
+    return ppc.compare(bot_map, h, since, until, level_rtol=kw.get("level_rtol", 1e-6),
+                       size_rtol=kw.get("size_rtol", ppc.DEFAULT_SIZE_RTOL), evidence=kw.get("evidence"))
 
 
 def kinds(result):
@@ -799,7 +1117,8 @@ def test_explanations():
         return cmp({(B1, "X/USD"): info} if info else {}, hres({(B1, "X/USD"): h}))["mismatches"][0]
     assert one(bot_bar(B1, "X/USD", None, stale=True, note="stale bar: entries skipped")).explained_by == ppc.EXPLAINED_STALE
     assert one(None).explained_by == ppc.EXPLAINED_GAP
-    assert one(bot_bar(B1, "X/USD", None, n_decision_events=0)).explained_by == ppc.EXPLAINED_GAP
+    # the bar has events for other symbols, or only 'already decided' echoes for this one: NOT a gap
+    assert one(bot_bar(B1, "X/USD", None, n_decision_events=0)).explained_by is None
     kill = dict(REJ, reason="kill switch file present at KILL_SWITCH")
     assert one(bot_bar(B1, "X/USD", kill)).explained_by == ppc.EXPLAINED_KILL
     assert one(bot_bar(B1, "X/USD", None, held_note="OPEN plan active for X/USD, no trigger this cycle")).explained_by is None
