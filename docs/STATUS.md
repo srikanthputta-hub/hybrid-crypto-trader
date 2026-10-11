@@ -1,4 +1,4 @@
-# Project status (as of 2026-10-10)
+# Project status (as of 2026-10-11)
 
 Read this first when picking the repo up cold. It summarises the "system redesign" work and what is
 waiting on whom. The detail lives in the linked docs; the PR/issue numbers are GitHub numbers.
@@ -35,16 +35,23 @@ promoted a strategy, a universe change or a risk-parameter change to the live co
 | Harness follow-ups | `min_order_quote_usd` forwarded to the harness; cost-wiring t-1 tests (#90) | `strategy_pack_run/` |
 | Risk floor | `risk.min_order_quote_usd` minimum order size, rejects never resizes up. **Ships as 0 (disabled)** (#86; partial for issue #81: Kraken per-pair minimums are not done, issue stays open) | `src/risk_engine.py` |
 | Multi-day design | Design only for a multi-day-hold redesign of the strategy; no code or config change (#92) | [multiday_hold_design.md](multiday_hold_design.md) |
+| Bar parity | Opt-in live-loop parity rules P1-P5 (`loop.bar_parity`, default off; no behaviour change) with the closed-bar archive (#101) | [bot_bar_parity.md](bot_bar_parity.md) |
+| `min_order_quote_usd` study | Pre-registered rule recommends a $10 floor; **evidence only, not applied** (#102) | [min_order_floor_study.md](min_order_floor_study.md) |
 | CI tweak | Push CI skips `web/data.json`-only commits (#93) | `.github/workflows/ci.yml` |
 
 Background research: [crypto_bot_upgrade_playbook.md](crypto_bot_upgrade_playbook.md).
 
 ## Pending (not done, not scheduled by this doc)
 
-- **P6 harness fix** - a pending `strategy_pack_run/` harness fix; its scope is not written up in this repo yet.
+- **P6 harness fix** - done (`count_same_bar_approvals`), see [p6_harness_exposure_fix.md](p6_harness_exposure_fix.md).
 - **#87** - `risk_engine` fails open on NaN `portfolio_equity` / `cash_available` (open issue). It should fail closed.
   Touches `src/risk_engine.py`: Opus-level review required.
-- **Daily-bar parity PR** - pending; not yet written up in this repo (no doc or open PR to link).
+- **Weekly parity check + Telegram label** - built on the local branch `claude/parity-check-and-label` (off `af99b64`), **not
+  pushed, no PR**: `scripts/paper_parity_check.py` and `notifier.label` / the 1d "Valid until" lines, with tests and
+  [paper_parity_check.md](paper_parity_check.md). Both are inert until the user starts a trial: the label ships `null`, and
+  the check needs `loop.bar_parity` + `logging.closed_bars_dir` on. Touches `src/bot.py` (2 display-only hunks): Architect
+  read-through requested. Before a trial: set `retention_days: 0` (or archive the audit log), and the `min_order_quote_usd`
+  floor decision from the study above is still open.
 - **Paper trial** - a time-boxed paper run of whatever candidate the user approves; none is approved today.
 - Not built: `universe.mode: discover` (raises `NotImplementedError`), wiring `rank_signals` into `bot.py`,
   passing `risk.volatility_scale_floor` through `bot.py` (the engine's 0.5 default applies).

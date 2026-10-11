@@ -21,7 +21,7 @@ What it does: replays the harness over the archived bars from the trial's first 
 `risk.starting_cash_usd` portfolio, signals before the trial start dropped), records every risk check
 and every stop-loss / take-profit exit, and compares them per (bar, symbol) with the bot's audit
 events inside the window:
-  - entry decision: allowed vs not, rejection reason up to the first ';' (the same `same_decision`
+  - entry decision: signal pattern, allowed vs not, rejection reason up to the first ';' (the same `same_decision`
     equivalence as tests/test_daily_live_parity.py), plan entry/stop/risk-reward to a relative 1e-6
     (the design's "plan levels" rule; live indicators use a 200-bar fetch, the archive replay uses all
     archived bars, so warm-up leaves ~1e-7), approved size within a loose tolerance (fill-price residual);
@@ -283,9 +283,11 @@ def _bot_check(event: dict) -> dict:
         raise ParityInputError(f"audit line {event.get('_line')}: malformed risk_decision {rd!r}")
     zone = plan.get("entry_zone")
     entry = _num(zone[1]) if isinstance(zone, (list, tuple)) and len(zone) == 2 else None
+    signal = event.get("signal")
     return dict(
         allowed=bool(rd["allowed"]), reason=str(rd.get("reason", "")), quote=_num(rd.get("max_quote_amount")),
         entry=entry, stop=_num(plan.get("stop_loss")), rr=_num(plan.get("risk_reward")),
+        pattern=signal.get("pattern") if isinstance(signal, dict) else None,
     )
 
 
@@ -415,6 +417,9 @@ def run_harness(
         )
     finally:
         harness.RiskEngine = original
+    for (bar, symbol), check in checks.items():
+        sig = signals.get(symbol, {}).get(bar)
+        check["pattern"] = getattr(sig, "primary_pattern", None)
     exits = {
         (pd.Timestamp(t.exit_time) - TF_DELTA, t.symbol, t.reason)
         for t in result.trades.itertuples()
@@ -483,6 +488,8 @@ def compare(
                     f" ({h['reason'] if not h['allowed'] else 'ok'}); bot {'approved' if b['allowed'] else 'rejected'}"
                     f" ({b['reason'] if not b['allowed'] else 'ok'})"
                 )
+            elif h.get("pattern") and b.get("pattern") and h["pattern"] != b["pattern"]:
+                kind, detail = "pattern", f"signal pattern differs: harness {h['pattern']} vs bot {b['pattern']}"
             elif any(not _close(h[k], b[k], level_rtol) for k in ("entry", "stop", "rr")):
                 kind, detail = "plan_levels", (
                     f"entry/stop/rr differ beyond rel {level_rtol:g}: harness "
@@ -601,6 +608,16 @@ def summarize(cmp: dict[str, Any], mismatches: list[Mismatch], since: pd.Timesta
     }
 
 
+def _bar_at(stamped: list[tuple[pd.Timestamp, pd.Timestamp]], when: pd.Timestamp, default: pd.Timestamp) -> pd.Timestamp:
+    """The bar a wall-clock time belongs to: the bar of the latest audit line written at or before it."""
+    best = None
+    for ts, bar in stamped:
+        if ts > when:
+            break
+        best = bar
+    return best if best is not None else (stamped[0][1] if stamped else default)
+
+
 def check_trade_log(
     bot: dict[tuple[pd.Timestamp, str], BotBar], events: list[dict], rows: list[dict] | None,
     since: pd.Timestamp, until: pd.Timestamp,
@@ -628,6 +645,14 @@ def check_trade_log(
         if (ts, sym, side) not in logged:
             out.append(Mismatch("audit_trade_log", bar, sym, f"audit reports a {side} at {ts} that is not in the trade log", None, None, None))
     # Reverse direction, restricted to the wall-clock span of the window's audited fills.
+    stamped: list[tuple[pd.Timestamp, pd.Timestamp]] = []  # (wall-clock time of an audit line, its bar close)
+    for ev in events:
+        if "bar_close" in ev and isinstance(ev.get("timestamp"), str):
+            try:
+                stamped.append((_parse_ts(ev["timestamp"], "audit timestamp"), _parse_ts(ev["bar_close"], "bar_close")))
+            except ParityInputError:
+                continue
+    stamped.sort(key=lambda x: x[0])
     stamps = sorted(pd.Timestamp(ts) for ts, _, _, _ in fills if ts != "None")
     audited = {(ts, sym, side) for ts, sym, side, _ in fills}
     if stamps:
@@ -638,7 +663,7 @@ def check_trade_log(
             except ParityInputError:
                 continue
             if lo <= t <= hi and (r["timestamp"], r["symbol"], r["side"]) not in audited:
-                out.append(Mismatch("trade_log_audit", t.floor("D"), r["symbol"], f"trade log {r['side']} at {r['timestamp']} has no audit-log fill", None, None, None))
+                out.append(Mismatch("trade_log_audit", _bar_at(stamped, t, until), r["symbol"], f"trade log {r['side']} at {r['timestamp']} has no audit-log fill", None, None, None))
     return out
 
 
