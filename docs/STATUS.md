@@ -54,10 +54,10 @@ Background research: [crypto_bot_upgrade_playbook.md](crypto_bot_upgrade_playboo
   not): `scripts/paper_parity_check.py` and `notifier.label` / the 1d "Valid until" lines, with tests and
   [paper_parity_check.md](paper_parity_check.md). Both are inert until the user starts a trial: the label ships `null`, and
   the check needs `loop.bar_parity` + `logging.closed_bars_dir` on. Touches `src/bot.py` (2 display-only hunks, 19 lines):
-  Architect read-through requested. Before a trial: set `retention_days: 0`, and decide `risk.min_order_quote_usd`
-  (> 0 is required for the parity budget to hold; the study above recommends 10). The check's early-budget relaxation
-  (evaluate from 20 entries; `--strict-early-budget` restores the pre-registered rule) is a proposed change that needs the
-  user's acceptance.
+  Architect read-through requested. Before a trial: set `retention_days: 0` and restart the trial if it started with the
+  default (pruning cannot be repaired afterwards); `risk.min_order_quote_usd` is 10 on main (#104), which the parity budget
+  needs (> 0). The check evaluates the pre-registered 10% budget from the first entry by default; `--relaxed-early-budget`
+  (from 20 entries) is a loosening that needs the user's acceptance and is off.
 - **Paper trial** - a time-boxed paper run of whatever candidate the user approves; none is approved today.
 - Not built: `universe.mode: discover` (raises `NotImplementedError`), wiring `rank_signals` into `bot.py`,
   passing `risk.volatility_scale_floor` through `bot.py` (the engine's 0.5 default applies).
