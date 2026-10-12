@@ -298,3 +298,13 @@ def test_notifier_plain_text_is_markdown_safe():
     text = notifier.bar_validity_text("2026-10-13T00:00:00+00:00", 60)
     assert not set("*_`[") & set(text)
     assert not set("*_`[]\\") & set(notifier.label_prefix("PAPER TRIAL").replace("*PAPER TRIAL*", ""))
+
+
+def test_label_is_not_escaped_but_dynamic_fields_are(monkeypatch):
+    """PR #103: symbol / pattern go through escape_md; the label sits inside its own *...* entity, is validated at
+    startup (no Markdown specials) and must stay verbatim."""
+    event = {**BUY, "symbol": "BTC_X/USD", "plan": {**BUY["plan"], "pattern": "TREND_CONTINUATION"}}
+    [msg] = _messages(_maybe_notify, _real_cfg(monkeypatch, label="PAPER TRIAL"), event)
+    assert msg.startswith("*PAPER TRIAL* · 🔔 *BUY signal*: BTC\\_X/USD (TREND\\_CONTINUATION)\n")
+    [plain] = _messages(_maybe_notify, _real_cfg(monkeypatch), event)
+    assert msg == "*PAPER TRIAL* · " + plain

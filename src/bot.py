@@ -213,7 +213,7 @@ def _maybe_notify(cfg: Config, event: dict) -> None:
         notifier.send_telegram_message(
             bot_token,
             chat_id,
-            f"{prefix}🔔 *BUY signal*: {event['symbol']} ({plan.get('pattern')})\n"
+            f"{prefix}🔔 *BUY signal*: {notifier.escape_md(event['symbol'])} ({notifier.escape_md(plan.get('pattern'))})\n"
             f"Buy between {_fmt_price(entry_low)} and {_fmt_price(entry_high)}\n"
             f"Stop-loss: {_fmt_price(plan.get('stop_loss'))} (sell here to cap the loss)\n"
             f"Target: {_fmt_price(plan.get('take_profit'))} (take profit here)\n"
@@ -228,7 +228,7 @@ def _maybe_notify(cfg: Config, event: dict) -> None:
         notifier.send_telegram_message(
             bot_token,
             chat_id,
-            f"{prefix}🏁 *SELL* — trade closed: {event['symbol']}\n"
+            f"{prefix}🏁 *SELL* — trade closed: {notifier.escape_md(event['symbol'])}\n"
             f"Reason: {reason}\n"
             f"Price: {_fmt_price(execution.get('price'))}",
         )
@@ -238,7 +238,7 @@ def _maybe_notify(cfg: Config, event: dict) -> None:
         notifier.send_telegram_message(
             bot_token,
             chat_id,
-            f"{prefix}✅ *Bought*: {event['symbol']}\n"
+            f"{prefix}✅ *Bought*: {notifier.escape_md(event['symbol'])}\n"
             f"Price: {_fmt_price(execution.get('price'))}  Amount: {execution.get('base_amount')}",
         )
 

@@ -1,4 +1,4 @@
-"""Frozen copy of `origin/main`'s `src.bot._maybe_notify` (at af99b64), before `notifier.label` and the
+"""Frozen copy of `origin/main`'s `src.bot._maybe_notify` (af99b64, updated for the escape_md hunks of PR #103), before `notifier.label` and the
 1d "Valid until" lines existed. The "before" half of the default-config byte-identity tests in
 tests/test_notifier_label.py -- do not edit it to follow src/bot.py."""
 from __future__ import annotations
@@ -25,7 +25,7 @@ def pre_label_maybe_notify(cfg: Config, event: dict) -> None:
         notifier.send_telegram_message(
             bot_token,
             chat_id,
-            f"🔔 *BUY signal*: {event['symbol']} ({plan.get('pattern')})\n"
+            f"🔔 *BUY signal*: {notifier.escape_md(event['symbol'])} ({notifier.escape_md(plan.get('pattern'))})\n"
             f"Buy between {_fmt_price(entry_low)} and {_fmt_price(entry_high)}\n"
             f"Stop-loss: {_fmt_price(plan.get('stop_loss'))} (sell here to cap the loss)\n"
             f"Target: {_fmt_price(plan.get('take_profit'))} (take profit here)\n"
@@ -39,7 +39,7 @@ def pre_label_maybe_notify(cfg: Config, event: dict) -> None:
         notifier.send_telegram_message(
             bot_token,
             chat_id,
-            f"🏁 *SELL* — trade closed: {event['symbol']}\n"
+            f"🏁 *SELL* — trade closed: {notifier.escape_md(event['symbol'])}\n"
             f"Reason: {reason}\n"
             f"Price: {_fmt_price(execution.get('price'))}",
         )
@@ -49,6 +49,6 @@ def pre_label_maybe_notify(cfg: Config, event: dict) -> None:
         notifier.send_telegram_message(
             bot_token,
             chat_id,
-            f"✅ *Bought*: {event['symbol']}\n"
+            f"✅ *Bought*: {notifier.escape_md(event['symbol'])}\n"
             f"Price: {_fmt_price(execution.get('price'))}  Amount: {execution.get('base_amount')}",
         )
