@@ -194,19 +194,28 @@ risk:
                                  # (e.g. 15-20+ simultaneous signals), NOT as the fix for 09-29's actual loss --
                                  # that would need a lower max_total_exposure_pct or (more directly) a minimum
                                  # order/notional size -- the latter now exists as min_order_quote_usd below (issue
-                                 # #81) but ships disabled (0), so neither is in effect. Daily bars also can't test
+                                 # #81), set to $10 (study PR #102). Daily bars also can't test
                                  # the live 1h/5-minute cadence this guards against, so this remains a risk-
                                  # appetite choice informed by, not proven by, the backtest -- revisit if hourly
                                  # backtest data ever becomes available. Must be an integer >= 1 / a number > 0.
-  min_order_quote_usd: 0         # minimum order size (issue #81): reject (never resize up) any buy whose final
+  min_order_quote_usd: 10        # minimum order size (issue #81): reject (never resize up) any buy whose final
                                  # spend, after every cap above, is below this many quote units (USD/USDT) --
                                  # "dust" fills on scraps of exposure room, and orders a live exchange would
-                                 # refuse outright. 0 = disabled, i.e. identical to pre-#81 behaviour. Left at 0
-                                 # on purpose: picking a real floor is a risk-parameter change that needs its own
-                                 # written reason + out-of-sample backtest (CLAUDE.md). If set, leave headroom
-                                 # above the exchange's own per-pair minimum (Kraken limits.cost.min /
-                                 # limits.amount.min, not checked here yet): the fee is taken out of this spend
-                                 # and price can move between plan and fill. Must be a finite number >= 0.
+                                 # refuse outright. 0 = disabled (pre-#81 behaviour). Was 0 until the
+                                 # pre-registered study docs/min_order_floor_study.md (PR #102) picked $10, the
+                                 # smallest of {5, 10, 25} that passed its rule on both datasets: it removes the
+                                 # live paper path's fee-slack dust (largest measured $5.33) and the ~1e-12 USD
+                                 # float-rounding "phantom" approvals that each held a plan slot, gave 0%
+                                 # live-vs-harness entry mismatch in the study's daily-bar parity replay, and moves
+                                 # no backtest gate. Hygiene, not edge.
+                                 # It is a FIXED dollar amount and does not scale with the account: re-run the
+                                 # study if starting_cash_usd drops below ~$2,500 (it starts removing real
+                                 # trades) or equity passes ~$50k / the fee assumption changes (dust grows as
+                                 # fee x max_position_pct x equity). Kraken per-pair minimums (limits.cost.min /
+                                 # limits.amount.min) are still NOT verified -- $10 is not a substitute for a
+                                 # per-pair check, issue #81 stays open; before live, confirm this floor sits with
+                                 # headroom ABOVE every pair's minimum (the fee comes out of this spend and price
+                                 # can move between plan and fill). Must be a finite number >= 0.
   kill_switch_file: "KILL_SWITCH"  # if this file exists in the project root, refuse all new entries
 
 # Pipeline stage 4b — Claude's second opinion. Can only veto a plan the pipeline
