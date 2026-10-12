@@ -55,8 +55,17 @@ market:
     - "BCH/USDT"
     - "XTZ/USDT"
     - "SHIB/USDT"
-  timeframe: "1h"           # ccxt timeframe string: 1m, 5m, 15m, 1h, 4h, 1d
-  history_bars: 200         # bars of OHLCV history fetched each cycle for indicators/scanner
+  timeframe: "1d"           # ccxt timeframe string: 1m, 5m, 15m, 1h, 4h, 1d.
+                            # "1d" since the PAPER daily-bar trial (docs/multiday_hold_design.md §3.1 Option A,
+                            # §5 protocol; runbook deploy/PAPER_TRIAL_RUNBOOK.md). Was "1h" until then: the 1h
+                            # strategy re-baselined at -0.24R net (docs/p2_0_1h_rebaseline.md). Every piece of
+                            # daily evidence (E3/E4, P6 re-gates, min-order floor study) was produced with THIS
+                            # file's strategy parameters at daily resolution; none of them changed with the switch.
+                            # Kraken daily bars open/close at 00:00 UTC, so decisions happen once a day ~00:05 UTC.
+  history_bars: 200         # bars of OHLCV history fetched each cycle for indicators/scanner. At 1d with
+                            # loop.bar_parity on it must be >= 150 (checked at startup: the htf gate's
+                            # backtest window) and <= 720 (Kraken's OHLC limit); 200 is the value the
+                            # daily parity tests (tests/test_daily_live_parity.py) were run with.
 
 # Phase 1b of docs/system-redesign-2026-10.md (§4.2; that design doc lives on the
 # claude/system-redesign-design branch, not on main): the symbol-universe
@@ -122,8 +131,13 @@ signal_engine:
 
 # Pipeline stage 2b — higher-timeframe (daily) trend confirmation gate (see
 # src/htf_filter.py). Standard top-down multi-timeframe practice: the daily
-# chart sets directional bias, market.timeframe (1h) only times entries
-# within that bias. A bullish signal whose daily trend isn't also confirmed
+# chart sets directional bias, market.timeframe only times entries within
+# that bias. At market.timeframe "1d" with loop.bar_parity on (the paper trial)
+# the scan frame IS the daily chart, so the gate runs on its last 150 closes
+# (rule P5, the backtest harness's own window) with no separate fetch; it is
+# then mostly redundant with the scanner (passes ~95% of signals) but it is
+# part of every piece of daily evidence (gate OFF +0.12R vs ON +0.18R on data/,
+# docs/multiday_hold_design.md §3.1), so it stays on. A bullish signal whose daily trend isn't also confirmed
 # bullish (daily fast EMA > slow EMA, using indicators.fast_ema/slow_ema) is
 # blocked from ever becoming a trade plan -- this never originates or
 # resizes a trade, only vetoes one. Set enabled: false to disable entirely.
@@ -160,7 +174,10 @@ risk:
   max_position_pct: 0.10         # flat ceiling: never put more than 10% of equity in one position
   max_total_exposure_pct: 0.40   # never have more than 40% of equity committed across all open positions at once
   max_loss_per_trade_pct: 0.01   # size each position so a stop-out never loses more than 1% of equity
-  max_daily_loss_pct: 0.05       # halt all new trades for the day if realized+unrealized loss exceeds 5%
+  max_daily_loss_pct: 0.05       # halt all new trades for the day if realized+unrealized loss exceeds 5%.
+                                 # At 1d this is structurally inert (the daily baseline resets at 00:00 UTC, right
+                                 # before the day's only entry pass) -- exactly as in the daily backtests. Left as is:
+                                 # the evidence has it inert too (docs/multiday_hold_design.md §3.1, Risk Officer flag).
   max_volatility_pct: 0.08       # skip new entries when ATR/price exceeds 8% (too chaotic to size risk on)
   volatility_scale_floor: 0.5    # volatility-based sizing (research: scaling size inversely to ATR/price cuts
                                  # drawdowns vs. fixed-fractional sizing). The per-trade risk budget tapers
@@ -170,7 +187,9 @@ risk:
                                  # NOTE: src/bot.py does not yet pass this key to RiskEngine; the engine's
                                  # built-in default (0.5) is what's in effect until it does.
   min_risk_reward: 1.5           # reject any trade plan whose risk/reward is below this, even if the risk engine would otherwise size it
-  cooldown_minutes: 60           # minimum time between new plans on the same symbol
+  cooldown_minutes: 60           # minimum time between new plans on the same symbol. Inert at 1d (bars are 1440 min
+                                 # apart and loop.bar_parity allows one entry decision per symbol per bar), as in the
+                                 # daily backtests; not retuned for the trial (it would change the strategy under test).
   max_new_entries_per_window: 5  # GLOBAL new-entry rate cap, across ALL symbols combined (cooldown_minutes above
   new_entry_window_minutes: 120  # is per-symbol only): at most this many new plans accepted in any rolling window
                                  # of this many minutes; anything beyond is rejected (never resized). Added after
@@ -194,10 +213,12 @@ risk:
                                  # (e.g. 15-20+ simultaneous signals), NOT as the fix for 09-29's actual loss --
                                  # that would need a lower max_total_exposure_pct or (more directly) a minimum
                                  # order/notional size -- the latter now exists as min_order_quote_usd below (issue
-                                 # #81), set to $10 (study PR #102). Daily bars also can't test
-                                 # the live 1h/5-minute cadence this guards against, so this remains a risk-
-                                 # appetite choice informed by, not proven by, the backtest -- revisit if hourly
-                                 # backtest data ever becomes available. Must be an integer >= 1 / a number > 0.
+                                 # #81), set to $10 (study PR #102). At market.timeframe "1d" with loop.bar_parity
+                                 # (the paper trial) every entry of a day is decided in one cycle right after the
+                                 # 00:00 UTC close, so this becomes "at most 5 new entries per daily bar" -- exactly
+                                 # what the daily backtests above measured. The 1h-era caveat (daily bars could not
+                                 # test a 1h/5-minute cadence) no longer applies while the bot runs at 1d.
+                                 # Must be an integer >= 1 / a number > 0.
   min_order_quote_usd: 10        # minimum order size (issue #81): reject (never resize up) any buy whose final
                                  # spend, after every cap above, is below this many quote units (USD/USDT) --
                                  # "dust" fills on scraps of exposure room, and orders a live exchange would
@@ -242,15 +263,21 @@ loop:
   # logging.bar_decisions_path, so a restart doesn't re-decide), monitor checks before new entries,
   # new entries in sorted(symbol) order, entry room/cash counted as if this bar's exits hadn't happened
   # yet, and at market.timeframe "1d" the htf gate runs on the scan frame (last 150 bars) instead of a
-  # separate 31-bar daily fetch. Exactly how the strategy_pack_run harness decides. Switching it on (and
-  # the 1d timeframe) is a separate, user-approved step.
-  bar_parity: false
+  # separate 31-bar daily fetch. Exactly how the strategy_pack_run harness decides.
+  # ON for the paper daily-bar trial (user-approved, paper only; docs/multiday_hold_design.md §5,
+  # deploy/PAPER_TRIAL_RUNBOOK.md). With 300 s polling at 1d: one real decision per symbol right after
+  # 00:00 UTC, then ~287 "already decided" audit lines per symbol per day; held symbols' stops/targets
+  # are still checked every cycle (idempotent within a bar: the price is the last daily close).
+  bar_parity: true
   # Entry staleness guard (P4): no NEW plan from a bar that closed more than this many minutes ago.
-  # Exits are never blocked; a skipped bar still counts as decided. null = off (today's behaviour).
-  # Requires bar_parity: true. The design proposes 60 -- an UNTUNED judgement call, not a measurement:
+  # Exits are never blocked; a skipped bar still counts as decided. null = off.
+  # Requires bar_parity: true. 60 is the design's value -- an UNTUNED judgement call, not a measurement:
   # the evidence only covers entries at the bar close, and in paper the broker fills at the last close
-  # regardless, so the guard only changes which trades exist. Must be null or a finite number > 0.
-  max_entry_delay_minutes: null
+  # regardless, so the guard only changes which trades exist (it can only REMOVE entries). It is also
+  # the "Valid until" time in Telegram BUY messages (bar close + 60 min). The 0-60 min fill-delay cost
+  # must be measured on the 15m data before any real-money use (design §4/§6).
+  # Must be null or a finite number > 0.
+  max_entry_delay_minutes: 60
 
 # Telegram message display (src/notifier.py; the bot token / chat id are env vars, see .env.example).
 notifier:
@@ -258,7 +285,9 @@ notifier:
   # SELL / fill message so a paper alert can't be mistaken for a live one (docs/multiday_hold_design.md §3.1).
   # At most 32 characters, no control characters, and none of * _ ` [ ] \ (Telegram Markdown would
   # reject the whole message). Display only: it never affects a trading decision. Checked at startup.
-  label: null
+  # "PAPER TRIAL" for the paper daily-bar trial (design §3.1 "Dashboard / alerts", §8 decision 7): the
+  # paper bot still sends BUY/SELL messages, and none of them is a live order.
+  label: "PAPER TRIAL"
 
 logging:
   audit_log_path: "logs/audit_log.jsonl"
@@ -275,12 +304,21 @@ logging:
   bar_decisions_path: "logs/bar_decisions.json"
   # loop.bar_parity only: append every closed bar the bot fetches to <dir>/<BASE>_<QUOTE>_<tf>.csv
   # (strategy_pack_run data-CSV format) for the weekly paper-trial parity check. null = off. Never
-  # pruned by retention_days. The design's suggested value is "logs/daily_bars" (gitignored).
-  closed_bars_dir: null
+  # pruned by retention_days. "logs/daily_bars" (gitignored) for the paper trial: the weekly
+  # scripts/paper_parity_check.py replays the harness on exactly these bars. Tiny (16 files, one
+  # ~100-byte row per symbol per day).
+  closed_bars_dir: "logs/daily_bars"
   # Only used by scripts/run_live.py (the 24/7 VM loop), once a day: rows
   # older than this many days are pruned from audit_log_path and
   # trade_plan_history_path, so a long-running host's disk doesn't fill up
   # (see deploy/README.md). trade_log_path (trades.csv) is never pruned --
   # that's the actual financial record. Set to 0 or a negative number to
   # disable pruning entirely (keep full history).
-  retention_days: 30
+  # 0 (keep everything) for the paper trial: the weekly parity check replays the harness from trial
+  # day 0 and its 10% budget is cumulative, so the audit log must reach back to day 0 -- pruning cannot
+  # be repaired afterwards (docs/paper_parity_check.md prerequisite 3). Growth, measured with this config
+  # (16 symbols, 300 s poll, mostly "already decided" lines): audit log ~1.15 MB/day (~35 MB/month,
+  # ~0.63 GB over the 18-month maximum), plan history and closed-bar archive negligible. Disk is fine;
+  # RAM is the limit (the dashboard export and the parity check read the whole audit log): see
+  # deploy/PAPER_TRIAL_RUNBOOK.md "Disk and memory". Set back to 30 only after the trial ends.
+  retention_days: 0
