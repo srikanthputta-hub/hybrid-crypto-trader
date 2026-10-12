@@ -878,6 +878,9 @@ def test_one_explained_event_followed_by_a_total_entry_divergence_fails_by_defau
     drop_trade_rows(work, stamps)
     r = run_check(work, "--days", str(TRIAL_BARS))
     assert r["unexplained_count"] == 0 and r["trial_to_date"]["entries"]["mismatch_rate"] == 1.0
+    # downstream-tagged mismatches are counted like any other (they never fall outside the budget)
+    tags = [m["explained_by"] for m in r["mismatches"]]
+    assert ppc.EXPLAINED_DOWNSTREAM in tags and r["trial_to_date"]["mismatch_count"] == len(tags) == r["mismatch_count"]
     assert r["status"] == ppc.FAIL and r["exit_code"] == 1 and "exceeds the 10% budget" in r["message"]
     # the relaxed flag (needs the user's acceptance) is the only way this is a WARN
     assert run_check(work, "--days", str(TRIAL_BARS), "--relaxed-early-budget")["status"] == ppc.WARN
@@ -927,20 +930,28 @@ def test_json_out_to_a_directory_or_under_a_file_is_exit_2_not_a_traceback(trial
     assert capsys.readouterr().err.count("error: ") == 2
 
 
-def test_force_never_overwrites_the_ack_file_dotenv_repo_config_or_the_kill_switch(trial, tmp_path, capsys):
+def test_force_never_overwrites_the_ack_file_dotenv_repo_config_or_the_kill_switch(trial, tmp_path, capsys, monkeypatch):
+    # a stand-in project root, so that a broken guard can only ever damage files in tmp_path
+    root = tmp_path / "root"
+    (root / "config").mkdir(parents=True)
+    (root / "config" / "config.yaml").write_text("repo: config")
+    (root / ".env").write_text("SECRET=1")
+    monkeypatch.setattr(ppc, "PROJECT_ROOT", root)
     acks = tmp_path / "acks.txt"
     acks.write_text("# none\n")
-    envfile = tmp_path / ".env"
-    envfile.write_text("SECRET=1")
-    for victim, extra in ((acks, ["--ack-file", str(acks)]), (envfile, []), (REPO / "config" / "config.yaml", []),
-                          (REPO / ".env", []), (trial.dir / "NO_KILL_SWITCH", [])):
+    stray_env = tmp_path / "sub" / ".env.local"
+    stray_env.parent.mkdir()
+    stray_env.write_text("X=1")
+    for victim, extra in ((acks, ["--ack-file", str(acks)]), (stray_env, []), (root / "config" / "config.yaml", []),
+                          (root / ".env", []), (trial.dir / "NO_KILL_SWITCH", [])):
         before = victim.read_bytes() if victim.exists() else None
         assert ppc.main(_argv(trial.dir, "--json-out", str(victim), "--force", *extra)) == ppc.EXIT_INPUT_ERROR, victim
         assert (victim.read_bytes() if victim.exists() else None) == before, victim
         capsys.readouterr()
 
 
-def test_the_default_kill_switch_path_is_protected_when_the_config_omits_the_key():
+def test_the_default_kill_switch_path_is_protected_when_the_config_omits_the_key(monkeypatch):
+    monkeypatch.setattr(ppc, "PROJECT_ROOT", REPO)
     paths = ppc.protected_paths({"logging": {"audit_log_path": "logs/a.jsonl"}, "risk": {}}, "acks.txt")
     assert (REPO / "KILL_SWITCH").resolve() in paths and (REPO / ".env").resolve() in paths
     assert (REPO / "config" / "config.yaml").resolve() in paths and Path("acks.txt").resolve() in paths
