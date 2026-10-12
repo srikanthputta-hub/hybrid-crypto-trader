@@ -79,7 +79,7 @@ market data (ccxt)     src/market_data.py   (infrastructure, not a stage)
    tradeable members), per-symbol cooldown, a global new-entry rate cap
    (`max_new_entries_per_window` per `new_entry_window_minutes`, across all
    symbols; restored from the plan store after a restart), an optional
-   minimum order size (`min_order_quote_usd`, ships as 0 = off; rejects,
+   minimum order size (`min_order_quote_usd`, $10 in config, 0 = off; rejects,
    never sizes up), kill switch file. Only ever rejects or shrinks a plan.
    |
    v
@@ -174,7 +174,7 @@ it**.
 | `signal_engine.*` | minimum candidate strength, confluence bonus, pattern tie-break priority |
 | `htf_filter.enabled` | stage 2b daily-trend confirmation gate on/off (default on) |
 | `trade_planner.*` | entry zone width, stop/invalidation distance (in ATRs), minimum risk/reward, ADX trend-regime stop widening |
-| `risk.*` | position sizing (`max_position_pct`, `max_loss_per_trade_pct`, `volatility_scale_floor`), total exposure cap, daily loss limit, volatility filter, per-symbol cooldown, global new-entry rate cap (`max_new_entries_per_window`, `new_entry_window_minutes`), optional minimum order size (`min_order_quote_usd`, 0 = off), kill switch file. `volatility_scale_floor` is not yet passed through by `src/bot.py`; the engine's built-in 0.5 applies |
+| `risk.*` | position sizing (`max_position_pct`, `max_loss_per_trade_pct`, `volatility_scale_floor`), total exposure cap, daily loss limit, volatility filter, per-symbol cooldown, global new-entry rate cap (`max_new_entries_per_window`, `new_entry_window_minutes`), minimum order size (`min_order_quote_usd`, set to 10 per `docs/min_order_floor_study.md`; 0 = off), kill switch file. `volatility_scale_floor` is not yet passed through by `src/bot.py`; the engine's built-in 0.5 applies |
 | `advisor.*` | turn the Claude second opinion on/off (shipped **off**), model, fail-open/closed, timeout |
 | `loop.poll_interval_seconds` | seconds between full cycles in continuous mode |
 | `loop.bar_parity` / `loop.max_entry_delay_minutes` | backtest-parity cycle rules P1-P5 (one decision per symbol per closed bar, monitor before entries, sorted entry order, pre-exit room, 1d htf on the scan frame) and the entry-staleness guard; both off by default (`false` / `null` = today's behaviour). See `docs/bot_bar_parity.md` |
