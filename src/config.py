@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import os
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
@@ -18,6 +19,15 @@ DEFAULT_BAR_DECISIONS_PATH = "logs/bar_decisions.json"
 # this-many closes -- the backtest harness's window (strategy_pack_run/backtest_live_bot.py
 # SCAN_TAIL_BARS). Exact only if at least this many bars are fetched (market.history_bars).
 HTF_SCAN_TAIL_BARS = 150
+
+
+# notifier.label (docs/multiday_hold_design.md §3.1 "Dashboard / alerts", §6): a short tag prefixed to
+# every Telegram BUY / SELL / fill message, e.g. "PAPER TRIAL". Display only.
+NOTIFIER_LABEL_MAX_LEN = 32
+# src/notifier.py sends parse_mode "Markdown" (legacy), where an unbalanced * _ ` [ makes Telegram
+# reject the WHOLE message (HTTP 400, swallowed by the notifier) -- so a label containing one would
+# silently turn every alert off. Refused at startup instead.
+NOTIFIER_LABEL_FORBIDDEN_CHARS = frozenset("*_`[]\\")
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -137,6 +147,51 @@ def parse_bar_parity_settings(raw: dict[str, Any]) -> BarParitySettings:
     )
 
 
+@dataclass(frozen=True)
+class NotifierSettings:
+    """Validated `notifier:` block. `label` (default None = no prefix, today's exact message text)."""
+
+    label: str | None = None
+
+
+def parse_notifier_settings(raw: dict[str, Any]) -> NotifierSettings:
+    """Strict startup validation of the `notifier:` block (same "refuse to start rather than
+    guess" rule as parse_bar_parity_settings):
+
+    - the block is optional; when present it must be a mapping with no keys other than `label`
+      (a typo such as `lable:` would otherwise silently leave messages unlabelled);
+    - `notifier.label`: absent or null -> no label; otherwise a string that is non-empty, has no
+      leading/trailing whitespace, is at most NOTIFIER_LABEL_MAX_LEN characters, contains no
+      control/format/line-separator characters (newlines would split the message), and none of the
+      legacy-Markdown specials * _ ` [ ] \\ (see NOTIFIER_LABEL_FORBIDDEN_CHARS).
+    """
+    section = _section(raw, "notifier")
+    unknown = sorted(set(section) - {"label"})
+    if unknown:
+        raise ValueError(f"unknown notifier key(s) {unknown}; the only supported key is 'label'")
+    label = section.get("label")
+    if label is None:
+        return NotifierSettings(label=None)
+    if not isinstance(label, str):
+        raise ValueError(f"notifier.label must be null or a string, got {label!r}")
+    if not label.strip():
+        raise ValueError("notifier.label must not be empty or blank (use null for no label)")
+    if label != label.strip():
+        raise ValueError(f"notifier.label must not have leading or trailing whitespace, got {label!r}")
+    if len(label) > NOTIFIER_LABEL_MAX_LEN:
+        raise ValueError(f"notifier.label is {len(label)} characters, the maximum is {NOTIFIER_LABEL_MAX_LEN}")
+    for ch in label:
+        if unicodedata.category(ch).startswith("C") or unicodedata.category(ch) in ("Zl", "Zp"):
+            raise ValueError(f"notifier.label must not contain control characters, got {label!r}")
+    bad = sorted({ch for ch in label if ch in NOTIFIER_LABEL_FORBIDDEN_CHARS})
+    if bad:
+        raise ValueError(
+            f"notifier.label must not contain Telegram Markdown characters {bad} "
+            f"(they make Telegram reject the whole message), got {label!r}"
+        )
+    return NotifierSettings(label=label)
+
+
 @dataclass
 class Config:
     raw: dict[str, Any]
@@ -206,6 +261,16 @@ class Config:
         parse_bar_parity_settings). src/bot.py's build_components calls this at
         startup so a bad value stops the process before the first cycle."""
         return parse_bar_parity_settings(self.raw)
+
+    @property
+    def notifier(self) -> NotifierSettings:
+        """Validated `notifier:` settings; raises ValueError on a bad value (see
+        parse_notifier_settings). src/bot.py's build_components calls this at startup."""
+        return parse_notifier_settings(self.raw)
+
+    @property
+    def notifier_label(self) -> str | None:
+        return self.notifier.label
 
     @property
     def logging_cfg(self) -> dict[str, Any]:
