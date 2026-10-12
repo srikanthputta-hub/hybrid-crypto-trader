@@ -5,7 +5,10 @@ waiting on whom. The detail lives in the linked docs; the PR/issue numbers are G
 
 **The bot is unchanged in behaviour by the redesign so far:** paper mode, static 16-symbol
 universe (`market.symbols`), 1h candles, daily-trend gate on, Claude advisor off. Nothing below has
-promoted a strategy, a universe change or a risk-parameter change to the live config.
+promoted a strategy or a universe change to the live config. The one risk-parameter change is
+`risk.min_order_quote_usd: 0 -> 10` (dust/phantom hygiene, not an edge change; see "Risk floor"
+below). It moved the harness baselines; the current numbers are in
+[min_order_floor_10_rebaseline.md](min_order_floor_10_rebaseline.md).
 
 ## Standing rules
 
@@ -33,7 +36,7 @@ promoted a strategy, a universe change or a risk-parameter change to the live co
 | P2.0 | Live strategy re-baselined at 1h: **FAIL** the 5-gate bar at its own resolution; follow-up diagnosis of why the 1h edge shrinks | [p2_0_1h_rebaseline.md](p2_0_1h_rebaseline.md), [p2_0_1h_edge_diagnosis.md](p2_0_1h_edge_diagnosis.md) |
 | engine_score study | `engine_score` saturates; no pre-registered rank key qualified. **No change to `src/`** (#91) | [engine_score_saturation.md](engine_score_saturation.md) |
 | Harness follow-ups | `min_order_quote_usd` forwarded to the harness; cost-wiring t-1 tests (#90) | `strategy_pack_run/` |
-| Risk floor | `risk.min_order_quote_usd` minimum order size, rejects never resizes up. **Ships as 0 (disabled)** (#86; partial for issue #81: Kraken per-pair minimums are not done, issue stays open) | `src/risk_engine.py` |
+| Risk floor | `risk.min_order_quote_usd` minimum order size, rejects never resizes up (#86; partial for issue #81: Kraken per-pair minimums are not done, issue stays open). Shipped as 0 (disabled); **set to $10** per the floor study's recommendation (#102; config change on `claude/min-order-floor-10`, which needs the user's approval to merge), paper mode. Fixed dollar amount: re-run the study if `starting_cash_usd` drops below ~$2,500 or equity passes ~$50k | `src/risk_engine.py`, [min_order_floor_study.md](min_order_floor_study.md), [min_order_floor_10_rebaseline.md](min_order_floor_10_rebaseline.md) |
 | Multi-day design | Design only for a multi-day-hold redesign of the strategy; no code or config change (#92) | [multiday_hold_design.md](multiday_hold_design.md) |
 | CI tweak | Push CI skips `web/data.json`-only commits (#93) | `.github/workflows/ci.yml` |
 

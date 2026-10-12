@@ -302,6 +302,10 @@ the default (non-parity) path.
 
 ## 4. Proposed change (NOT applied; needs the user's approval)
 
+> **Later note:** applied as proposed on branch `claude/min-order-floor-10` (config value + comment,
+> and the test rewrite below). Re-measured baselines and the commands are in
+> `docs/min_order_floor_10_rebaseline.md`. The rest of this document is unchanged.
+
 ```diff
 -  min_order_quote_usd: 0         # minimum order size (issue #81): reject (never resize up) any buy whose final
 +  min_order_quote_usd: 10        # minimum order size (issue #81): reject (never resize up) any buy whose final

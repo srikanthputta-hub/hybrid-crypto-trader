@@ -701,28 +701,56 @@ def test_min_order_floor_defaults_to_disabled(tmp_path):
     assert engine.min_order_quote_usd == 0.0
 
 
-def test_default_config_floor_decides_exactly_as_before(tmp_path):
-    # The value shipped in config/config.yaml must leave every decision identical to an
-    # engine built without the key (pre-#81 behaviour) -- including dust-sized spends,
-    # which were allowed before this change and must still be allowed by default.
+def test_shipped_config_floor_rejects_dust_and_decides_as_before_at_or_above_it(tmp_path):
+    # The value shipped in config/config.yaml is $10 (docs/min_order_floor_study.md, PR #102).
+    # Replaces test_default_config_floor_decides_exactly_as_before, which pinned the old shipped
+    # value 0 ("dust spends must still be allowed by default"). That expectation was correct
+    # while the decision was to ship the floor disabled; it changed by decision (the study),
+    # not because the old behaviour was a bug in the engine.
+    # Pinned here: dust spends ($0.01, $0.50, $9.99) are rejected outright and never resized
+    # up; an exactly-$10 spend is allowed (inclusive boundary); every spend >= $10, and every
+    # check that was already rejected for another reason, is decided exactly as with no floor.
     import yaml
 
     repo_root = Path(__file__).resolve().parent.parent
     risk_cfg = yaml.safe_load((repo_root / "config" / "config.yaml").read_text())["risk"]
-    assert "min_order_quote_usd" in risk_cfg
+    # Pin the exact value: changing the shipped floor is a risk-parameter change that needs
+    # its own study, so it must also be a deliberate edit here.
+    assert risk_cfg["min_order_quote_usd"] == 10
     shipped = make_engine(tmp_path, max_position_pct=0.99,
                           min_order_quote_usd=risk_cfg["min_order_quote_usd"])
-    before = make_engine(tmp_path, max_position_pct=0.99)
-    for overrides in (
-        dict(),
-        dict(open_positions_value=4999.99),       # $0.01 dust spend
-        dict(open_positions_value=4990),          # $10 spend
-        dict(cash_available=0.5),                 # $0.50 spend
-        dict(open_positions_value=5000),          # zero room -> "no room left" rejection
-        dict(entry_price=50000, stop_loss=49000, atr_pct=0.06, open_positions_value=1000),
+    no_floor = make_engine(tmp_path, max_position_pct=0.99)
+
+    # Below the floor: allowed with no floor (so this really is the floor deciding), rejected now.
+    for overrides, spend in (
+        (dict(open_positions_value=4999.99), 0.01),   # $0.01 dust spend (exposure room binds)
+        (dict(cash_available=0.5), 0.50),             # $0.50 dust spend (cash binds)
+        (dict(open_positions_value=4990.01), 9.99),   # just below the floor
     ):
-        assert _floor_buy(shipped, **overrides) == _floor_buy(before, **overrides), overrides
-    assert _floor_buy(shipped, open_positions_value=4999.99).allowed
+        before = _floor_buy(no_floor, **overrides)
+        assert before.allowed and before.max_quote_amount == pytest.approx(spend, abs=1e-6), overrides
+        decision = _floor_buy(shipped, **overrides)
+        assert not decision.allowed, overrides
+        assert decision.max_quote_amount is None, overrides       # never resized up to $10
+        assert "minimum order size" in decision.reason, overrides
+
+    # Exactly at the floor: allowed, same size as with no floor (boundary is inclusive).
+    at_floor = _floor_buy(shipped, open_positions_value=4990)
+    assert at_floor.allowed and at_floor.max_quote_amount == 10.0
+    assert at_floor == _floor_buy(no_floor, open_positions_value=4990)
+
+    # At/above the floor, or already rejected for another reason: identical to no floor.
+    for overrides in (
+        dict(),                                   # flat cap binds ($5000)
+        dict(open_positions_value=4990),          # exactly $10
+        dict(cash_available=10.5),                # $10.50, cash binds
+        dict(open_positions_value=5000),          # zero room -> "no room left" rejection kept
+        dict(entry_price=50000, stop_loss=49000, atr_pct=0.06, open_positions_value=1000),
+        dict(atr_pct=0.09),                       # volatility rejection, before sizing
+    ):
+        expected = _floor_buy(no_floor, **overrides)
+        assert (not expected.allowed) or expected.max_quote_amount >= 10, overrides  # precondition
+        assert _floor_buy(shipped, **overrides) == expected, overrides
 
 
 def test_min_order_floor_rejects_when_exposure_cap_trims_spend_below_it(tmp_path):

@@ -24,9 +24,10 @@ equality against today's default harness is not achievable"):
     harness's full-history ones.
 The realistic configuration (real opens, the 0.10% paper fee, the live 200-bar history) is
 measured against the design's 10% explained-mismatch budget by
-test_realistic_config_with_a_dust_floor_is_within_the_mismatch_budget, and the committed
-config's (min_order_quote_usd: 0) known float-phantom divergence is pinned by
-test_committed_config_divergence_is_a_float_phantom.
+test_realistic_config_with_a_dust_floor_is_within_the_mismatch_budget, and the known float-phantom
+divergence with no floor (min_order_quote_usd: 0, the committed value until it was set to 10 per
+docs/min_order_floor_study.md) is pinned by test_committed_config_divergence_is_a_float_phantom.
+Every test here passes the floor explicitly; none reads it from config/config.yaml.
 
 The 719-bar full replay takes a few minutes; it runs when HCT_FULL_PARITY=1. The default run
 covers the first DEFAULT_BARS bars (which already contain same-bar contention for the exposure
@@ -316,7 +317,8 @@ def test_realistic_config_with_a_dust_floor_is_within_the_mismatch_budget(tmp_pa
 
 
 def test_committed_config_divergence_is_a_float_phantom(tmp_path, monkeypatch):
-    """The committed configuration (min_order_quote_usd: 0) with real opens, the 0.10% paper fee
+    """The previously committed configuration (min_order_quote_usd: 0; config now ships 10, which
+    test_realistic_config_with_a_dust_floor_is_within_the_mismatch_budget covers) with real opens, the 0.10% paper fee
     and the live 200-bar history. Bar parity counts same-bar fills at their gross quote like the
     harness, so the fee-slack dust that used to dominate (82% entry mismatch over 719 bars) is
     gone; what is left is float residue: when room is used up exactly, it comes out at ~1e-12 USD

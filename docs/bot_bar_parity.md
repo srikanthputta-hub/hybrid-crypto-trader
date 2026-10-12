@@ -247,7 +247,10 @@ What this shows:
 5. **A small `risk.min_order_quote_usd` floor therefore remains advisable before the §5 trial**
    (even a cent removes the phantoms; the P6 doc's ~$10 also covers exchange minimums). Not
    changed here: it is a risk-parameter change owned by a separate study (written reason + gate
-   run; the harness already mirrors the key).
+   run; the harness already mirrors the key). That study is `docs/min_order_floor_study.md`
+   (#102, recommends $10); the config now sets `min_order_quote_usd: 10`
+   (`docs/min_order_floor_10_rebaseline.md`). The parity tests still pass the floor explicitly,
+   so the floor-0 phantom finding above stays pinned.
 
 ## 5. Mutation check
 
