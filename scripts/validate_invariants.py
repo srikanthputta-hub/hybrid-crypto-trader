@@ -11,6 +11,7 @@ Each invariant maps to something that could break the bot's core safety properti
   4. Risk config sanity bounds — malformed risk values disable every safety check.
   5. Environment docs — LIVE_TRADING_CONFIRM must remain discoverable in .env.example.
   6. Bar-parity loop keys well-formed — a bad value stops the bot at startup (restart loop).
+  7. notifier.label well-formed — same startup refusal, for the Telegram label.
 
 Exit 0 if all pass, 1 if any fail.
 """
@@ -336,6 +337,27 @@ def check_bar_parity_config() -> InvariantResult:
         return InvariantResult("bar_parity_config", False, f"FAIL: Unexpected error: {e}")
 
 
+def check_notifier_config() -> InvariantResult:
+    """Verify the `notifier:` block (notifier.label) parses with the bot's own startup parser
+    (src.config.parse_notifier_settings), which build_components refuses to start on. Tightening
+    only: it does not require a label (null is valid) and cannot accept what the bot rejects."""
+    try:
+        from src.config import parse_notifier_settings
+
+        config_path = Path("config/config.yaml")
+        if not config_path.exists():
+            return InvariantResult("notifier_config", False, f"FAIL: {config_path} not found")
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+        try:
+            settings = parse_notifier_settings(config)
+        except ValueError as e:
+            return InvariantResult("notifier_config", False, f"FAIL: {e}")
+        return InvariantResult("notifier_config", True, f"PASS: notifier keys valid (label={settings.label!r})")
+    except Exception as e:
+        return InvariantResult("notifier_config", False, f"FAIL: Unexpected error: {e}")
+
+
 def check_env_example_documents_live_confirm() -> InvariantResult:
     """Verify .env.example documents LIVE_TRADING_CONFIRM."""
     try:
@@ -376,6 +398,7 @@ def main() -> int:
         check_risk_config_bounds,
         check_env_example_documents_live_confirm,
         check_bar_parity_config,
+        check_notifier_config,
     ]
 
     results = [check() for check in checks]

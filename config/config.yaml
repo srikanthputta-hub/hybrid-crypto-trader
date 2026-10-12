@@ -252,6 +252,14 @@ loop:
   # regardless, so the guard only changes which trades exist. Must be null or a finite number > 0.
   max_entry_delay_minutes: null
 
+# Telegram message display (src/notifier.py; the bot token / chat id are env vars, see .env.example).
+notifier:
+  # null = today's exact message text. A short string (e.g. "PAPER TRIAL") is prefixed to every BUY /
+  # SELL / fill message so a paper alert can't be mistaken for a live one (docs/multiday_hold_design.md §3.1).
+  # At most 32 characters, no control characters, and none of * _ ` [ ] \ (Telegram Markdown would
+  # reject the whole message). Display only: it never affects a trading decision. Checked at startup.
+  label: null
+
 logging:
   audit_log_path: "logs/audit_log.jsonl"
   trade_log_path: "logs/trades.csv"

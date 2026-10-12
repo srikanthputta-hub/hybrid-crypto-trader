@@ -120,6 +120,13 @@ whose latest closed bar is not decided yet, in sorted(symbol) order (see
 `logs/audit_log.jsonl` regardless of what happened — so "why didn't it trade
 at 14:32" is always answerable from that file alone.
 
+**Paper-trial tooling.** `scripts/paper_parity_check.py` is the weekly check from the multi-day-hold design's paper-trial
+protocol: it replays the P6 backtest harness over the closed daily bars the bot archived (`logging.closed_bars_dir`) and
+compares entries, exits and plan levels with the audit log, printing PASS / WARN / FAIL (exit 1 on FAIL; exit 0 with
+"insufficient data" on a short window; exit 2 on corrupt input). Read-only, no network. `notifier.label` (default `null`)
+prefixes Telegram messages (e.g. `PAPER TRIAL`), and with bar parity at 1d BUY messages say until when they are valid.
+Both are described in `docs/paper_parity_check.md`.
+
 `signal_engine.rank_signals()` (a deterministic engine-score / liquidity /
 symbol ordering for when exposure or rate caps leave only some slots) exists
 and is unit-tested but is **not wired into `src/bot.py`** — the cycle still
@@ -178,6 +185,7 @@ it**.
 | `advisor.*` | turn the Claude second opinion on/off (shipped **off**), model, fail-open/closed, timeout |
 | `loop.poll_interval_seconds` | seconds between full cycles in continuous mode |
 | `loop.bar_parity` / `loop.max_entry_delay_minutes` | backtest-parity cycle rules P1-P5 (one decision per symbol per closed bar, monitor before entries, sorted entry order, pre-exit room, 1d htf on the scan frame) and the entry-staleness guard; both off by default (`false` / `null` = today's behaviour). See `docs/bot_bar_parity.md` |
+| `notifier.label` | optional short tag (e.g. `PAPER TRIAL`) prefixed to every Telegram BUY / SELL / fill message; `null` (default) = the exact message text as before. With `loop.bar_parity` at `1d`, BUY messages also carry the bar and a "Valid until" line. Validated at startup. See `docs/paper_parity_check.md` |
 | `logging.*` | audit log / trade log / plan store / market snapshot paths, the bar-parity decision ledger (`bar_decisions_path`) and optional closed-bar archive (`closed_bars_dir`), and `retention_days` pruning (used by `scripts/run_live.py` only) |
 
 ## Going live — read this before you do it
@@ -244,6 +252,7 @@ scripts/run_live.py           always-on host loop: cycle + dashboard export/push
 scripts/run_backtest.py       CLI backtest runner
 scripts/export_dashboard_data.py  writes web/data.json from the bot's logs + market snapshot
 scripts/validate_invariants.py    mechanical check of the safety non-negotiables (also run by CI)
+scripts/paper_parity_check.py     weekly paper-trial check: live paper decisions vs the P6 harness on the same closed daily bars (read-only; docs/paper_parity_check.md)
 scripts/reset_portfolio.py, diagnose_recent_closes.py, replay_risk_rejections.py
                               paper-portfolio reset (archives logs) and read-only diagnostics
 strategy_pack_run/            standalone real-pipeline backtest / strategy-evaluation harness and its reports (own README)

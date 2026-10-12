@@ -82,6 +82,7 @@ def build_components(cfg: Config):
     # logging.bar_decisions_path, logging.closed_bars_dir) are validated first, so a
     # bad value stops the process at startup instead of failing every cycle.
     _ = cfg.bar_parity
+    _ = cfg.notifier  # notifier.label: same startup refusal on a bad value
     exchange = ExchangeClient(
         exchange_id=cfg.exchange_id,
         api_key=cfg.exchange_api_key,
@@ -197,17 +198,27 @@ def _maybe_notify(cfg: Config, event: dict) -> None:
     if not bot_token or not chat_id:
         return
 
+    # Display-only extras (docs/multiday_hold_design.md §6): `notifier.label` prefixes every message;
+    # at 1d with loop.bar_parity on, BUY messages also say which bar they came from and until when
+    # they are valid. Both are "" by default, so default message text is unchanged byte for byte.
+    prefix = notifier.label_prefix(getattr(cfg, "notifier_label", None))
+    validity = ""
+    parity = getattr(cfg, "bar_parity", None)
+    if parity is not None and parity.enabled and cfg.timeframe == "1d":
+        validity = notifier.bar_validity_text(event.get("bar_close"), parity.max_entry_delay_minutes)
+
     if event.get("action") == "planned" and "plan" in event:
         plan = event["plan"]
         entry_low, entry_high = plan.get("entry_zone", (None, None))
         notifier.send_telegram_message(
             bot_token,
             chat_id,
-            f"🔔 *BUY signal*: {notifier.escape_md(event['symbol'])} ({notifier.escape_md(plan.get('pattern'))})\n"
+            f"{prefix}🔔 *BUY signal*: {notifier.escape_md(event['symbol'])} ({notifier.escape_md(plan.get('pattern'))})\n"
             f"Buy between {_fmt_price(entry_low)} and {_fmt_price(entry_high)}\n"
             f"Stop-loss: {_fmt_price(plan.get('stop_loss'))} (sell here to cap the loss)\n"
             f"Target: {_fmt_price(plan.get('take_profit'))} (take profit here)\n"
-            f"Risk:Reward 1:{plan.get('risk_reward')}  Confidence: {plan.get('rule_based_confidence_stars')}/5",
+            f"Risk:Reward 1:{plan.get('risk_reward')}  Confidence: {plan.get('rule_based_confidence_stars')}/5"
+            f"{validity}",
         )
 
     execution = event.get("execution")
@@ -217,7 +228,7 @@ def _maybe_notify(cfg: Config, event: dict) -> None:
         notifier.send_telegram_message(
             bot_token,
             chat_id,
-            f"🏁 *SELL* — trade closed: {notifier.escape_md(event['symbol'])}\n"
+            f"{prefix}🏁 *SELL* — trade closed: {notifier.escape_md(event['symbol'])}\n"
             f"Reason: {reason}\n"
             f"Price: {_fmt_price(execution.get('price'))}",
         )
@@ -227,7 +238,7 @@ def _maybe_notify(cfg: Config, event: dict) -> None:
         notifier.send_telegram_message(
             bot_token,
             chat_id,
-            f"✅ *Bought*: {notifier.escape_md(event['symbol'])}\n"
+            f"{prefix}✅ *Bought*: {notifier.escape_md(event['symbol'])}\n"
             f"Price: {_fmt_price(execution.get('price'))}  Amount: {execution.get('base_amount')}",
         )
 
