@@ -304,6 +304,9 @@ it. Because R is per trade, these dust trades count fully in avg R.
   already forwards that key to its `RiskEngine`, so a config change applies to both automatically.
   That removes the phantoms, the live fee-slack dust and the dust slot-blocking together. It is a
   risk-parameter change, so it needs its own written reason and gate run.
+  **Follow-up:** that study is `docs/min_order_floor_study.md` (#102, recommends $10); the config
+  is set to `min_order_quote_usd: 10` on `claude/min-order-floor-10`. Baselines re-measured at $10:
+  `docs/min_order_floor_10_rebaseline.md`.
 
 ## 4. Re-gated results: E5 (the P1e gate run, all P1e §0 rules unchanged)
 
@@ -401,7 +404,10 @@ lists** before the protocol is frozen. Not done here (outside this task).
   The default `run_live_bot_report.py` output is byte-identical (the harness-version line is only
   printed when ON). So the Routine, whose stored prompt lives outside the repo and passes no such
   flag, measures exactly what it did before, and its baselines (154 / 0.18, 562 / 0.52) stay valid
-  **as baselines of the original harness**.
+  **as baselines of the original harness**. (Superseded for the config change
+  `min_order_quote_usd: 0 -> 10`: the harness reads that key from config, so the OFF `data_long/`
+  baseline moves to 565 / 0.53; `data/` stays 154 / 0.18. See
+  `docs/min_order_floor_10_rebaseline.md`.)
 - **Recommended default for new gate runs: ON**, labelled `harness_version:
   "p6-same-bar-exposure-v1"`. The original harness overstates what the live bot can do whenever
   several symbols signal on one bar.
@@ -450,7 +456,8 @@ After the gate runs, `origin/main` (PR #96/#97/#98: `risk_engine.py` config/inpu
   ~1e-12 USD floating-point phantoms that count as full trades. Live at the 0.10% paper fee makes
   *more* dust, from fee slack, and dust can block later real trades across bars. Recommended fix:
   `min_order_quote_usd` > 0 in config, which the harness already mirrors. A Risk Officer / user
-  decision, not changed here.
+  decision, not changed here. (Since set to $10: `docs/min_order_floor_study.md`,
+  `docs/min_order_floor_10_rebaseline.md`.)
 - **Live-side observation (not changed, `src/` out of scope):** in the parity scenario at the paper
   fee, live approved two dust plans ($0.43 and ~$0.0004) out of fee slack. Each uses a new-entry slot
   and starts a cooldown.
