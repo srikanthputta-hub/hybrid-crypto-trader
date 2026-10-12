@@ -32,7 +32,7 @@ Every mismatch is listed with its reason and, when the audit log itself proves a
 `explained_by` tag: staleness guard; bot gap (NO symbol has a decision event for that bar) or fetch failure
 (that symbol's "market data unavailable" that day); kill switch; advisor veto; float phantom; or "downstream" of
 an earlier explained mismatch (only for portfolio-dependent kinds: entry / size / rejection / exit; never
-pattern or plan levels, which depend on the bars alone). `--ack BAR:SYMBOL` marks a fixed, reported mismatch
+pattern or plan levels, which depend on the bars alone). `--ack BAR:SYMBOL:KIND` marks a fixed, reported mismatch
 as acknowledged (listed in the report; it explains nothing that followed it).
 
 Status (design §5: "at most 10% explained mismatches; an unexplained mismatch pauses the trial"):
@@ -40,8 +40,8 @@ Status (design §5: "at most 10% explained mismatches; an unexplained mismatch p
   WARN               mismatches in the window, every one explained or acknowledged, budget respected.
   FAIL               any unexplained mismatch in the trial to date (in the window, or earlier and not yet
                      acknowledged), or a trial-to-date entry / exit / overall mismatch rate above the budget (the
-                     budget is evaluated from --budget-min-entries (20) harness entries on; --strict-early-budget
-                     is the pre-registered rule from the first entry). Exit code 1. An implementation finding,
+                     budget is evaluated from the first harness entry, as pre-registered; --relaxed-early-budget
+                     evaluates it from 20 entries on: a loosening that needs the user's acceptance). Exit code 1. An implementation finding,
                      not a strategy verdict.
   INSUFFICIENT DATA  no decided bars in the window, or fewer than --min-bars. Exit code 0.
 Exit code 2: unreadable / corrupt input, an audit log whose END is missing (the bar-decision ledger is ahead of
@@ -85,7 +85,11 @@ DEFAULT_LEVEL_RTOL = 1e-6      # design §5: plan levels match to a relative 1e-
 # differing slightly. A size off by more than this fraction AND more than DEFAULT_SIZE_ATOL USD is reported as a mismatch.
 DEFAULT_SIZE_RTOL = 0.10       # measured real residual <= 7.5% (p90 1.4%) over 110 bars at a $10 floor
 DEFAULT_SIZE_ATOL = 1.0        # USD: leftover-room "dust" sizes differ a lot in relative terms and mean nothing
-DEFAULT_BUDGET_MIN_ENTRIES = 20  # budget not evaluated before this many harness entries (--strict-early-budget: 0)
+DEFAULT_BUDGET_MIN_ENTRIES = 0   # the pre-registered rule (design §5): budget evaluated from the first entry
+RELAXED_BUDGET_MIN_ENTRIES = 20  # --relaxed-early-budget: a LOOSENING that needs the user's acceptance
+MAX_UNMATCHED_ACKS = 5           # more acknowledgements than this matching nothing = a blanket ack list: FAIL
+ACKABLE_KINDS = {"entry_decision", "size", "rejection_reason", "pattern", "plan_levels", "exit_harness_only",
+                 "exit_bot_only", "harness_only_check", "bot_only_check", "advisor_veto", "bot_error"}
 PHANTOM_USD = 1e-6             # an approved quote below this is a float residue, not a trade
 NO_ROOM = "no room left to size this trade"
 BELOW_MIN = "below the minimum order size"
@@ -287,6 +291,7 @@ class BotBar:
     n_checks: int = 0
     planned: bool = False
     exit_reason: str | None = None     # stop_loss | take_profit (executed)
+    entered: bool = False              # a buy was executed on this bar (immediate fill or a PENDING plan's FILL)
     stale: bool = False
     error: str | None = None
     advisor_veto: bool = False
@@ -355,6 +360,9 @@ def collect_bot(events: list[dict]) -> tuple[dict[tuple[pd.Timestamp, str], BotB
         action = (event.get("monitor_action") or {}).get("action") if isinstance(event.get("monitor_action"), dict) else None
         if action in ("STOP_LOSS", "TAKE_PROFIT") and event.get("execution"):
             info.exit_reason = action.lower()
+        ex = event.get("execution")
+        if isinstance(ex, dict) and ex.get("side") == "buy" and (event.get("action") == "planned" or action == "FILL"):
+            info.entered = True
     return groups, sorted({b for b, _ in groups})
 
 
@@ -367,6 +375,9 @@ class HarnessResult:
     exits: set[tuple[pd.Timestamp, str, str]]
     last_bar: dict[str, pd.Timestamp]
     n_bars: int
+    # (symbol, entry decision bar, exit decision bar or None while open): when the harness held each position.
+    # None = unknown (hand-made results in unit tests): the downstream window is then never reset.
+    intervals: list[tuple[str, pd.Timestamp, pd.Timestamp | None]] | None = None
     signal_keys: set[tuple[pd.Timestamp, str]] = field(default_factory=set)  # (bar, symbol) the harness had a bullish signal for
 
 
@@ -452,7 +463,13 @@ def run_harness(
     }
     n_bars = len(next(iter(enriched.values())).index)
     signal_keys = {(ts, sym) for sym, per in signals.items() for ts in per}
-    return HarnessResult(checks=checks, exits=exits, last_bar=last_bar, n_bars=n_bars, signal_keys=signal_keys)
+    intervals = [
+        (t.symbol, pd.Timestamp(t.entry_time) - TF_DELTA,
+         pd.Timestamp(t.exit_time) - TF_DELTA if t.reason in ("stop_loss", "take_profit") else None)
+        for t in result.trades.itertuples()
+    ]
+    return HarnessResult(checks=checks, exits=exits, last_bar=last_bar, n_bars=n_bars, signal_keys=signal_keys,
+                         intervals=intervals)
 
 
 # --------------------------------------------------------------------------- #
@@ -536,18 +553,27 @@ def compare(
         if h is not None and b is not None:
             if h["allowed"] and b["allowed"] and h["quote"] and b["quote"] and max(h["quote"], b["quote"]) >= size_atol:
                 drift_max = max(drift_max, abs(h["quote"] - b["quote"]) / max(h["quote"], b["quote"]))
+            # Pattern and plan levels are functions of the bars alone: ALWAYS checked first, each its own mismatch,
+            # never explained and never "downstream", whatever the allowed/rejected outcome is (the design requires
+            # 100% there). A bot event with no signal is flagged, not skipped.
+            if h.get("pattern") and h["pattern"] != b.get("pattern"):
+                mismatches.append(Mismatch(
+                    "pattern", bar, symbol,
+                    f"signal pattern differs: harness {h['pattern']} vs bot {b.get('pattern') or 'missing (the bot event has no signal)'}",
+                    h, b, None, eligible_downstream=False,
+                ))
+            if any(not _close(h[k], b[k], level_rtol) for k in ("entry", "stop", "rr")):
+                mismatches.append(Mismatch(
+                    "plan_levels", bar, symbol,
+                    f"entry/stop/rr differ beyond rel {level_rtol:g}: harness "
+                    f"({h['entry']}, {h['stop']}, {h['rr']}) vs bot ({b['entry']}, {b['stop']}, {b['rr']})",
+                    h, b, None, eligible_downstream=False,
+                ))
             if h["allowed"] != b["allowed"]:
                 kind, detail = "entry_decision", (
                     f"harness {'approved' if h['allowed'] else 'rejected'}"
                     f" ({h['reason'] if not h['allowed'] else 'ok'}); bot {'approved' if b['allowed'] else 'rejected'}"
                     f" ({b['reason'] if not b['allowed'] else 'ok'})"
-                )
-            elif h.get("pattern") and b.get("pattern") and h["pattern"] != b["pattern"]:
-                kind, detail = "pattern", f"signal pattern differs: harness {h['pattern']} vs bot {b['pattern']}"
-            elif any(not _close(h[k], b[k], level_rtol) for k in ("entry", "stop", "rr")):
-                kind, detail = "plan_levels", (
-                    f"entry/stop/rr differ beyond rel {level_rtol:g}: harness "
-                    f"({h['entry']}, {h['stop']}, {h['rr']}) vs bot ({b['entry']}, {b['stop']}, {b['rr']})"
                 )
             elif not h["allowed"] and not reasons_equivalent(h["reason"], b["reason"]):
                 kind, detail = "rejection_reason", f"harness: {h['reason']!r}; bot: {b['reason']!r}"
@@ -639,8 +665,16 @@ def compare(
         mismatches.append(Mismatch("exit_bot_only", bar, symbol, f"bot exits ({reason}); the harness did not", None, {"reason": reason}, None))
 
     mismatches.sort(key=lambda m: (m.bar, m.symbol, m.kind))
-    cascade = False
+    # "Downstream" is bounded: it starts at an explained mismatch and ENDS as soon as both sides hold the same open
+    # positions again (checked at the start of each later bar). Downstream-tagged mismatches still count toward the
+    # budget like any other (summarize counts every mismatch), so the tag can never hide an unbounded divergence.
+    bot_iv = _bot_intervals(bot) if hres.intervals is not None else None
+    cascade, last_bar = False, None
     for m in mismatches:
+        if cascade and bot_iv is not None and m.bar != last_bar:
+            if _held_before(bot_iv, m.bar) == _held_before(hres.intervals, m.bar):
+                cascade = False
+        last_bar = m.bar
         if m.explained_by is None and cascade and m.kind in PORTFOLIO_KINDS and m.eligible_downstream:
             m.explained_by = EXPLAINED_DOWNSTREAM
         elif m.explained_by is not None and m.explained_by != EXPLAINED_DOWNSTREAM:
@@ -652,6 +686,25 @@ def compare(
         "H_entries": H_entries, "B_entries": B_entries, "Hx": Hx, "Bx": Bx,
         "size_drift_max": drift_max,
     }
+
+
+def _bot_intervals(bot: dict[tuple[pd.Timestamp, str], BotBar]) -> list[tuple[str, pd.Timestamp, pd.Timestamp | None]]:
+    """When the bot held each position, from its audit events: opened on a bar with an executed buy, closed on the
+    bar of an executed stop-loss / take-profit."""
+    out: list[tuple[str, pd.Timestamp, pd.Timestamp | None]] = []
+    open_at: dict[str, pd.Timestamp] = {}
+    for (bar, symbol), info in sorted(bot.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+        if info.entered and symbol not in open_at:
+            open_at[symbol] = bar
+        if info.exit_reason and symbol in open_at:
+            out.append((symbol, open_at.pop(symbol), bar))
+    out += [(sym, e, None) for sym, e in open_at.items()]
+    return out
+
+
+def _held_before(intervals: list[tuple[str, pd.Timestamp, pd.Timestamp | None]], bar: pd.Timestamp) -> set[str]:
+    """Symbols held when `bar` starts: entered on an earlier bar and not yet exited before this one."""
+    return {s for s, e, x in intervals if e < bar and (x is None or x >= bar)}
 
 
 def _size_close(a: float | None, b: float | None, rtol: float, atol: float) -> bool:
@@ -771,22 +824,29 @@ def pick_trial_start(
     return candidates[0], note
 
 
-def parse_acks(values: list[str], ack_file: str | None) -> dict[tuple[pd.Timestamp, str], str]:
-    """`--ack BAR:SYMBOL` (BAR a date or ISO close time) and `--ack-file` (one per line, `#` comments)."""
+def parse_acks(values: list[str], ack_file: str | None) -> dict[tuple[pd.Timestamp, str, str], str]:
+    """`--ack BAR:SYMBOL:KIND` (BAR a date or ISO close time, KIND a mismatch kind such as `plan_levels`) and
+    `--ack-file` (one per line, `#` comments). Integrity kinds (a lost or duplicated decision line, audit / trade log
+    disagreement) cannot be acknowledged: they are faults in the bot's own logs."""
     raw = list(values or [])
     if ack_file:
         try:
             raw += [line.split("#", 1)[0].strip() for line in Path(ack_file).read_text(encoding="utf-8").splitlines()]
         except (OSError, UnicodeDecodeError) as exc:
             raise ParityInputError(f"cannot read --ack-file {ack_file}: {exc}") from exc
-    out: dict[tuple[pd.Timestamp, str], str] = {}
+    out: dict[tuple[pd.Timestamp, str, str], str] = {}
     for entry in raw:
         if not entry:
             continue
-        bar, sep, symbol = entry.rpartition(":")
-        if not sep or not bar or not symbol:
-            raise ParityInputError(f"bad acknowledgement {entry!r}: expected BAR:SYMBOL, e.g. 2026-10-12:BTC/USD")
-        out[(_parse_ts(bar, f"acknowledgement {entry!r}"), symbol)] = entry
+        parts = entry.rsplit(":", 2)
+        if len(parts) != 3 or not all(parts):
+            raise ParityInputError(f"bad acknowledgement {entry!r}: expected BAR:SYMBOL:KIND, e.g. 2026-10-12:BTC/USD:plan_levels")
+        bar, symbol, kind = parts
+        if kind in INTEGRITY_KINDS:
+            raise ParityInputError(f"acknowledgement {entry!r}: {kind} is an integrity fault in the bot's own logs and cannot be acknowledged; fix it")
+        if kind not in ACKABLE_KINDS:
+            raise ParityInputError(f"acknowledgement {entry!r}: unknown kind {kind!r} (one of {sorted(ACKABLE_KINDS)})")
+        out[(_parse_ts(bar, f"acknowledgement {entry!r}"), symbol, kind)] = entry
     return out
 
 
@@ -817,7 +877,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "inputs": {"config": str(cfg_path), "audit_log": str(audit_path), "trade_log": str(trade_path),
                    "bar_decisions": str(ledger_path), "closed_bars_dir": str(bars_dir) if bars_dir else None},
         "window": None, "notes": [], "mismatches": [],
-        "_protected": protected_paths(raw_cfg),
+        "_protected": protected_paths(raw_cfg, args.ack_file),
     }
 
     events = read_audit(audit_path)
@@ -841,15 +901,19 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         since = trial_start
     window_bars = [b for b in all_bars if since <= b <= until]
     report["window"] = {"since": _iso(since), "until": _iso(until), "decided_bars": len(window_bars)}
-    if len(window_bars) < args.min_bars:
-        return _insufficient(
-            report,
-            f"only {len(window_bars)} decided bar(s) between {_iso(since)} and {_iso(until)}; need at least "
-            f"{args.min_bars} (--min-bars). Run again once more daily closes have been decided",
-        )
-
+    for (ack_bar, _sym, _kind), entry in acks.items():
+        if ack_bar > all_bars[-1] or (args.until and ack_bar > until):
+            raise ParityInputError(
+                f"acknowledgement {entry!r} is dated after "
+                + (f"--until {_iso(until)}" if args.until and ack_bar > until else f"the newest decided bar {_iso(all_bars[-1])}")
+                + ": it cannot refer to a mismatch that exists"
+            )
     # The END of the audit log must be intact: the ledger is written before each decision's audit line.
     ledger = read_ledger(ledger_path)
+    if ledger is None:
+        report["notes"].append(
+            f"WARN: no bar-decision ledger found at {ledger_path}: the check that the END of the audit log is intact was skipped"
+        )
     if ledger is not None:
         latest: dict[str, pd.Timestamp] = {}
         for (bar, sym), _info in bot.items():
@@ -916,14 +980,14 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     # labelling, so acknowledging a mismatch never silently explains what followed it.
     used = set()
     for m in mismatches:
-        entry = acks.get((m.bar, m.symbol))
+        entry = acks.get((m.bar, m.symbol, m.kind))
         if entry is not None:
             used.add(entry)
             if m.explained_by is None:
                 m.explained_by = EXPLAINED_ACK
     report["acknowledged"] = sorted(set(acks.values()) & used)
-    for entry in sorted(set(acks.values()) - used):
-        report["notes"].append(f"acknowledgement {entry!r} matches no mismatch")
+    unmatched = sorted(set(acks.values()) - used)
+    report["unmatched_acks"] = unmatched
 
     week = summarize(cmp, mismatches, since)
     trial = summarize(cmp, mismatches, cum_since)
@@ -952,10 +1016,16 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         first = earlier[0]
         reasons.append(
             f"{len(earlier)} unexplained mismatch(es) earlier in the trial still pause it (first: {_iso(first.bar)[:10]} "
-            f"{first.symbol} {first.kind}); once fixed, acknowledge each with --ack BAR:SYMBOL"
+            f"{first.symbol} {first.kind}); once fixed, acknowledge each with --ack BAR:SYMBOL:KIND"
         )
-    # The design's budget is over the trial to date (cumulative from day 0), not a single week, and early in a
-    # trial one mismatch exceeds 10% of a handful of entries: it is evaluated from --budget-min-entries entries on.
+    if len(unmatched) > MAX_UNMATCHED_ACKS:
+        reasons.append(
+            f"{len(unmatched)} acknowledgements match no mismatch (more than {MAX_UNMATCHED_ACKS}): a blanket acknowledgement "
+            f"list is not accepted; acknowledge only specific reported mismatches"
+        )
+    # The design's budget is over the trial to date (cumulative from day 0), not a single week. By default it is
+    # the pre-registered rule: evaluated from the first harness entry. --relaxed-early-budget (a loosening that
+    # needs the user's acceptance) evaluates it only from RELAXED_BUDGET_MIN_ENTRIES entries on.
     n_entries = trial["entries"]["harness"]
     budget_evaluable = n_entries >= args.budget_min_entries
     report["budget_evaluated"] = budget_evaluable
@@ -967,16 +1037,29 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     else:
         report["notes"].append(
             f"budget not yet evaluable: {n_entries} harness entries to date, evaluated from {args.budget_min_entries} "
-            f"(--budget-min-entries; --strict-early-budget applies the pre-registered rule from the first entry). "
+            f"(--relaxed-early-budget is a loosening of the pre-registered rule and needs the user's acceptance). "
             f"Unexplained mismatches still fail"
         )
+    short = len(window_bars) < args.min_bars
+    report["window"]["short"] = short
     if reasons:
         status = FAIL
         report["message"] = "; ".join(reasons)
-    elif in_window:
+    elif short:
+        status = INSUFFICIENT
+        report["message"] = (
+            f"insufficient data: only {len(window_bars)} decided bar(s) between {_iso(since)} and {_iso(until)}; need at least "
+            f"{args.min_bars} (--min-bars). No unexplained mismatch anywhere in the trial to date. Run again once more daily closes have been decided"
+        )
+    elif in_window or unmatched:
         status = WARN
-        report["message"] = (f"{len(in_window)} mismatch(es) in the window, all explained or acknowledged; trial-to-date "
-                             + (f"mismatch rates are within the {args.budget * 100:.0f}% budget" if budget_evaluable else "budget not yet evaluable"))
+        bits = []
+        if in_window:
+            bits.append(f"{len(in_window)} mismatch(es) in the window, all explained or acknowledged")
+        if unmatched:
+            bits.append(f"{len(unmatched)} acknowledgement(s) match no mismatch: {', '.join(unmatched)}")
+        report["message"] = "; ".join(bits) + "; trial-to-date " + (
+            f"mismatch rates are within the {args.budget * 100:.0f}% budget" if budget_evaluable else "budget not yet evaluable")
     else:
         status = PASS
         vacuous = week["decisions_compared"] == 0
@@ -997,14 +1080,18 @@ def _try_ts(value: Any) -> pd.Timestamp | None:
         return None
 
 
-def protected_paths(raw_cfg: dict[str, Any]) -> list[Path]:
-    """Every file or directory the bot itself writes (the config's `logging:` block, the kill switch): --json-out may
-    never point at or inside one of them, --force or not."""
+def protected_paths(raw_cfg: dict[str, Any], ack_file: str | None = None) -> list[Path]:
+    """Everything --json-out may never point at or inside, --force or not: the files and directories the bot writes
+    (the config's `logging:` block, the kill switch at its configured OR default path), the --ack-file, the repo's
+    `.env` and `config/config.yaml` (whichever --config was given)."""
     values = [v for v in (raw_cfg.get("logging") or {}).values() if isinstance(v, str) and v.strip()]
-    kill = (raw_cfg.get("risk") or {}).get("kill_switch_file")
-    if isinstance(kill, str) and kill.strip():
-        values.append(kill)
-    return [_resolve(v).resolve() for v in values]
+    kill = (raw_cfg.get("risk") or {}).get("kill_switch_file", "KILL_SWITCH")
+    values.append(kill if isinstance(kill, str) and kill.strip() else "KILL_SWITCH")
+    out = [_resolve(v).resolve() for v in values]
+    out += [(PROJECT_ROOT / ".env").resolve(), (PROJECT_ROOT / "config" / "config.yaml").resolve()]
+    if ack_file:
+        out.append(Path(ack_file).resolve())
+    return out
 
 
 def _no_archive():
@@ -1098,20 +1185,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--size-rtol", type=float, default=DEFAULT_SIZE_RTOL, help="relative tolerance for approved size (default 0.10)")
     p.add_argument("--size-atol", type=float, default=DEFAULT_SIZE_ATOL, help="absolute USD tolerance for approved size (default 1.0)")
     p.add_argument("--budget-min-entries", type=int, default=DEFAULT_BUDGET_MIN_ENTRIES,
-                   help="evaluate the mismatch budget only once the trial has this many harness entries (default 20)")
-    p.add_argument("--strict-early-budget", action="store_true",
-                   help="the pre-registered rule: evaluate the budget from the first entry (same as --budget-min-entries 0)")
-    p.add_argument("--ack", action="append", default=[], metavar="BAR:SYMBOL",
-                   help="acknowledge a fixed, previously reported unexplained mismatch (e.g. 2026-10-12:BTC/USD); repeatable. "
+                   help="evaluate the mismatch budget only once the trial has this many harness entries "
+                        "(default 0 = the pre-registered rule: from the first entry)")
+    p.add_argument("--relaxed-early-budget", action="store_true",
+                   help="LOOSENING of the pre-registered rule, needs the user's acceptance: evaluate the budget only from "
+                        f"{RELAXED_BUDGET_MIN_ENTRIES} harness entries on (same as --budget-min-entries {RELAXED_BUDGET_MIN_ENTRIES})")
+    p.add_argument("--ack", action="append", default=[], metavar="BAR:SYMBOL:KIND",
+                   help="acknowledge a fixed, previously reported unexplained mismatch (e.g. 2026-10-12:BTC/USD:plan_levels); repeatable. "
                         "Listed in the report; it explains nothing that follows it")
-    p.add_argument("--ack-file", help="file of BAR:SYMBOL acknowledgements, one per line, '#' comments")
+    p.add_argument("--ack-file", help="file of BAR:SYMBOL:KIND acknowledgements, one per line, '#' comments")
     p.add_argument("--format", choices=("text", "json"), default="text")
     p.add_argument("--json-out", help="also write the JSON report here: refuses an existing file unless --force, and any input "
                    "or path in the config's logging: block regardless of --force")
     p.add_argument("--force", action="store_true", help="allow --json-out to replace an existing file (never a bot or input file)")
     args = p.parse_args(argv)
-    if args.strict_early_budget:
-        args.budget_min_entries = 0
+    if args.relaxed_early_budget:
+        args.budget_min_entries = RELAXED_BUDGET_MIN_ENTRIES
     if args.budget_min_entries < 0:
         p.error("--budget-min-entries must be >= 0")
     if args.days < 1 or args.min_bars < 1:
@@ -1131,13 +1220,13 @@ def main(argv: list[str] | None = None) -> int:
             inputs = [Path(v).resolve() for v in report["inputs"].values() if v]
             if out in inputs or any(parent in inputs for parent in out.parents):
                 raise ParityInputError(f"--json-out {out} would overwrite an input; refusing")
-            if out in protected or any(parent in protected for parent in out.parents):
-                raise ParityInputError(f"--json-out {out} is a file or directory the bot writes (config logging: block / kill switch); refusing, --force does not apply")
+            if out.name.startswith(".env") or out in protected or any(parent in protected for parent in out.parents):
+                raise ParityInputError(f"--json-out {out} is a file or directory the bot writes (config logging: block, kill switch), the --ack-file, a .env or the repo config; refusing, --force does not apply")
             if out.exists() and not args.force:
                 raise ParityInputError(f"--json-out {out} already exists; refusing to overwrite it without --force")
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(json.dumps(_clean(report), indent=2, allow_nan=False) + "\n", encoding="utf-8")
-    except ParityInputError as exc:
+    except (ParityInputError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_INPUT_ERROR
     print(json.dumps(_clean(report), indent=2, allow_nan=False) if args.format == "json" else format_text(report))

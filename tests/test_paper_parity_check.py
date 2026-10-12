@@ -415,7 +415,7 @@ def test_a_wrong_exit_reason_fails(work):
     assert any(m["kind"] == "exit_harness_only" and "bot exits on" in m["detail"] for m in report["mismatches"])
 
 
-def test_a_staleness_skip_is_explained_and_the_early_budget_is_not_yet_evaluable(work):
+def test_a_staleness_skip_is_explained_and_the_strict_budget_is_the_default(work):
     events = read_events(work)
     target = planned_events(events)[0]
     drop_trade_rows(work, {target["execution"]["timestamp"]})  # a skipped entry never filled
@@ -423,19 +423,20 @@ def test_a_staleness_skip_is_explained_and_the_early_budget_is_not_yet_evaluable
         target.pop(key, None)
     target["action"], target["note"], target["entry_delay_minutes"] = "none", "stale bar: entries skipped", 75.0
     write_events(work, events)
-    # The pre-registered rule (budget from the first entry): one missed entry out of ~7 is >10% -> FAIL, naming the budget.
-    strict = run_check(work, "--days", str(TRIAL_BARS), "--strict-early-budget")
-    assert strict["status"] == ppc.FAIL and "exceeds the 10% budget" in strict["message"]
-    first = strict["mismatches"][0]
-    assert first["explained_by"] == ppc.EXPLAINED_STALE and first["symbol"] == target["symbol"]
-    assert strict["unexplained_count"] == 0  # nothing unexplained: later fallout is "downstream"
-    assert all(m["explained_by"] for m in strict["mismatches"])
-    # Default: fewer than 20 harness entries -> the budget is "not yet evaluable"; explained mismatches are a WARN.
+    # Default = the pre-registered rule (budget from the first entry): one missed entry out of ~7 is >10% -> FAIL.
     default = run_check(work, "--days", str(TRIAL_BARS))
-    assert default["status"] == ppc.WARN and default["exit_code"] == 0 and default["mismatch_count"] >= 1
-    assert default["budget_evaluated"] is False and any("budget not yet evaluable" in n for n in default["notes"])
-    # An explicit looser budget under the strict flag is a WARN too.
-    assert run_check(work, "--days", str(TRIAL_BARS), "--strict-early-budget", "--budget", "0.5")["status"] == ppc.WARN
+    assert default["status"] == ppc.FAIL and "exceeds the 10% budget" in default["message"] and default["budget_evaluated"] is True
+    first = default["mismatches"][0]
+    assert first["explained_by"] == ppc.EXPLAINED_STALE and first["symbol"] == target["symbol"]
+    assert default["unexplained_count"] == 0  # nothing unexplained: later fallout is "downstream"
+    assert all(m["explained_by"] for m in default["mismatches"])
+    # The relaxed rule (a loosening that needs the user's acceptance, explicit flag): fewer than 20 entries -> not yet
+    # evaluable, explained mismatches are a WARN.
+    relaxed = run_check(work, "--days", str(TRIAL_BARS), "--relaxed-early-budget")
+    assert relaxed["status"] == ppc.WARN and relaxed["exit_code"] == 0 and relaxed["mismatch_count"] >= 1
+    assert relaxed["budget_evaluated"] is False and any("budget not yet evaluable" in n for n in relaxed["notes"])
+    # An explicit looser budget is a WARN too.
+    assert run_check(work, "--days", str(TRIAL_BARS), "--budget", "0.5")["status"] == ppc.WARN
 
 
 def test_downstream_label_only_follows_an_explained_mismatch(work):
@@ -574,41 +575,64 @@ def test_an_unexplained_mismatch_that_left_the_window_still_pauses_the_trial(wor
     assert inside["status"] == ppc.FAIL and inside["mismatches"][0]["kind"] == "plan_levels"
 
 
-def test_acknowledging_a_mismatch_is_explicit_listed_and_unused_acks_are_reported(work, tmp_path):
+def test_acknowledging_a_mismatch_is_explicit_listed_and_unmatched_acks_warn(work, tmp_path):
     target = _plan_levels_fault(work)
     day = pd.Timestamp(target["bar_close"]).strftime("%Y-%m-%d")
-    spec = f"{day}:{target['symbol']}"
+    spec = f"{day}:{target['symbol']}:plan_levels"
     ok = run_check(work, "--days", "3", "--ack", spec)
     assert ok["status"] == ppc.PASS and ok["acknowledged"] == [spec] and ok["trial_to_date"]["unexplained_count"] == 0
     # in a window containing it, it is listed as acknowledged, status WARN
     full = run_check(work, "--days", str(TRIAL_BARS), "--ack", spec)
     assert full["status"] == ppc.WARN and full["mismatches"][0]["explained_by"] == ppc.EXPLAINED_ACK
-    # --ack-file: comments and blank lines allowed; an ack that matches nothing is a note
+    # --ack-file: comments and blank lines allowed; an ack that matches nothing makes the status a WARN
     f = tmp_path / "acks.txt"
-    f.write_text(f"# fixed in commit abc\n{spec}  # plan stop\n\n2031-01-01:ZZZ/USD\n")
+    f.write_text(f"# fixed in commit abc\n{spec}  # plan stop\n\n2025-10-03:ZZZ/USD:size\n")
     viafile = run_check(work, "--days", "3", "--ack-file", str(f))
-    assert viafile["status"] == ppc.PASS and any("ZZZ/USD" in n and "matches no mismatch" in n for n in viafile["notes"])
-    # a wrong symbol or day acknowledges nothing
-    assert run_check(work, "--days", "3", "--ack", f"{day}:ETH/USD")["status"] == ppc.FAIL
+    assert viafile["status"] == ppc.WARN and viafile["exit_code"] == 0 and viafile["unmatched_acks"] == ["2025-10-03:ZZZ/USD:size"]
+    assert "match no mismatch" in viafile["message"] and "ZZZ/USD" in viafile["message"]
+    # the KIND must match too: a wrong symbol, day or kind acknowledges nothing
+    for wrong in (f"{day}:ETH/USD:plan_levels", f"{day}:{target['symbol']}:entry_decision", f"2025-10-03:{target['symbol']}:plan_levels"):
+        assert run_check(work, "--days", "3", "--ack", wrong)["status"] == ppc.FAIL
+
+
+def test_a_blanket_acknowledgement_file_is_refused(work, tmp_path):
+    _plan_levels_fault(work)
+    bars = pd.date_range("2025-09-28", periods=TRIAL_BARS, tz="UTC")
+    symbols = sorted(p.name.replace("_1d.csv", "").replace("_", "/") for p in (work / "daily_bars").glob("*_1d.csv"))
+    f = tmp_path / "blanket.txt"
+    f.write_text("".join(f"{b:%Y-%m-%d}:{sym}:{kind}\n" for b in bars for sym in symbols
+                         for kind in ("plan_levels", "entry_decision", "pattern", "size")))
+    r = run_check(work, "--days", str(TRIAL_BARS), "--ack-file", str(f))
+    assert r["status"] == ppc.FAIL and "blanket acknowledgement" in r["message"]
+    assert r["acknowledged"]  # the real one matched, and the abuse is still a FAIL
 
 
 def test_bad_acknowledgements_are_input_errors(work, capsys):
-    for bad in ("nonsense", "2025-10-02:", ":BTC/USD", "notadate:BTC/USD"):
-        assert ppc.main(_argv(work, "--ack", bad)) == ppc.EXIT_INPUT_ERROR
-        assert "acknowledgement" in capsys.readouterr().err
+    for bad, why in (("nonsense", "BAR:SYMBOL:KIND"), ("2025-10-02:BTC/USD", "BAR:SYMBOL:KIND"), (":BTC/USD:size", "BAR:SYMBOL:KIND"),
+                     ("notadate:BTC/USD:size", "acknowledgement"), ("2025-10-02:BTC/USD:nonsense_kind", "unknown kind"),
+                     ("2025-10-02:BTC/USD:missing_decision_event", "cannot be acknowledged"),
+                     ("2025-10-02:BTC/USD:trade_log_audit", "cannot be acknowledged"),
+                     ("2025-10-02:BTC/USD:audit_trade_log", "cannot be acknowledged"),
+                     ("2025-10-02:BTC/USD:duplicate_decision", "cannot be acknowledged"),
+                     ("2031-01-01:BTC/USD:size", "dated after the newest decided bar")):
+        assert ppc.main(_argv(work, "--ack", bad)) == ppc.EXIT_INPUT_ERROR, bad
+        assert why in capsys.readouterr().err, bad
+    assert ppc.main(_argv(work, "--ack", "2025-10-05:BTC/USD:size", "--until", "2025-10-03")) == ppc.EXIT_INPUT_ERROR
+    assert "dated after --until" in capsys.readouterr().err
     assert ppc.main(_argv(work, "--ack-file", str(work / "missing.txt"))) == ppc.EXIT_INPUT_ERROR
     assert "--ack-file" in capsys.readouterr().err
 
 
 def test_an_acknowledgement_does_not_explain_what_followed_it(work):
     events = read_events(work)
-    target = exit_events(events)[0]  # an exit the bot "missed": unexplained, and nothing portfolio-wise follows
+    target = exit_events(events)[0]  # an exit the bot "missed": unexplained
+    drop_trade_rows(work, {target["execution"]["timestamp"]})
     target.pop("monitor_action"), target.pop("execution")
     write_events(work, events)
-    spec = f"{pd.Timestamp(target['bar_close']).strftime('%Y-%m-%d')}:{target['symbol']}"
+    spec = f"{pd.Timestamp(target['bar_close']).strftime('%Y-%m-%d')}:{target['symbol']}:exit_harness_only"
     r = run_check(work, "--days", str(TRIAL_BARS), "--ack", spec)
     explained = [m for m in r["mismatches"] if m["explained_by"] == ppc.EXPLAINED_ACK]
-    assert explained and {m["symbol"] for m in explained} == {target["symbol"]}  # the exit and its lost fill row
+    assert [m["kind"] for m in explained] == ["exit_harness_only"] and explained[0]["symbol"] == target["symbol"]
     assert not any(m["explained_by"] == ppc.EXPLAINED_DOWNSTREAM for m in r["mismatches"])
 
 
@@ -798,6 +822,168 @@ def test_json_out_never_replaces_existing_files_without_force_nor_bot_files_with
     assert "the bot writes" in errors and "would overwrite an input" in errors
 
 
+# ----- second review: B2-bis, bounded downstream, strict default budget, OSError, acks, protections -----
+
+
+def test_pattern_and_levels_are_reported_even_when_the_decision_also_differs(work):
+    """B2-bis: a different pattern / stop that coincides with the bot REJECTING must not hide as a downstream entry
+    decision: pattern and plan_levels are always their own non-downstream mismatches."""
+    events = read_events(work)
+    planned = planned_events(events)
+    first, second = planned[0], planned[1]
+    drop_trade_rows(work, {first["execution"]["timestamp"], second["execution"]["timestamp"]})
+    for key in ("risk_decision", "plan", "signal", "execution", "candidates", "daily_trend_confirmed"):
+        first.pop(key, None)
+    first["action"], first["note"] = "none", "stale bar: entries skipped"          # explained: starts the cascade
+    second["signal"]["pattern"] = "PULLBACK" if second["signal"]["pattern"] != "PULLBACK" else "BREAKOUT"
+    second["plan"]["stop_loss"] *= 1.02
+    second["risk_decision"] = {"allowed": False, "reason": "position would exceed the cap", "max_quote_amount": None}
+    second["action"] = "none"
+    second.pop("execution")
+    write_events(work, events)
+    r = run_check(work, "--days", str(TRIAL_BARS))
+    mine = {m["kind"]: m for m in r["mismatches"] if m["symbol"] == second["symbol"] and m["bar"] == pd.Timestamp(second["bar_close"]).isoformat()}
+    assert mine["pattern"]["explained_by"] is None and mine["plan_levels"]["explained_by"] is None
+    assert "stop" in mine["plan_levels"]["detail"] or "entry/stop/rr" in mine["plan_levels"]["detail"]
+    assert mine["entry_decision"]["explained_by"] == ppc.EXPLAINED_DOWNSTREAM  # the decision may be fallout; the rest is not
+    assert r["status"] == ppc.FAIL and r["unexplained_count"] >= 2
+    # the pattern/levels mismatches are unexplained even with a looser budget and the relaxed flag
+    assert run_check(work, "--days", str(TRIAL_BARS), "--budget", "1.0", "--relaxed-early-budget")["status"] == ppc.FAIL
+
+
+def test_a_bot_event_without_a_signal_is_flagged_not_skipped(work):
+    events = read_events(work)
+    target = planned_events(events)[0]
+    target.pop("signal")
+    write_events(work, events)
+    r = run_check(work, "--days", str(TRIAL_BARS))
+    m = next(m for m in r["mismatches"] if m["kind"] == "pattern")
+    assert "missing" in m["detail"] and m["explained_by"] is None and r["status"] == ppc.FAIL
+
+
+def test_one_explained_event_followed_by_a_total_entry_divergence_fails_by_default(work):
+    """The reviewer's scenario: every entry is a (documented) stale skip: all mismatches are explained or downstream,
+    yet the bot made none of the harness's entries. The pre-registered budget is the default, so this is a FAIL."""
+    events = read_events(work)
+    stamps = set()
+    for e in planned_events(events):
+        stamps.add(e["execution"]["timestamp"])
+        for key in ("risk_decision", "plan", "signal", "execution", "candidates", "daily_trend_confirmed"):
+            e.pop(key, None)
+        e["action"], e["note"] = "none", "stale bar: entries skipped"
+    for e in exit_events(events):
+        stamps.add(e["execution"]["timestamp"])
+        e.pop("monitor_action"), e.pop("execution")
+    write_events(work, events)
+    drop_trade_rows(work, stamps)
+    r = run_check(work, "--days", str(TRIAL_BARS))
+    assert r["unexplained_count"] == 0 and r["trial_to_date"]["entries"]["mismatch_rate"] == 1.0
+    assert r["status"] == ppc.FAIL and r["exit_code"] == 1 and "exceeds the 10% budget" in r["message"]
+    # the relaxed flag (needs the user's acceptance) is the only way this is a WARN
+    assert run_check(work, "--days", str(TRIAL_BARS), "--relaxed-early-budget")["status"] == ppc.WARN
+
+
+def test_downstream_window_ends_when_both_sides_hold_the_same_positions_again():
+    stale = bot_bar(B1, "X/USD", None, stale=True)
+    iv = [("X/USD", B1, B2)]  # the harness entered X on B1 (the bot skipped it) and exited on B2
+
+    def run(bot_map, hmap):
+        h = ppc.HarnessResult(checks={(B1, "X/USD"): CHK, **hmap}, exits=set(), last_bar={"X/USD": B4, "Y/USD": B4}, n_bars=4, intervals=iv)
+        return [(m.bar, m.kind, m.explained_by) for m in cmp({(B1, "X/USD"): stale, **bot_map}, h)["mismatches"] if m.symbol == "Y/USD"]
+
+    during = run({(B2, "Y/USD"): bot_bar(B2, "Y/USD", REJ)}, {(B2, "Y/USD"): CHK})        # harness holds X, the bot does not
+    after = run({(B3, "Y/USD"): bot_bar(B3, "Y/USD", REJ)}, {(B3, "Y/USD"): CHK})        # X closed on B2: same (empty) books
+    assert during == [(B2, "entry_decision", ppc.EXPLAINED_DOWNSTREAM)]
+    assert after == [(B3, "entry_decision", None)]
+
+
+def test_bot_and_harness_position_timelines():
+    bot = {(B1, "X/USD"): bot_bar(B1, "X/USD", CHK, entered=True), (B3, "X/USD"): bot_bar(B3, "X/USD", exit_reason="stop_loss"),
+           (B2, "Y/USD"): bot_bar(B2, "Y/USD", CHK, entered=True)}
+    iv = ppc._bot_intervals(bot)
+    assert sorted(iv, key=lambda x: x[0]) == [("X/USD", B1, B3), ("Y/USD", B2, None)]
+    assert ppc._held_before(iv, B1) == set() and ppc._held_before(iv, B2) == {"X/USD"}
+    assert ppc._held_before(iv, B3) == {"X/USD", "Y/USD"} and ppc._held_before(iv, B4) == {"Y/USD"}
+
+
+def test_a_fetch_failure_on_a_different_day_does_not_explain_a_mismatch():
+    ev = ppc.Evidence(bars_with_events={B1, B2}, fetch_failed={(B2, "X/USD")})
+    r = cmp({(B1, "Y/USD"): bot_bar(B1, "Y/USD")}, hres({(B1, "X/USD"): CHK}), evidence=ev)
+    assert r["mismatches"][0].explained_by is None
+
+
+# ----- --json-out failures and protections -----
+
+
+def test_json_out_to_a_directory_or_under_a_file_is_exit_2_not_a_traceback(trial, tmp_path, capsys):
+    directory = tmp_path / "adir"
+    directory.mkdir()
+    assert ppc.main(_argv(trial.dir, "--json-out", str(directory), "--force")) == ppc.EXIT_INPUT_ERROR
+    assert capsys.readouterr().err.startswith("error: ")
+    assert ppc.main(_argv(trial.dir, "--json-out", str(directory))) == ppc.EXIT_INPUT_ERROR  # exists, no --force
+    regular = tmp_path / "afile"
+    regular.write_text("x")
+    assert ppc.main(_argv(trial.dir, "--json-out", str(regular / "sub" / "out.json"))) == ppc.EXIT_INPUT_ERROR
+    assert capsys.readouterr().err.count("error: ") == 2
+
+
+def test_force_never_overwrites_the_ack_file_dotenv_repo_config_or_the_kill_switch(trial, tmp_path, capsys):
+    acks = tmp_path / "acks.txt"
+    acks.write_text("# none\n")
+    envfile = tmp_path / ".env"
+    envfile.write_text("SECRET=1")
+    for victim, extra in ((acks, ["--ack-file", str(acks)]), (envfile, []), (REPO / "config" / "config.yaml", []),
+                          (REPO / ".env", []), (trial.dir / "NO_KILL_SWITCH", [])):
+        before = victim.read_bytes() if victim.exists() else None
+        assert ppc.main(_argv(trial.dir, "--json-out", str(victim), "--force", *extra)) == ppc.EXIT_INPUT_ERROR, victim
+        assert (victim.read_bytes() if victim.exists() else None) == before, victim
+        capsys.readouterr()
+
+
+def test_the_default_kill_switch_path_is_protected_when_the_config_omits_the_key():
+    paths = ppc.protected_paths({"logging": {"audit_log_path": "logs/a.jsonl"}, "risk": {}}, "acks.txt")
+    assert (REPO / "KILL_SWITCH").resolve() in paths and (REPO / ".env").resolve() in paths
+    assert (REPO / "config" / "config.yaml").resolve() in paths and Path("acks.txt").resolve() in paths
+    assert (REPO / "logs" / "a.jsonl").resolve() in paths
+
+
+# ----- ledger boundary, no-ledger note, narrow window -----
+
+
+def test_ledger_exactly_at_the_newest_bar_is_fine_one_bar_ahead_is_not(work, capsys):
+    ledger = json.loads((work / "bar_decisions.json").read_text())
+    newest = max(pd.Timestamp(v) for v in ledger["bars"].values())
+    ledger["bars"]["BTC/USD"] = newest.isoformat()
+    (work / "bar_decisions.json").write_text(json.dumps(ledger))
+    assert ppc.main(_argv(work, "--days", str(TRIAL_BARS))) == 0
+    capsys.readouterr()
+    ledger["bars"]["BTC/USD"] = (newest + pd.Timedelta(days=1)).isoformat()  # one symbol, one bar ahead
+    (work / "bar_decisions.json").write_text(json.dumps(ledger))
+    assert ppc.main(_argv(work)) == ppc.EXIT_INPUT_ERROR
+    assert "BTC/USD" in capsys.readouterr().err
+
+
+def test_exactly_one_missing_final_bar_is_detected_too(work, capsys):
+    events = read_events(work)
+    last = max(e["bar_close"] for e in events if "bar_close" in e)
+    write_events(work, [e for e in events if e.get("bar_close") != last])
+    assert ppc.main(_argv(work)) == ppc.EXIT_INPUT_ERROR
+    assert "END of the audit log is missing" in capsys.readouterr().err
+
+
+def test_no_ledger_prints_a_warn_note(work):
+    (work / "bar_decisions.json").unlink()
+    r = run_check(work, "--days", str(TRIAL_BARS))
+    assert any(n.startswith("WARN: no bar-decision ledger") and "END of the audit log" in n for n in r["notes"])
+
+
+def test_a_narrow_window_still_fails_on_an_unexplained_mismatch_earlier_in_the_trial(work):
+    _plan_levels_fault(work)
+    r = run_check(work, "--days", "2")
+    assert r["status"] == ppc.FAIL and r["exit_code"] == 1 and "earlier in the trial still pause it" in r["message"]
+    # without an unexplained mismatch the same window is INSUFFICIENT DATA (exit 0)
+
+
 # ----- E. short / empty / corrupt inputs -----
 
 
@@ -825,6 +1011,8 @@ def test_short_window_is_insufficient_data(trial, work, capsys):
     # only the first two bars of the trial exist
     events = [e for e in read_events(work) if "bar_close" not in e or pd.Timestamp(e["bar_close"]) <= T("2025-09-29")]
     write_events(work, events)
+    (work / "bar_decisions.json").unlink()  # the ledger is (correctly) ahead of a truncated log
+    (work / "trades.csv").write_text((work / "trades.csv").read_text().splitlines()[0] + "\n")  # and so are the later trades
     assert ppc.main(_argv(work)) == 0
     assert "insufficient data: only 2 decided bar(s)" in capsys.readouterr().out
 
