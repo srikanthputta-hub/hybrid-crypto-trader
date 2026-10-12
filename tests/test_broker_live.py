@@ -794,7 +794,9 @@ def _live_replay(tmp_path, label, module, poison_order: int | None = None):
     from tests import test_bot_universe_wiring as wiring
     from src.config import load_config
 
-    real_raw = load_config().raw
+    # The pre-trial 1h config (hourly fixtures, bar parity off): this replay is about the broker path,
+    # not the shipped trial values (tests/test_paper_trial_config.py pins those).
+    real_raw = wiring._pre_trial_hourly_raw(load_config().raw)
     symbols = list(real_raw["market"]["symbols"])
     hourly = {s: wiring._random_walk_hourly(seed=i, start_price=10.0 * (i + 1)) for i, s in enumerate(symbols)}
     daily = {s: wiring._daily(10.0 * (i + 1), uptrend=(i % 4 != 3)) for i, s in enumerate(symbols)}
