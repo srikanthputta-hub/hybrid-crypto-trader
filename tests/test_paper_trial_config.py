@@ -169,9 +169,11 @@ def _trial_raw(tmp: Path) -> dict:
     return raw
 
 
-@pytest.fixture(scope="module")
-def run(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("paper_trial")
+def _drive(tmp: Path, start: int, bars: int, first_tick_ms: int = 60_000, restart_after: int | None = None) -> dict:
+    """Runs the real bot loop on the shipped config (paths moved into `tmp`) over `bars` committed daily bars from
+    data bar `start`: two cycles per bar, at `first_tick_ms` after the 00:00 UTC close and 5 minutes later (on the
+    first bar only `first_tick_ms` applies; later bars always tick at +1 / +6 min). `restart_after`: rebuild every
+    component from the files between the two ticks of that bar (a systemd restart)."""
     mp = pytest.MonkeyPatch()
     messages: list[str] = []
     logs_before = _logs_listing()
@@ -181,7 +183,7 @@ def run(tmp_path_factory):
         changed = {k for k in set(_flat(real)) | set(_flat(raw)) if _flat(real).get(k) != _flat(raw).get(k)}
         assert changed == PATH_KEYS, changed  # only paths moved
 
-        usd_rows, axis = load_rows(TRIAL_START_BAR + TRIAL_BARS + 1, gapless=False)
+        usd_rows, axis = load_rows(start + bars + 1, gapless=False)
         by_base = {s.split("/")[0]: r for s, r in usd_rows.items()}
         rows = {s: by_base[s.split("/")[0]] for s in raw["market"]["symbols"]}
         assert len(rows) == 16
@@ -196,12 +198,12 @@ def run(tmp_path_factory):
         cfg = Config(raw=raw)
         fake = DailyFakeCcxt(rows)
 
-        def start():
+        def start_bot():
             parts = bot.build_components(cfg)  # the VM's startup validation (bar parity, notifier, risk)
             parts[0].client = fake
             return parts, bot.build_market_data(cfg, parts[0])
 
-        (exchange, risk_engine, portfolio, broker, store, audit), market_data = start()
+        (exchange, risk_engine, portfolio, broker, store, audit), market_data = start_bot()
 
         memo: dict[int, tuple] = {}
         real_add = bot.add_indicators
@@ -217,13 +219,13 @@ def run(tmp_path_factory):
         mp.setattr(bot, "add_indicators", cached)
         audit_path = Path(raw["logging"]["audit_log_path"])
         ticks = []  # (bar close, tick index, audit line range)
-        for i, ts in enumerate(axis[TRIAL_START_BAR:TRIAL_START_BAR + TRIAL_BARS]):
+        for i, ts in enumerate(axis[start:start + bars]):
             for k in range(2):
-                if i == RESTART_AFTER and k == 1:
+                if i == restart_after and k == 1:
                     # systemd restart between two ticks of a bar: in-memory state gone, rebuilt from logs/
                     bot._reset_bar_parity_state()
-                    (exchange, risk_engine, portfolio, broker, store, audit), market_data = start()
-                fake.now_ms = ts + D_MS + 60_000 + k * 300_000
+                    (exchange, risk_engine, portfolio, broker, store, audit), market_data = start_bot()
+                fake.now_ms = ts + D_MS + (first_tick_ms if i == 0 else 60_000) + k * 300_000
                 _Clock.now = datetime.fromtimestamp(fake.now_ms / 1000, tz=timezone.utc)
                 n0 = len(audit_path.read_text().splitlines()) if audit_path.exists() else 0
                 bot.run_cycle(cfg, exchange, risk_engine, portfolio, broker, store, audit, market_data)
@@ -236,6 +238,11 @@ def run(tmp_path_factory):
     events = [json.loads(line) for line in audit_path.read_text().splitlines()]
     return dict(tmp=tmp, raw=raw, events=events, ticks=ticks, messages=messages, calls=list(fake.calls),
                 logs_before=logs_before, logs_after=_logs_listing())
+
+
+@pytest.fixture(scope="module")
+def run(tmp_path_factory):
+    return _drive(tmp_path_factory.mktemp("paper_trial"), TRIAL_START_BAR, TRIAL_BARS, restart_after=RESTART_AFTER)
 
 
 def test_only_paths_were_overridden_and_nothing_was_written_to_the_repo_logs(run):
@@ -350,3 +357,22 @@ def test_weekly_parity_check_passes_on_the_produced_logs(run, capsys):
     assert ppc.main(argv + ["--days", "7"]) == 0
     out = capsys.readouterr().out
     assert out.startswith("PAPER TRIAL PARITY CHECK -- PASS")
+
+
+def test_a_first_start_outside_the_00_to_01_utc_window_contaminates_the_trial_start(run, tmp_path):
+    """deploy/PAPER_TRIAL_RUNBOOK.md §2: the first cycle must run between 00:00 and 01:00 UTC. Started 6 hours
+    after a close, the first cycle skips every entry of that bar as stale (and marks it decided); the parity check
+    then starts its replay on that bar, where the harness enters, so the check cannot PASS. Uses the first bar of
+    the main run that has an entry, so the harness provably has one there."""
+    first_entry_bar = min(pd.Timestamp(e["bar_close"]) for e in run["events"] if e.get("action") == "planned")
+    offset = next(i for i, (t, _k, _r) in enumerate(run["ticks"]) if t == first_entry_bar) // 2
+    late = _drive(tmp_path / "late", TRIAL_START_BAR + offset, 8, first_tick_ms=6 * 3_600_000)
+    first = [e for e in late["events"] if pd.Timestamp(e["bar_close"]) == first_entry_bar]
+    deciding = [e for e in first if ppc.ALREADY_DECIDED not in str(e.get("note"))]
+    assert len(deciding) == 16 and all(ppc.STALE_NOTE in e["note"] for e in deciding)
+    assert not any(e.get("action") == "planned" or "candidates" in e for e in first)
+    report = ppc.build_report(ppc.parse_args(["--config", str(late["tmp"] / "config.yaml"), "--days", "8"]))
+    assert report["trial_start"] == first_entry_bar.isoformat()
+    assert report["status"] != ppc.PASS
+    assert any(m["explained_by"] == "staleness_guard" and m["bar"] == first_entry_bar.isoformat()
+               for m in ppc._clean(report["mismatches"]))
