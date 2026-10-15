@@ -13,7 +13,7 @@
 
 | file | change |
 |---|---|
-| `config/config.yaml` | six values: `market.timeframe` 1h -> 1d, `loop.bar_parity` false -> true, `loop.max_entry_delay_minutes` null -> 60, `logging.closed_bars_dir` null -> `logs/daily_bars`, `logging.retention_days` 30 -> 0, `notifier.label` null -> `PAPER TRIAL`. Comments: stale 1h wording in the `htf_filter` block and on `max_new_entries_per_window` updated (design §6 asks for both); inert-at-1d notes on `cooldown_minutes` and `max_daily_loss_pct`; growth note on `retention_days` |
+| `config/config.yaml` | `market.symbols`: the same 16 coins, `*/USDT` -> `*/USD` (§2), plus six values: `market.timeframe` 1h -> 1d, `loop.bar_parity` false -> true, `loop.max_entry_delay_minutes` null -> 60, `logging.closed_bars_dir` null -> `logs/daily_bars`, `logging.retention_days` 30 -> 0, `notifier.label` null -> `PAPER TRIAL`. Comments: stale 1h wording in the `htf_filter` block and on `max_new_entries_per_window` updated (design §6 asks for both); inert-at-1d notes on `cooldown_minutes` and `max_daily_loss_pct`; growth note on `retention_days`; the symbols comment now says the alerts are followed by hand on Kraken (the Revolut X history stays, it explains why XMR/XAUT/FARTCOIN are absent) |
 | `.gitignore` | `logs/archive/` (the dated archives of `scripts/reset_portfolio.py` were not covered by `logs/*.csv` etc.) |
 | `tests/test_paper_trial_config.py` (new) | pins the trial values and the frozen strategy; runs the real shipped config end to end (below) |
 | `tests/test_bot_universe_wiring.py`, `test_bot_bar_parity.py`, `test_broker_live.py` | the "on today's config" identity/parity tests test the default (flags-off, hourly) code path with hourly fixtures; they now say so via `_pre_trial_hourly_raw()` (1h, bar parity off, no label). `_isolated_raw` also isolates `bar_decisions_path` (see §6 item 1) |
@@ -26,12 +26,16 @@ The daily evidence (E3/E4 and their P6 / $10-floor re-gates, `docs/min_order_flo
 by `strategy_pack_run/run_live_bot_report.py`, which reads `indicators`, `scanner`, `signal_engine`,
 `htf_filter.enabled`, `trade_planner` and the whole `risk` block from `config/config.yaml`. Checked three ways:
 
-1. **Parsed-YAML diff vs `origin/main`:** exactly the six keys above. The `indicators`, `scanner`, `signal_engine`,
-   `htf_filter`, `trade_planner`, `risk`, `advisor` and `universe` sections are identical to the config at
-   `2476986` (the commit the floor-10 re-baseline was run on).
+1. **Parsed-YAML diff vs the config the re-baseline was run on (`2476986`):** exactly the six trial keys
+   (`notifier.label` was absent there, i.e. null) plus `market.symbols` `*/USDT` -> `*/USD`. The `indicators`,
+   `scanner`, `signal_engine`, `htf_filter`, `trade_planner`, `risk`, `advisor` and `universe` sections are identical.
+   The harness never reads `market.symbols`: `backtest_live_bot.load_dir` keys each data file by its base
+   (`BTC_USD_1d.csv` -> `BTC`) and uses those bases as the risk engine's whitelist, so the evidence's universe is the
+   16 bases of the data files, all quoted in USD. The shipped config now trades exactly those 16 bases in USD.
 2. **Byte-identical reproduction:** the four committed re-baseline reports
    (`strategy_pack_run/min_order_floor_study/rebaseline_floor10/report_{data,data_long}_p6{on,off}.md`, 200 placebo
-   sims, `kraken_T3_taker`) were re-run on this branch's config: all four `diff` identical.
+   sims, `kraken_T3_taker`) were re-run on this branch's config (before and after the symbol switch): all four
+   `diff` identical.
 3. **Keys the harness does not read**, and why they don't break the correspondence: `market.timeframe` (the harness
    is daily by construction; that is the point of the switch), `market.history_bars` (the harness uses full history
    and a 150-bar scan window; live uses 200 bars, which `tests/test_daily_live_parity.py` shows changes no decision
@@ -40,11 +44,27 @@ by `strategy_pack_run/run_live_bot_report.py`, which reads `indicators`, `scanne
 
 **Differences to flag:**
 
-- **Symbols / quote:** the evidence bars are `*/USD` (Kraken for `data/`, Coinbase for `data_long/`); the bot trades
-  `*/USDT` on Kraken (`market.symbols`). Same coins, different order books: USDT pairs are thinner and trade at the
-  USDT/USD basis. The weekly parity check is unaffected (it replays the harness on the USDT bars the bot actually
-  archived), but "the strategy under test is the evidenced one" holds only up to the bar source. Switching to
-  `*/USD` is a separate config decision (the user's), not made here.
+- **Symbols / quote: switched to `*/USD` (decided by the coordinator under the user's standing instruction; the user
+  follows the alerts on Kraken).** The evidence bars are `*/USD` (Kraken for `data/`, Coinbase for `data_long/`); the
+  1h-era config traded `*/USDT` on Kraken. The independent review measured, against live Kraken data:
+  - fresh Kraken `*/USD` daily bars equal the committed `data/` bars exactly;
+  - `*/USDT` daily closes differ from `*/USD` by a median 0-5 bp per coin (p95 15-111 bp on the small coins, max
+    ~750 bp on BNB), and the USDT books are 5-20x thinner (BTC: ~$9.7M vs ~$217M 30-day median daily quote volume);
+  - on the same window, the P6 harness at the $10 floor gives **USD 113 trades, +0.03R** vs **USDT 132 trades,
+    -0.10R**, with only 65% of trades in common.
+  So on USDT bars the bot would not be trading the evidenced strategy. The weekly parity check would not have
+  caught this (it replays the harness on whatever bars the bot archived). All 16 `*/USD` pairs were verified active
+  on Kraken with ccxt `load_markets` on 2026-10-15: `BTC/USD` (XXBTZUSD), `ETH/USD` (XETHZUSD), `XRP/USD`
+  (XXRPZUSD), `SOL/USD`, `ADA/USD`, `DOGE/USD` (XDGUSD), `AVAX/USD`, `LINK/USD`, `BNB/USD`, `LTC/USD` (XLTCZUSD),
+  `DOT/USD`, `ATOM/USD`, `ALGO/USD`, `BCH/USD`, `XTZ/USD`, `SHIB/USD`; same taker fee as the USDT pairs (0.26% at
+  the base tier), `cost.min` 0.5, `amount.min` worth $3.8-5.2 at that day's prices (below the $10 floor with ~2x
+  headroom; issue #81 stays open for live).
+- **The `data/` point estimate is fragile.** Dropping the first 14 bars of the identical data moves the P6/$10-floor
+  result from **132 trades, +0.216R** to **114 trades, -0.006R** (review finding, reproduced on this branch). The
+  2-year window's sign is not a stable fact. The evidence that actually carries the case is `data_long/`
+  (546 trades, +0.50R [0.34, 0.65], 5/5 on the P6-fixed harness) together with the design's day-block CIs
+  (`data/` [-0.23, +0.58], `data_long/` [+0.32, +0.72], design §4): a long-run multi-regime edge on survivor coins,
+  not a recent-window one.
 - **Harness report text:** `run_live_bot_report.py`'s fixed "Important limits" paragraph says "`config/config.yaml`
   runs `market.timeframe: "1h"`". After this change that sentence is stale. Left alone so the reports stay
   byte-reproducible; a QA follow-up.
@@ -56,6 +76,7 @@ Every config key that depends on the timeframe or on 1h assumptions:
 | key | value | verdict at 1d |
 |---|---|---|
 | `market.timeframe` | `"1d"` | **changed** (Option A) |
+| `market.symbols` | 16 x `*/USD` | **changed** from `*/USDT` (not a timeframe key; the evidence's bar source, §2) |
 | `market.history_bars` | 200 | fine: >= 150 (P5, startup-validated), <= Kraken's 720; the value the daily parity tests ran with |
 | `loop.poll_interval_seconds` | 300 | fine: one decision per symbol per bar (P1); first cycle after 00:00 UTC decides by ~00:05, inside the 60-min guard. Cost: ~287 echo lines/symbol/day (§6 item 4) |
 | `loop.bar_parity` | true | **changed** |
@@ -110,11 +131,12 @@ this config.
 | design §5 thresholds applied to the P6-fixed `data/` pool | -0.70 / -0.55 / -0.45 / -0.40 | 0% / 4% / 5% / 16% / 42% |
 | P6-fixed `data_long/` (546 trades), reference +0.18 | -0.56 / -0.44 / -0.36 / -0.29 | 1% / 8% / 10% / 24% / 52% |
 
-The method reproduces the design's numbers on the original pool, so the P6-fixed row is what the design asked for:
-**-0.57 / -0.43 / -0.34 / -0.30** keeps the pre-registered 11% false-stop rate and raises power against -0.24R from
-46% to 54%. Keeping the design's thresholds on the corrected pool is more lenient (5% false stop, 42% power).
-**The user picks one before day 0** (runbook §1 item 2); this branch does not change the protocol text. The 30%
-equity-drawdown kill is unaffected.
+The method reproduces the design's numbers on the original pool, so the P6-fixed row is what the design asked for.
+The independent review reproduced it (false stop 11%, power ~52% against -0.24R; design set on the corrected pool
+5.5% / 40%). **Recommendation: freeze -0.57 / -0.43 / -0.34 / -0.30 at 20 / 30 / 40 / 50 trades, plus the
+unchanged 30% equity-drawdown kill. USER MUST CONFIRM BEFORE DAY 0.** It keeps the pre-registered 11% false-stop
+level and raises power from ~40-42% to ~52-54%; keeping the design's set on the corrected pool would be more lenient
+than the design intended. These pools use trades from the `*/USD` data, i.e. the bars the trial now trades.
 
 ## 6. Known residuals and risks
 
@@ -139,23 +161,36 @@ Found here:
 2. **Start window:** the first cycle must run between 00:00 and 01:00 UTC. A start later in the day stale-skips the
    bar it decides first, and the parity check (trial start = earliest `bar_close`) then cannot PASS when the harness
    had an entry there (pinned by `test_a_first_start_outside_the_00_to_01_utc_window_contaminates_the_trial_start`).
-   Runbook §2/§3 step 8.
+   Runbook §2/§3 step 8. Recovery: redo the reset the next night, or (cheaper, while the portfolio is still flat)
+   pass `--trial-start <next 00:00 close>` to every weekly check and record that as a protocol decision (runbook §4).
 3. **Outages over midnight** (> 1 h) stale-skip that day's entries; explained, but counted against the strict 10%
    budget, which is evaluated from the first entry. Early in the trial one such day can produce FAIL on budget.
 4. **Memory, not disk:** the audit log grows ~1.15 MB/day (measured: 16 x 288 lines/day at ~250 bytes). The dashboard
-   export reads the whole file every cycle, and the parity check holds ~1.1 KB per line in RAM (~5 MB per trial
-   day; ~2.7 GB at 18 months). Fine on the 6 GB Ampere VM; not on a 1 GB `E2.1.Micro`. Code fixes (tail-read in the
-   export; skip echo lines before JSON parsing in the check) are follow-ups for the Platform Engineer / QA, not
-   made here (`src/`/`scripts/` untouched).
-5. **Bar source:** Kraken USDT bars vs the USD evidence bars (§2).
+   export (every cycle) holds the whole file as text, then a list of line strings (~1.2x the file), then up to the
+   last 200,000 parsed events (a fixed ~220 MB floor once the log is older than ~43 days): peak ~300 MB at 2 months,
+   ~480 MB at 6, ~1 GB at 18, plus the bot's own ~150-250 MB. The parity check holds ~1.1 KB per line (~5 MB per
+   trial day; ~2.7 GB at 18 months). The repo does not record the VM's shape: **check `free -m` before day 0.** On
+   the 6 GB Ampere shape this is fine. On a 1 GB `E2.1.Micro`: run the parity check off the VM from day 1 (copy the
+   logs), and expect the export to be OOM-killed at ~4-6 months unless it is changed to read only the tail; an OOM
+   kill of the bot over midnight costs parity budget (item 3). Follow-ups (not made here, `src/`/`scripts/`
+   untouched): tail-read in `scripts/export_dashboard_data.py` (Platform Engineer); skip "already decided" lines
+   before JSON parsing in `scripts/paper_parity_check.py` (QA).
+5. **Bar source:** fixed by the switch to `*/USD` (§2). Residual: `data_long/` is Coinbase USD, not Kraken.
+6. **Merge timing (operational):** the VM auto-pulls `main` (`scripts/run_live.py` pulls when its dashboard push is
+   rejected), so merging this change before the 1h bot is stopped puts the daily config under the 1h state at the
+   next restart of any kind. The runbook orders it: kill switch + stop + disable, archive/reset, then merge, pull and
+   start in the window. Same for a rollback.
+7. **Routine freeze is procedural only:** `tests/test_paper_trial_config.py` fails on a promotion, but with CI dead
+   until 2026-11-01 nothing runs it on a PR. Pausing the Daily Backtester Routine and not merging its PRs is a must.
 
 **Data and venue caveats:**
-- The user's own venue is Revolut X (config comment). Revolut X prices are not the Kraken USDT bars the plan is
-  computed on, and its fees differ from both the paper broker's 0.10% and the evidence's `kraken_T3_taker` (0.38% fee
-  + 0.05% slippage per side). E7: at a 0.80% fee the 2-year window is roughly breakeven. The trial's R must be
+- The user follows the alerts by hand on Kraken (an older config note records Revolut X, where he traded them
+  earlier). A hand entry fills at Kraken's price when he acts, not at the close the plan used, and his fee tier may
+  differ from both the paper broker's 0.10% and the evidence's `kraken_T3_taker` (0.38% fee + 0.05% slippage per
+  side). E7: at a 0.80% fee the 2-year window is roughly breakeven. The trial's R must be
   re-costed at the chosen venue (design §5 "Metric").
 - Kraken per-pair minimums are still unverified (issue #81 open); irrelevant in paper.
-- BNB/USDT has a shorter Kraken history than the others (in the committed USD data it starts 2025-04-22); the bot
+- BNB/USD has a shorter Kraken history than the others (in the committed USD data it starts 2025-04-22); the bot
   and the harness both use what exists.
 
 **Not part of this:** issue #99 (live-readiness blockers: order write-ahead marker, halt alert + reconcile, sell
@@ -175,11 +210,13 @@ display follow-ups, `volatility_scale_floor` pass-through.
 ## 8. For the independent reviewer
 
 1. `tests/test_paper_trial_config.py`: is "override only paths" really only paths (`PATH_KEYS`, asserted by a
-   flattened diff)? Is the USD -> USDT bar mapping in the fake exchange acceptable for an e2e of the shipped
-   symbols?
+   flattened diff)? The fake exchange now serves the committed `*/USD` bars under the shipped symbols as is.
 2. The `_pre_trial_hourly_raw` change to the default-path identity tests: confirm they still test what they were
    written to test, and that nothing now tests the shipped config only implicitly.
 3. The start-window procedure (runbook §2-§4) and the claim that a late first start contaminates the check.
 4. The kill-threshold re-simulation (§5) and whether the protocol should adopt it.
 5. Memory growth (§6 item 4) against the VM's actual shape.
-6. The USDT-vs-USD bar source (§2): accept for the trial, or switch symbols before day 0 (a separate decision).
+6. The `*/USD` switch (§2) and the runbook's stop-before-merge ordering (B1).
+7. Follow-ups not made here: `src/bot.py` stage 2b comment still says "this 1h signal" (comment only, `src/` not
+   touched); `run_live_bot_report.py`'s stale "config runs 1h" sentence; the export tail-read; dashboard "as of" label
+   and daily P/L default.

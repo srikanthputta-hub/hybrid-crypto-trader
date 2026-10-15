@@ -3,9 +3,14 @@
 Read this first when picking the repo up cold. It summarises the "system redesign" work and what is
 waiting on whom. The detail lives in the linked docs; the PR/issue numbers are GitHub numbers.
 
+> **DO NOT MERGE `claude/daily-bar-paper-trial` outside the deploy window.** The VM auto-pulls `main`; merging
+> before the 1h bot is stopped and disabled would put the daily config under the 1h state at the next restart.
+> Follow `deploy/PAPER_TRIAL_RUNBOOK.md` section 3 (stop + disable, archive/reset, *then* merge, then pull and start
+> between 00:01 and 00:45 UTC).
+
 **Paper daily-bar trial (branch `claude/daily-bar-paper-trial`, awaiting the user's merge):** the shipped config
-switches the **paper** bot to daily bars with bar parity on (six config values, no strategy or risk parameter
-change, `mode: paper`). Operator steps: [../deploy/PAPER_TRIAL_RUNBOOK.md](../deploy/PAPER_TRIAL_RUNBOOK.md);
+switches the **paper** bot to daily bars with bar parity on and the 16 coins on their `*/USD` pairs (the evidence's
+bars), with no strategy or risk parameter change and `mode: paper`. Operator steps: [../deploy/PAPER_TRIAL_RUNBOOK.md](../deploy/PAPER_TRIAL_RUNBOOK.md);
 pre-flight risks, the per-key timeframe audit and the kill-threshold re-simulation the design requires before
 freezing: [daily_trial_preflight.md](daily_trial_preflight.md). Until it is merged and deployed, the paragraph
 below describes the running bot.
@@ -67,8 +72,9 @@ Background research: [crypto_bot_upgrade_playbook.md](crypto_bot_upgrade_playboo
   (from 20 entries) is a loosening that needs the user's acceptance and is off.
 - **Paper trial** - Option A (daily bars) approved by the user as a paper-only switch; config change and runbook on
   `claude/daily-bar-paper-trial` (not merged). Before day 0 the user picks the kill thresholds
-  (`daily_trial_preflight.md` §5) and the venue/fee tier the trial is judged at. Routine promotion PRs stay unmerged
-  for the trial.
+  (recommended re-simulated set, `daily_trial_preflight.md` §5; USER MUST CONFIRM) and the fee tier the trial is judged
+  at. The Daily Backtester Routine must be paused and its promotion PRs left unmerged for the trial (CI is dead, so the
+  pin test cannot block a merge).
 - Not built: `universe.mode: discover` (raises `NotImplementedError`), wiring `rank_signals` into `bot.py`,
   passing `risk.volatility_scale_floor` through `bot.py` (the engine's 0.5 default applies).
 

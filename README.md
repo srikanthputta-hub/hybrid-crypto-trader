@@ -125,9 +125,11 @@ at 14:32" is always answerable from that file alone.
 **Paper daily-bar trial (shipped config).** `config/config.yaml` runs the **paper** trial of
 `docs/multiday_hold_design.md` §5: `market.timeframe: "1d"`, `loop.bar_parity: true`,
 `loop.max_entry_delay_minutes: 60`, `logging.closed_bars_dir: "logs/daily_bars"`, `logging.retention_days: 0`,
-`notifier.label: "PAPER TRIAL"`, with every strategy and risk parameter unchanged (pinned by
+`notifier.label: "PAPER TRIAL"`, the 16 coins on their Kraken `*/USD` pairs (the evidence's own bars; they were
+`*/USDT` before), with every strategy and risk parameter unchanged (pinned by
 `tests/test_paper_trial_config.py`). Operator steps, start window, weekly check, kill rule and rollback:
-[deploy/PAPER_TRIAL_RUNBOOK.md](deploy/PAPER_TRIAL_RUNBOOK.md); risks: `docs/daily_trial_preflight.md`.
+[deploy/PAPER_TRIAL_RUNBOOK.md](deploy/PAPER_TRIAL_RUNBOOK.md) (the VM auto-pulls `main`: stop the bot before
+merging a config change like this); risks: `docs/daily_trial_preflight.md`.
 
 **Paper-trial tooling.** `scripts/paper_parity_check.py` is the weekly check from the multi-day-hold design's paper-trial
 protocol: it replays the P6 backtest harness over the closed daily bars the bot archived (`logging.closed_bars_dir`) and
