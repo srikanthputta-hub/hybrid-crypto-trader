@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-15T15:55:09.994854+00:00",
+  "generated_at": "2026-10-15T16:00:36.211672+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -21,9 +21,9 @@
     "SHIB/USDT"
   ],
   "portfolio": {
-    "cash": 9277.09,
-    "equity": 9277.09,
-    "pnl_pct": -0.0723
+    "cash": 6493.96,
+    "equity": 9274.3,
+    "pnl_pct": -0.0726
   },
   "roles": [
     {
@@ -31,32 +31,32 @@
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
       "status": "working",
-      "last_active": "2026-10-15T15:55:09.850847+00:00",
-      "detail": "Coordinating 1 active role(s) this cycle"
+      "last_active": "2026-10-15T16:00:36.059996+00:00",
+      "detail": "Coordinating 4 active role(s) this cycle"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
       "status": "working",
-      "last_active": "2026-10-15T15:55:09.850847+00:00",
+      "last_active": "2026-10-15T16:00:36.059996+00:00",
       "detail": "SHIB/USDT: checked, nothing worth trading"
     },
     {
       "id": "trade_strategist",
       "label": "Trade Strategist",
       "model_tier": "sonnet",
-      "status": "idle",
-      "last_active": "2026-10-14T17:04:04.866493+00:00",
-      "detail": "ADA/USDT: buy between $0.2265 and $0.2305, stop-loss $0.2224"
+      "status": "working",
+      "last_active": "2026-10-15T16:00:34.680957+00:00",
+      "detail": "XTZ/USDT: buy between $0.3125 and $0.3202, stop-loss $0.3057"
     },
     {
       "id": "risk_officer",
       "label": "Risk Officer",
       "model_tier": "opus",
-      "status": "idle",
-      "last_active": "2026-10-14T17:04:04.866493+00:00",
-      "detail": "ADA/USDT: OK to trade \u2014 ok"
+      "status": "working",
+      "last_active": "2026-10-15T16:00:34.680957+00:00",
+      "detail": "XTZ/USDT: OK to trade \u2014 ok"
     },
     {
       "id": "compliance_reviewer",
@@ -70,9 +70,9 @@
       "id": "execution_trader",
       "label": "Execution Trader",
       "model_tier": "opus",
-      "status": "idle",
-      "last_active": "2026-10-15T04:00:34.819306+00:00",
-      "detail": "ADA/USDT: sold \u2014 stop-loss hit at $0.2203"
+      "status": "working",
+      "last_active": "2026-10-15T16:00:34.680957+00:00",
+      "detail": "XTZ/USDT: bought at $0.3199"
     },
     {
       "id": "backtester",
@@ -83,9 +83,118 @@
       "detail": "universe.mode: discover @ $1M floor: 4/5 gates passed (long_universe)"
     }
   ],
-  "positions": [],
+  "positions": [
+    {
+      "symbol": "XTZ/USDT",
+      "pattern": "BREAKOUT",
+      "entry_zone": [
+        0.3125034,
+        0.3202266
+      ],
+      "stop_loss": 0.30572466,
+      "take_profit": 0.34923047,
+      "invalidation": 0.30384168,
+      "risk_reward": 2.0,
+      "confidence_rule_based": 4.5,
+      "confidence_claude": null,
+      "fill_price": 0.31985,
+      "fill_amount": 2897.5491293696227,
+      "current_price": null,
+      "timestamp": "2026-10-15T16:00:35.597437+00:00"
+    },
+    {
+      "symbol": "LTC/USDT",
+      "pattern": "MOMENTUM",
+      "entry_zone": [
+        60.49518118,
+        60.63727882
+      ],
+      "stop_loss": 59.21630244,
+      "take_profit": 63.47923157,
+      "invalidation": 58.86105835,
+      "risk_reward": 2.0,
+      "confidence_rule_based": 4.0,
+      "confidence_claude": null,
+      "fill_price": 60.56623,
+      "fill_amount": 15.301944483400634,
+      "current_price": null,
+      "timestamp": "2026-10-15T16:00:34.391870+00:00"
+    },
+    {
+      "symbol": "LINK/USDT",
+      "pattern": "BREAKOUT",
+      "entry_zone": [
+        12.48403152,
+        12.59575848
+      ],
+      "stop_loss": 12.19497883,
+      "take_profit": 13.39731778,
+      "invalidation": 12.11468642,
+      "risk_reward": 2.0,
+      "confidence_rule_based": 4.0,
+      "confidence_claude": null,
+      "fill_price": 12.5797,
+      "fill_amount": 73.67274967041136,
+      "current_price": null,
+      "timestamp": "2026-10-15T16:00:31.992054+00:00"
+    }
+  ],
   "pending": [],
   "signal_history": [
+    {
+      "timestamp": "2026-10-15T16:00:34.680957+00:00",
+      "symbol": "XTZ/USDT",
+      "kind": "signal",
+      "summary": "Buy between $0.3125 and $0.3202 \u2014 stop-loss $0.3057 (sell here to cap the loss)"
+    },
+    {
+      "timestamp": "2026-10-15T16:00:34.680957+00:00",
+      "symbol": "XTZ/USDT",
+      "kind": "filled",
+      "summary": "Bought at $0.3199"
+    },
+    {
+      "timestamp": "2026-10-15T16:00:34.678391+00:00",
+      "symbol": "BCH/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 daily trend not confirmed bullish (higher-timeframe filter)"
+    },
+    {
+      "timestamp": "2026-10-15T16:00:33.199257+00:00",
+      "symbol": "LTC/USDT",
+      "kind": "signal",
+      "summary": "Buy between $60.50 and $60.64 \u2014 stop-loss $59.22 (sell here to cap the loss)"
+    },
+    {
+      "timestamp": "2026-10-15T16:00:33.199257+00:00",
+      "symbol": "LTC/USDT",
+      "kind": "filled",
+      "summary": "Bought at $60.57"
+    },
+    {
+      "timestamp": "2026-10-15T16:00:32.320238+00:00",
+      "symbol": "BNB/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 daily trend not confirmed bullish (higher-timeframe filter)"
+    },
+    {
+      "timestamp": "2026-10-15T16:00:30.798637+00:00",
+      "symbol": "LINK/USDT",
+      "kind": "signal",
+      "summary": "Buy between $12.48 and $12.60 \u2014 stop-loss $12.19 (sell here to cap the loss)"
+    },
+    {
+      "timestamp": "2026-10-15T16:00:30.798637+00:00",
+      "symbol": "LINK/USDT",
+      "kind": "filled",
+      "summary": "Bought at $12.58"
+    },
+    {
+      "timestamp": "2026-10-15T16:00:29.619356+00:00",
+      "symbol": "SOL/USDT",
+      "kind": "rejected",
+      "summary": "Skipped \u2014 daily trend not confirmed bullish (higher-timeframe filter)"
+    },
     {
       "timestamp": "2026-10-15T15:55:09.846101+00:00",
       "symbol": "BCH/USDT",
@@ -7534,146 +7643,146 @@
     },
     "hourly": [
       {
-        "label": "16:00",
-        "start": "2026-10-14T15:55:09.994854+00:00",
-        "pnl": 0,
-        "trades": 0
-      },
-      {
         "label": "17:00",
-        "start": "2026-10-14T16:55:09.994854+00:00",
+        "start": "2026-10-14T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "18:00",
-        "start": "2026-10-14T17:55:09.994854+00:00",
+        "start": "2026-10-14T17:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "19:00",
-        "start": "2026-10-14T18:55:09.994854+00:00",
+        "start": "2026-10-14T18:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "20:00",
-        "start": "2026-10-14T19:55:09.994854+00:00",
+        "start": "2026-10-14T19:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "21:00",
-        "start": "2026-10-14T20:55:09.994854+00:00",
+        "start": "2026-10-14T20:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "22:00",
-        "start": "2026-10-14T21:55:09.994854+00:00",
+        "start": "2026-10-14T21:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "23:00",
-        "start": "2026-10-14T22:55:09.994854+00:00",
+        "start": "2026-10-14T22:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "00:00",
-        "start": "2026-10-14T23:55:09.994854+00:00",
+        "start": "2026-10-14T23:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "01:00",
-        "start": "2026-10-15T00:55:09.994854+00:00",
+        "start": "2026-10-15T00:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "02:00",
-        "start": "2026-10-15T01:55:09.994854+00:00",
+        "start": "2026-10-15T01:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "03:00",
-        "start": "2026-10-15T02:55:09.994854+00:00",
+        "start": "2026-10-15T02:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "04:00",
-        "start": "2026-10-15T03:55:09.994854+00:00",
+        "start": "2026-10-15T03:00:36.211672+00:00",
         "pnl": -42.04,
         "trades": 1
       },
       {
         "label": "05:00",
-        "start": "2026-10-15T04:55:09.994854+00:00",
+        "start": "2026-10-15T04:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "06:00",
-        "start": "2026-10-15T05:55:09.994854+00:00",
+        "start": "2026-10-15T05:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "07:00",
-        "start": "2026-10-15T06:55:09.994854+00:00",
+        "start": "2026-10-15T06:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "08:00",
-        "start": "2026-10-15T07:55:09.994854+00:00",
+        "start": "2026-10-15T07:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "09:00",
-        "start": "2026-10-15T08:55:09.994854+00:00",
+        "start": "2026-10-15T08:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "10:00",
-        "start": "2026-10-15T09:55:09.994854+00:00",
+        "start": "2026-10-15T09:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "11:00",
-        "start": "2026-10-15T10:55:09.994854+00:00",
+        "start": "2026-10-15T10:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "12:00",
-        "start": "2026-10-15T11:55:09.994854+00:00",
+        "start": "2026-10-15T11:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "13:00",
-        "start": "2026-10-15T12:55:09.994854+00:00",
+        "start": "2026-10-15T12:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "14:00",
-        "start": "2026-10-15T13:55:09.994854+00:00",
+        "start": "2026-10-15T13:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "15:00",
-        "start": "2026-10-15T14:55:09.994854+00:00",
+        "start": "2026-10-15T14:00:36.211672+00:00",
+        "pnl": 0,
+        "trades": 0
+      },
+      {
+        "label": "16:00",
+        "start": "2026-10-15T15:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       }
@@ -7681,181 +7790,181 @@
     "daily": [
       {
         "label": "Sep 16",
-        "start": "2026-09-15T15:55:09.994854+00:00",
+        "start": "2026-09-15T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 17",
-        "start": "2026-09-16T15:55:09.994854+00:00",
+        "start": "2026-09-16T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 18",
-        "start": "2026-09-17T15:55:09.994854+00:00",
+        "start": "2026-09-17T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 19",
-        "start": "2026-09-18T15:55:09.994854+00:00",
+        "start": "2026-09-18T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 20",
-        "start": "2026-09-19T15:55:09.994854+00:00",
+        "start": "2026-09-19T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 21",
-        "start": "2026-09-20T15:55:09.994854+00:00",
+        "start": "2026-09-20T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 22",
-        "start": "2026-09-21T15:55:09.994854+00:00",
+        "start": "2026-09-21T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 23",
-        "start": "2026-09-22T15:55:09.994854+00:00",
+        "start": "2026-09-22T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 24",
-        "start": "2026-09-23T15:55:09.994854+00:00",
+        "start": "2026-09-23T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 25",
-        "start": "2026-09-24T15:55:09.994854+00:00",
+        "start": "2026-09-24T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 26",
-        "start": "2026-09-25T15:55:09.994854+00:00",
+        "start": "2026-09-25T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 27",
-        "start": "2026-09-26T15:55:09.994854+00:00",
+        "start": "2026-09-26T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 28",
-        "start": "2026-09-27T15:55:09.994854+00:00",
+        "start": "2026-09-27T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 29",
-        "start": "2026-09-28T15:55:09.994854+00:00",
+        "start": "2026-09-28T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 30",
-        "start": "2026-09-29T15:55:09.994854+00:00",
+        "start": "2026-09-29T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 01",
-        "start": "2026-09-30T15:55:09.994854+00:00",
+        "start": "2026-09-30T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 02",
-        "start": "2026-10-01T15:55:09.994854+00:00",
+        "start": "2026-10-01T16:00:36.211672+00:00",
         "pnl": -19.56,
         "trades": 1
       },
       {
         "label": "Oct 03",
-        "start": "2026-10-02T15:55:09.994854+00:00",
+        "start": "2026-10-02T16:00:36.211672+00:00",
         "pnl": -119.42,
         "trades": 7
       },
       {
         "label": "Oct 04",
-        "start": "2026-10-03T15:55:09.994854+00:00",
+        "start": "2026-10-03T16:00:36.211672+00:00",
         "pnl": 18.18,
         "trades": 1
       },
       {
         "label": "Oct 05",
-        "start": "2026-10-04T15:55:09.994854+00:00",
+        "start": "2026-10-04T16:00:36.211672+00:00",
         "pnl": -2.3,
         "trades": 7
       },
       {
         "label": "Oct 06",
-        "start": "2026-10-05T15:55:09.994854+00:00",
+        "start": "2026-10-05T16:00:36.211672+00:00",
         "pnl": -36.84,
         "trades": 2
       },
       {
         "label": "Oct 07",
-        "start": "2026-10-06T15:55:09.994854+00:00",
+        "start": "2026-10-06T16:00:36.211672+00:00",
         "pnl": -74.26,
         "trades": 8
       },
       {
         "label": "Oct 08",
-        "start": "2026-10-07T15:55:09.994854+00:00",
+        "start": "2026-10-07T16:00:36.211672+00:00",
         "pnl": -36.98,
         "trades": 1
       },
       {
         "label": "Oct 09",
-        "start": "2026-10-08T15:55:09.994854+00:00",
+        "start": "2026-10-08T16:00:36.211672+00:00",
         "pnl": -188.82,
         "trades": 5
       },
       {
         "label": "Oct 10",
-        "start": "2026-10-09T15:55:09.994854+00:00",
+        "start": "2026-10-09T16:00:36.211672+00:00",
         "pnl": 47.75,
         "trades": 2
       },
       {
         "label": "Oct 11",
-        "start": "2026-10-10T15:55:09.994854+00:00",
+        "start": "2026-10-10T16:00:36.211672+00:00",
         "pnl": -12.0,
         "trades": 2
       },
       {
         "label": "Oct 12",
-        "start": "2026-10-11T15:55:09.994854+00:00",
+        "start": "2026-10-11T16:00:36.211672+00:00",
         "pnl": -15.12,
         "trades": 8
       },
       {
         "label": "Oct 13",
-        "start": "2026-10-12T15:55:09.994854+00:00",
+        "start": "2026-10-12T16:00:36.211672+00:00",
         "pnl": -147.42,
         "trades": 7
       },
       {
         "label": "Oct 14",
-        "start": "2026-10-13T15:55:09.994854+00:00",
+        "start": "2026-10-13T16:00:36.211672+00:00",
         "pnl": -94.07,
         "trades": 4
       },
       {
         "label": "Oct 15",
-        "start": "2026-10-14T15:55:09.994854+00:00",
+        "start": "2026-10-14T16:00:36.211672+00:00",
         "pnl": -42.04,
         "trades": 1
       }
@@ -7863,73 +7972,73 @@
     "weekly": [
       {
         "label": "Jul 30",
-        "start": "2026-07-23T15:55:09.994854+00:00",
+        "start": "2026-07-23T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 06",
-        "start": "2026-07-30T15:55:09.994854+00:00",
+        "start": "2026-07-30T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 13",
-        "start": "2026-08-06T15:55:09.994854+00:00",
+        "start": "2026-08-06T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 20",
-        "start": "2026-08-13T15:55:09.994854+00:00",
+        "start": "2026-08-13T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Aug 27",
-        "start": "2026-08-20T15:55:09.994854+00:00",
+        "start": "2026-08-20T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 03",
-        "start": "2026-08-27T15:55:09.994854+00:00",
+        "start": "2026-08-27T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 10",
-        "start": "2026-09-03T15:55:09.994854+00:00",
+        "start": "2026-09-03T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 17",
-        "start": "2026-09-10T15:55:09.994854+00:00",
+        "start": "2026-09-10T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Sep 24",
-        "start": "2026-09-17T15:55:09.994854+00:00",
+        "start": "2026-09-17T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 01",
-        "start": "2026-09-24T15:55:09.994854+00:00",
+        "start": "2026-09-24T16:00:36.211672+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 08",
-        "start": "2026-10-01T15:55:09.994854+00:00",
+        "start": "2026-10-01T16:00:36.211672+00:00",
         "pnl": -271.18,
         "trades": 27
       },
       {
         "label": "Oct 15",
-        "start": "2026-10-08T15:55:09.994854+00:00",
+        "start": "2026-10-08T16:00:36.211672+00:00",
         "pnl": -451.73,
         "trades": 29
       }
