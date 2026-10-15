@@ -7,6 +7,10 @@ pushing `web/data.json` after every cycle so the dashboard stays live too,
 and Telegram alerts (if `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` are set)
 fire the moment a signal is found, not on the next scheduled tick.
 
+**Running the paper daily-bar trial?** The switch from 1h to daily bars (log archive, portfolio reset, the
+00:01-00:45 UTC start window, weekly parity check, kill rule, rollback) is in
+[PAPER_TRIAL_RUNBOOK.md](PAPER_TRIAL_RUNBOOK.md). Read it before `git pull`-ing that change onto the VM.
+
 ## Provisioning the VM (Oracle Cloud "Always Free" tier)
 
 1. Sign up at oracle.com/cloud/free.

@@ -3,6 +3,13 @@
 Read this first when picking the repo up cold. It summarises the "system redesign" work and what is
 waiting on whom. The detail lives in the linked docs; the PR/issue numbers are GitHub numbers.
 
+**Paper daily-bar trial (branch `claude/daily-bar-paper-trial`, awaiting the user's merge):** the shipped config
+switches the **paper** bot to daily bars with bar parity on (six config values, no strategy or risk parameter
+change, `mode: paper`). Operator steps: [../deploy/PAPER_TRIAL_RUNBOOK.md](../deploy/PAPER_TRIAL_RUNBOOK.md);
+pre-flight risks, the per-key timeframe audit and the kill-threshold re-simulation the design requires before
+freezing: [daily_trial_preflight.md](daily_trial_preflight.md). Until it is merged and deployed, the paragraph
+below describes the running bot.
+
 **The bot is unchanged in behaviour by the redesign so far:** paper mode, static 16-symbol
 universe (`market.symbols`), 1h candles, daily-trend gate on, Claude advisor off. Nothing below has
 promoted a strategy or a universe change to the live config. The one risk-parameter change is
@@ -49,7 +56,7 @@ Background research: [crypto_bot_upgrade_playbook.md](crypto_bot_upgrade_playboo
 - **P6 harness fix** - done (`count_same_bar_approvals`), see [p6_harness_exposure_fix.md](p6_harness_exposure_fix.md).
 - **#87** - `risk_engine` fails open on NaN `portfolio_equity` / `cash_available` (open issue). It should fail closed.
   Touches `src/risk_engine.py`: Opus-level review required.
-- **Weekly parity check + Telegram label** - built on the branch `claude/parity-check-and-label` (off `af99b64`, merged with
+- **Weekly parity check + Telegram label** - merged (#105); originally built on the branch `claude/parity-check-and-label` (off `af99b64`, merged with
   `origin/main`); independently reviewed and fixed per that review; **awaiting the user's decision to push/merge** (agents do
   not): `scripts/paper_parity_check.py` and `notifier.label` / the 1d "Valid until" lines, with tests and
   [paper_parity_check.md](paper_parity_check.md). Both are inert until the user starts a trial: the label ships `null`, and
@@ -58,7 +65,10 @@ Background research: [crypto_bot_upgrade_playbook.md](crypto_bot_upgrade_playboo
   default (pruning cannot be repaired afterwards); `risk.min_order_quote_usd` is 10 on main (#104), which the parity budget
   needs (> 0). The check evaluates the pre-registered 10% budget from the first entry by default; `--relaxed-early-budget`
   (from 20 entries) is a loosening that needs the user's acceptance and is off.
-- **Paper trial** - a time-boxed paper run of whatever candidate the user approves; none is approved today.
+- **Paper trial** - Option A (daily bars) approved by the user as a paper-only switch; config change and runbook on
+  `claude/daily-bar-paper-trial` (not merged). Before day 0 the user picks the kill thresholds
+  (`daily_trial_preflight.md` §5) and the venue/fee tier the trial is judged at. Routine promotion PRs stay unmerged
+  for the trial.
 - Not built: `universe.mode: discover` (raises `NotImplementedError`), wiring `rank_signals` into `bot.py`,
   passing `risk.volatility_scale_floor` through `bot.py` (the engine's 0.5 default applies).
 
