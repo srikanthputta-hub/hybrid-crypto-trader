@@ -13,7 +13,8 @@ deploy/PAPER_TRIAL_RUNBOOK.md is how it is run. This file holds two kinds of tes
    ONLY file paths (logging.* and risk.kill_switch_file, asserted below) into tmp_path, builds the real
    components with ``build_components`` (the startup validation the VM runs), and drives the real
    ``run_cycle`` over the committed Kraken daily bars (strategy_pack_run/data, served bar by bar through a fake
-   ccxt client, mapped from each config symbol's base: BTC/USDT gets BTC/USD's bars) for TRIAL_BARS bars, two
+   ccxt client under the config's own symbols -- the shipped */USD pairs ARE the committed data's pairs) for
+   TRIAL_BARS bars, two
    cycles per bar (+1 and +6 min after the 00:00 UTC close) and one simulated restart. Then it runs the weekly
    ``scripts/paper_parity_check.py`` on the produced logs and expects PASS.
 
@@ -100,8 +101,8 @@ FROZEN_STRATEGY = {
     },
 }
 FROZEN_SYMBOLS = [
-    "BTC/USDT", "ETH/USDT", "XRP/USDT", "SOL/USDT", "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "LINK/USDT",
-    "BNB/USDT", "LTC/USDT", "DOT/USDT", "ATOM/USDT", "ALGO/USDT", "BCH/USDT", "XTZ/USDT", "SHIB/USDT",
+    "BTC/USD", "ETH/USD", "XRP/USD", "SOL/USD", "ADA/USD", "DOGE/USD", "AVAX/USD", "LINK/USD",
+    "BNB/USD", "LTC/USD", "DOT/USD", "ATOM/USD", "ALGO/USD", "BCH/USD", "XTZ/USD", "SHIB/USD",
 ]
 
 
@@ -184,8 +185,9 @@ def _drive(tmp: Path, start: int, bars: int, first_tick_ms: int = 60_000, restar
         assert changed == PATH_KEYS, changed  # only paths moved
 
         usd_rows, axis = load_rows(start + bars + 1, gapless=False)
-        by_base = {s.split("/")[0]: r for s, r in usd_rows.items()}
-        rows = {s: by_base[s.split("/")[0]] for s in raw["market"]["symbols"]}
+        # The shipped symbols are exactly the committed data's (Kraken */USD): served as is, no mapping.
+        assert set(usd_rows) == set(raw["market"]["symbols"]), sorted(set(usd_rows) ^ set(raw["market"]["symbols"]))
+        rows = {s: usd_rows[s] for s in raw["market"]["symbols"]}
         assert len(rows) == 16
 
         mp.setenv("TELEGRAM_BOT_TOKEN", "test-token")

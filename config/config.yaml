@@ -30,31 +30,43 @@ market:
                             # /USDT market).
                             # XMR, XAUT, and FARTCOIN were removed 2026-09-27 for a different
                             # reason -- not a Kraken/ccxt problem, they worked fine there -- the
-                            # user couldn't find them on Revolut X (the exchange they actually
-                            # trade these signals on manually), so they're not useful watchlist
+                            # user couldn't find them on Revolut X (the exchange they traded
+                            # these signals on manually at the time), so they're not useful watchlist
                             # entries for this user even though the bot itself could still scan
                             # them. Settled at 16 symbols rather than chasing further
-                            # replacements. Re-add either if that changes.
+                            # replacements. Re-add either if that changes. The user now follows
+                            # the (paper) alerts by hand on Kraken; the Revolut X note above still
+                            # explains why those three coins are absent.
+                            # QUOTE: */USD since the paper daily-bar trial (2026-10). The daily
+                            # evidence (strategy_pack_run/data = Kraken */USD, data_long = Coinbase
+                            # */USD) is USD bars; Kraken's */USDT books are 5-20x thinner and their
+                            # daily closes differ (median 0-5 bp, p95 up to ~110 bp on small coins,
+                            # max ~750 bp BNB), and on the same window the P6 harness gives USD 113
+                            # trades +0.03R vs USDT 132 trades -0.10R, only 65% of trades shared
+                            # (docs/daily_trial_preflight.md §2). All 16 */USD pairs verified active on
+                            # Kraken via ccxt load_markets on 2026-10-15 (same fee schedule, cost min
+                            # 0.5; amount minimums ~$3.8-5.2 at that day's prices, below the $10 floor).
+                            # The BadSymbol history above concerned */USDT only.
                             # If a symbol below ever starts failing, that's Kraken's own
                             # listings changing, not a bug here (a failing symbol just gets
                             # logged and skipped per-cycle, never blocks the rest -- see
                             # run_cycle's per-symbol try/except in src/bot.py).
-    - "BTC/USDT"
-    - "ETH/USDT"
-    - "XRP/USDT"
-    - "SOL/USDT"
-    - "ADA/USDT"
-    - "DOGE/USDT"
-    - "AVAX/USDT"
-    - "LINK/USDT"
-    - "BNB/USDT"
-    - "LTC/USDT"
-    - "DOT/USDT"
-    - "ATOM/USDT"
-    - "ALGO/USDT"
-    - "BCH/USDT"
-    - "XTZ/USDT"
-    - "SHIB/USDT"
+    - "BTC/USD"
+    - "ETH/USD"
+    - "XRP/USD"
+    - "SOL/USD"
+    - "ADA/USD"
+    - "DOGE/USD"
+    - "AVAX/USD"
+    - "LINK/USD"
+    - "BNB/USD"
+    - "LTC/USD"
+    - "DOT/USD"
+    - "ATOM/USD"
+    - "ALGO/USD"
+    - "BCH/USD"
+    - "XTZ/USD"
+    - "SHIB/USD"
   timeframe: "1d"           # ccxt timeframe string: 1m, 5m, 15m, 1h, 4h, 1d.
                             # "1d" since the PAPER daily-bar trial (docs/multiday_hold_design.md §3.1 Option A,
                             # §5 protocol; runbook deploy/PAPER_TRIAL_RUNBOOK.md). Was "1h" until then: the 1h
