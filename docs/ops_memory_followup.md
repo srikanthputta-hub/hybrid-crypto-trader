@@ -123,6 +123,21 @@ unchanged and small next to this):
 | 180 days, 829k lines | 1357 MB (+1259) | 115 MB (+17) | 41 s / 11 s |
 | 540 days, 2.49M lines | 3855 MB (+3757) | 148 MB (+50) | 127 s / 33 s |
 
+**Parity check, whole process** (everything: audit scan, bar archive, harness replay over the archived bars, report;
+`python scripts/paper_parity_check.py` as a fresh process, peak RSS of the child): a real bot-loop trial of 488 daily
+bars x 16 symbols (data bars 230..717) with every later 5-minute tick of each bar added as an "already decided" echo,
+2,248,704 audit lines, 607 MB (the 16-month point; the data has no longer history). Report: PASS, and the JSON
+report is **byte-identical** between the old and the new script.
+
+| | before | after |
+|---|---|---|
+| whole-process peak RSS | 3522 MB | 666 MB |
+| wall time | 160 s | 79 s |
+
+So the audit-log part is solved, but the **harness replay now dominates**: about 0.5 GB of the 666 MB is pandas frames,
+indicators and the portfolio simulation over the bar archive (grows with trial length and symbols, not with the
+audit log). That is why the 1 GB `E2.1.Micro` advice below is only softened, not dropped.
+
 What still grows: ~20 bytes per audit line (12 for the stamp, 4 for the line number, array over-allocation) plus a
 few hundred bytes per (bar, symbol); about 50 MB at 18 months, against ~3.8 GB before. Time is still linear in the
 file (every line is parsed); at 18 months the weekly check takes about half a minute for the audit part.
@@ -189,9 +204,9 @@ after the 00:00 UTC decisions (window = timeframe / 24, 15 min at 1h)".
 > The audit log grows ~1.15 MB/day (16 x 288 lines at ~260 bytes). Both readers are now bounded
 > (docs/ops_memory_followup.md): the dashboard export reads the log newest-first in 1 MiB chunks and keeps only what
 > the dashboard shows (measured peak RSS 33-34 MB at 2, 6 and 18 months, was 346 MB / 520 MB / 1450 MB); the parity
-> check streams the log and keeps ~20 bytes per line (50 MB over the import baseline at 18 months, was 3.8 GB). Memory
-> is no longer a constraint on the 1 GB `E2.1.Micro` shape from the audit log; the bot's own ~150-250 MB and the
-> harness replay are what remain. The follow-ups this item listed (tail-read in the export; skip echoes in the
+> check streams the log and keeps ~20 bytes per line (50 MB over the import baseline at 18 months, was 3.8 GB). The audit
+> log is no longer a memory constraint, but the whole parity-check process still peaked at 666 MB on a 16-month
+> trial (was 3.5 GB; mostly the harness replay), so on a 1 GB `E2.1.Micro` the check still belongs off the VM. The follow-ups this item listed (tail-read in the export; skip echoes in the
 > parity check) are done, the second in the form "parse, count and drop" rather than "skip before parsing" (the echoes
 > are the integrity evidence for `missing_decision_event`).
 
@@ -206,11 +221,13 @@ use Daily / Weekly" (it opens on Daily); the office bullet becomes "roles show w
 
 **§11 ("Disk and memory"):** replace the two memory bullets and the 1 GB `E2.1.Micro` paragraph with:
 
-> Memory is bounded by design now. `scripts/export_dashboard_data.py` reads the audit log from the end in 1 MiB chunks
-> (measured 33-34 MB peak RSS at 2, 6 and 18 months of log). `scripts/paper_parity_check.py` streams the log and keeps
-> ~20 bytes per line (about 50 MB over its 98 MB import baseline at 18 months, ~33 s for the audit part). Both fit the
-> 1 GB `E2.1.Micro` shape, so the weekly check can run on the VM; running it elsewhere is no longer needed for
-> memory. Still check `free -m` once before day 0: the bot itself (~150-250 MB) is the largest resident process.
+> The audit log no longer drives memory. `scripts/export_dashboard_data.py` reads it from the end in 1 MiB chunks
+> (measured 33-34 MB peak RSS at 2, 6 and 18 months of log). `scripts/paper_parity_check.py` streams it and keeps ~20
+> bytes per line; the whole check process peaked at 666 MB on a 16-month trial (was 3.5 GB), most of it the harness
+> replay over the bar archive. **6 GB Ampere shape:** fine. **1 GB `E2.1.Micro`:** the export is fine; the weekly
+> parity check (~0.7 GB) plus the bot (~150-250 MB) is too tight for 1 GB, so keep running the check off the VM
+> (copy `logs/` and `config/`, pass `--config --audit-log --trade-log --bar-decisions --bars-dir`), or at least not
+> at the same time as a midnight decision pass. Check `free -m` once before day 0.
 
 The "do not turn pruning back on mid-trial" paragraph stays.
 
