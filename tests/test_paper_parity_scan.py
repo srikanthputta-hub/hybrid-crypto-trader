@@ -258,6 +258,23 @@ def test_the_echo_only_faults_are_still_found(work):
     assert any(m["kind"] == "duplicate_decision" for m in json.loads(js)["mismatches"])
 
 
+def test_a_fetch_failure_explains_a_missing_bar_and_is_found_through_the_scan(work):
+    """Drop every line of one planned (bar, symbol) and put a "market data unavailable" event on that day: the
+    harness-only entry must be explained as fetch_failure, identically by both implementations."""
+    events = read_events(work)
+    target = planned_events(events)[0]
+    bar, sym = target["bar_close"], target["symbol"]
+    kept = [e for e in events if not (e.get("bar_close") == bar and e["symbol"] == sym)]
+    day = pd.Timestamp(bar) + pd.Timedelta(minutes=5)
+    kept.insert(3, {"symbol": sym, "mode": "paper", "timestamp": day.isoformat(), "error": "market data unavailable: boom", "action": "error"})
+    write_events(work, kept)
+    _, js, _ = assert_same(work, "--days", str(TRIAL_BARS))
+    mismatches = json.loads(js)["mismatches"]
+    assert any(m["kind"] == "harness_only_check" and m["symbol"] == sym and m["explained_by"] == "fetch_failure" for m in mismatches), mismatches
+    scan = new.scan_audit(work / "audit.jsonl")
+    assert scan.evidence.fetch_failed == {(pd.Timestamp(bar), sym)}
+
+
 def test_trade_log_variants_and_options(work):
     trades = work / "trades.csv"
     original = trades.read_text()

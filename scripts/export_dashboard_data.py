@@ -185,8 +185,6 @@ def _display_block(timeframe: str | None, label: str | None, charts: dict[str, d
     decision a day), and shows a banner carrying `notifier.label` (e.g. "PAPER TRIAL") when one is set."""
     seconds = _timeframe_seconds(timeframe)
     daily_or_longer = seconds is not None and seconds >= DAILY_SECONDS
-    if timeframe == "1h" and not label:
-        return None
     if not daily_or_longer and not label:
         return None
     return {
