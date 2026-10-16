@@ -52,6 +52,22 @@ header.topbar {
 }
 .brand-sub { color: var(--muted); font-weight: 400; letter-spacing: normal; }
 
+/* Daily-bar bot only (data.display, web/display.js): the banner carrying notifier.label, and the "as of" for prices. */
+.trial-banner {
+  background: rgba(251, 191, 36, 0.14);
+  border-bottom: 1px solid #fbbf24;
+  color: #fbbf24;
+  text-align: center;
+  padding: 6px 24px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.trial-banner[hidden], .price-as-of[hidden], .overview-as-of[hidden] { display: none; }
+.price-as-of { font-size: 12px; }
+.overview-as-of { font-size: 11px; margin: 8px 0 0; }
+
 .topbar-right { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 
 .badge {

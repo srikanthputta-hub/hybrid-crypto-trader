@@ -12,3 +12,6 @@
 
 /style.css
   Cache-Control: no-cache, must-revalidate
+
+/display.js
+  Cache-Control: no-cache, must-revalidate
