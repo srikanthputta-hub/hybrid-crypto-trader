@@ -693,7 +693,8 @@ def _evaluate_new_entry(c: _Cycle, symbol: str, enriched, price: float, event: d
 
     # Pipeline stage 2b — higher-timeframe (daily) trend confirmation gate
     # (see src/htf_filter.py): top-down multi-timeframe practice, the
-    # daily trend sets bias, this 1h signal only times entries within it.
+    # daily trend sets bias, this signal (1h by default; the configured
+    # market.timeframe, 1d in the daily-bar paper trial) only times entries within it.
     # Never originates a trade, only blocks one -- same "can only say no"
     # shape as the risk engine and the Claude advisor below.
     if cfg.htf_filter.get("enabled", True):
