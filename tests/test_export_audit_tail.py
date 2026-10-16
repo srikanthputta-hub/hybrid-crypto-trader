@@ -148,6 +148,20 @@ def test_byte_cap_yields_only_whole_newest_lines(tmp_path):
     assert len(whole) == 1000
 
 
+@pytest.mark.parametrize("chunk", [7, 64, 1000])
+def test_byte_cap_never_yields_a_partial_raw_line(tmp_path, chunk):
+    """Checked on the RAW lines (a partial JSON line would just fail to parse and hide the bug in the event test)."""
+    path = tmp_path / "audit.jsonl"
+    lines = [json.dumps({"i": i, "pad": "x" * (i % 40)}) for i in range(600)]
+    path.write_text("\n".join(lines) + "\n")
+    full = set(lines)
+    for cap in (1, 5, 100, 777, 2000, 9000):
+        got = list(new._iter_audit_lines_reversed(path, None, chunk, cap))
+        assert all(line in full for line in got), (chunk, cap, [line for line in got if line not in full][:1])
+        assert got == lines[len(lines) - len(got):][::-1]  # exactly the newest lines, in order, no gaps
+        assert sum(len(line) + 1 for line in got) <= cap + chunk + max(map(len, lines))  # and it did stop near the cap
+
+
 def test_chunks_read_never_exceed_the_chunk_size(tmp_path, monkeypatch):
     path = tmp_path / "audit.jsonl"
     path.write_text("".join(json.dumps({"i": i}) + "\n" for i in range(2000)))
