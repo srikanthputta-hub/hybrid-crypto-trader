@@ -275,6 +275,30 @@ def test_a_fetch_failure_explains_a_missing_bar_and_is_found_through_the_scan(wo
     assert scan.evidence.fetch_failed == {(pd.Timestamp(bar), sym)}
 
 
+@pytest.mark.parametrize("stamp", ["3000-01-01T00:00:00+00:00", "1500-06-01T00:00:00+00:00"])
+def test_timestamps_outside_the_nanosecond_range_behave_like_the_legacy(work, stamp):
+    """pandas' ns range is 1677..2262; the 12-byte stamp store would overflow on a later/earlier date. The old list
+    held such Timestamps happily, so the report must not change (and must not crash)."""
+    events = read_events(work)
+    i = next(i for i, e in enumerate(events) if "bar_close" in e and "already decided" in str(e.get("note")))
+    events[i]["timestamp"] = stamp
+    events[i + 40]["timestamp"] = "3001-02-03T00:00:00+00:00"
+    write_events(work, events)
+    kind, _, _ = assert_same(work, "--days", str(TRIAL_BARS))
+    assert kind == "report"
+    # the stamp list itself, against the full sorted list, for a mix of in- and out-of-range stamps
+    ev = new.AuditEvidence()
+    bar_a, bar_b = pd.Timestamp("2026-01-01T00:00:00+00:00"), pd.Timestamp("2026-01-02T00:00:00+00:00")
+    bar_c = pd.Timestamp("2025-12-31T00:00:00+00:00")
+    seq = [("2025-12-31T00:00:09+00:00", bar_c), ("2026-01-01T00:00:01+00:00", bar_a), ("2026-01-01T00:00:02+00:00", bar_a), (stamp, bar_b), ("2026-01-01T00:00:03+00:00", bar_b),
+           ("3500-01-01T00:00:00+00:00", bar_a), ("2026-01-01T00:00:00+00:00", bar_a)]
+    for t, b in seq:
+        ev.feed({"timestamp": t}, b)
+    full = sorted(((pd.Timestamp(t), b) for t, b in seq), key=lambda x: x[0])
+    collapsed = [x for i, x in enumerate(full) if i == 0 or full[i - 1][1] != x[1]]
+    assert ev.stamps() == collapsed
+
+
 def test_trade_log_variants_and_options(work):
     trades = work / "trades.csv"
     original = trades.read_text()

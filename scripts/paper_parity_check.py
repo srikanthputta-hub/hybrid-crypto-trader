@@ -845,6 +845,7 @@ class AuditEvidence:
         self.fills: list[tuple[str, str, str, pd.Timestamp]] = []  # (timestamp, symbol, side, bar): ALL bars, filtered by the caller
         self._stamp_ns = array("q")
         self._stamp_bar = array("i")
+        self._full: list[tuple[pd.Timestamp, pd.Timestamp]] | None = None  # overflow fallback, see feed()
         self._bars: list[pd.Timestamp] = []
         self._bar_index: dict[pd.Timestamp, int] = {}
 
@@ -863,8 +864,18 @@ class AuditEvidence:
             if idx is None:
                 idx = self._bar_index[bar] = len(self._bars)
                 self._bars.append(bar)
-            self._stamp_ns.append(ts.value)
-            self._stamp_bar.append(idx)
+            if self._full is None:
+                try:
+                    ns = ts.value
+                except OverflowError:
+                    # a stamp outside pandas' nanosecond range (before 1677 / after 2262): keep every stamp as a
+                    # Timestamp from here on, exactly as the old list did (slower and larger, but never wrong)
+                    self._full = [(pd.Timestamp(int(t), tz="UTC"), self._bars[int(i)]) for t, i in zip(self._stamp_ns, self._stamp_bar)]
+                else:
+                    self._stamp_ns.append(ns)
+                    self._stamp_bar.append(idx)
+            if self._full is not None:
+                self._full.append((ts, bar))
         if isinstance(event.get("execution"), dict):
             ex = event["execution"]
             self.fills.append((str(ex.get("timestamp")), str(event.get("symbol")), str(ex.get("side")), bar))
@@ -873,6 +884,9 @@ class AuditEvidence:
         """The (time, bar) stamps sorted by time (stable), collapsed to the first stamp of each run of equal
         bars. `_bar_at` (the last stamp at or before a time) and the first in-range stamp -- the only two
         questions asked of the full list -- have the same answer on the collapsed list."""
+        if self._full is not None:
+            ordered = sorted(self._full, key=lambda x: x[0])  # stable, as the old code
+            return [x for i, x in enumerate(ordered) if i == 0 or ordered[i - 1][1] != x[1]]
         if not len(self._stamp_ns):
             return []
         ns = np.frombuffer(self._stamp_ns, dtype=np.int64)
