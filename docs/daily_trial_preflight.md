@@ -1,10 +1,10 @@
 # Paper daily-bar trial: pre-flight (PR description draft)
 
-- **Role:** Architect (Opus). Branch `claude/daily-bar-paper-trial`. Local only: not pushed, no PR, not merged.
+- **Role:** Architect (Opus). Branch `claude/daily-bar-paper-trial`. PR #106, waiting for the owner's deploy window (do not merge before it).
 - **What:** switch the shipped **paper** config to the daily-bar trial of `docs/multiday_hold_design.md` (§3-§6),
   using the merged tooling: bar parity P1-P5 (#101, `docs/bot_bar_parity.md`), the weekly parity check and Telegram
   label (#105, `docs/paper_parity_check.md`), the $10 order floor (#104, `docs/min_order_floor_study.md`), the
-  notifier fixes (#103). User-approved as a paper-only switch.
+  notifier fixes (#103), and the bounded-memory export / 1d dashboard (#107, `docs/ops_memory_followup.md`). User-approved as a paper-only switch.
 - **Not touched:** `src/` (nothing needed changing), `src/risk_engine.py`, `src/broker_live.py` and the two-switch
   gate, `mode: paper`, every strategy and risk parameter, the backtest harness.
 - **Operator steps:** [deploy/PAPER_TRIAL_RUNBOOK.md](../deploy/PAPER_TRIAL_RUNBOOK.md).
@@ -95,11 +95,11 @@ Every config key that depends on the timeframe or on 1h assumptions:
 | `MarketDataCache` refetch rule | code | fine: due at the 00:00 close; first-seen bar is decided and archived (no settle delay; §6) |
 | heartbeat (`HEALTHCHECK_PING_URL`) | env | fine: pinged every cycle (300 s), so healthchecks.io's 10-min period still fits |
 | `export_dashboard_data.MARKET_SNAPSHOT_STALE_SECONDS` | 900 (code) | fine: compares the snapshot's write time, rewritten every cycle, not the bar time |
-| export `RECENCY_WINDOW` 15 min (role "working") | code | display: roles show working only ~00:00-00:15 UTC. Fine |
-| dashboard P/L default "Hourly", price without "as of" | `web/app.js` | display follow-up (design §6, Platform Engineer); runbook §10 tells the operator |
+| export `RECENCY_WINDOW` 15 min (role "working") | code | display: roles show working for the first hour after the 00:00 UTC decisions (window = timeframe / 24, 15 min at 1h) (#107) |
+| dashboard P/L default "Hourly", price without "as of" | `web/app.js` | fixed (#107, `docs/ops_memory_followup.md` §2.3): 'as of <bar close>' label, `notifier.label` banner, P/L opens on Daily |
 | `notifier.label` | `"PAPER TRIAL"` | **changed**; with bar parity at 1d BUY messages also get `Bar:` / `Valid until:` (close + 60 min) |
 | `logging.closed_bars_dir` | `logs/daily_bars` | **changed** |
-| `logging.retention_days` | 0 | **changed**; disk fine, memory is the constraint (§6 item 4) |
+| `logging.retention_days` | 0 | **changed**; disk fine, and the audit log is no longer a memory constraint (§6 item 4, #107) |
 | `logging.bar_decisions_path` | default | fine: a 1h-era ledger (none exists: bar parity was off) would be ignored on the timeframe check |
 
 ## 4. What the first week can and cannot show
@@ -165,16 +165,19 @@ Found here:
    pass `--trial-start <next 00:00 close>` to every weekly check and record that as a protocol decision (runbook §4).
 3. **Outages over midnight** (> 1 h) stale-skip that day's entries; explained, but counted against the strict 10%
    budget, which is evaluated from the first entry. Early in the trial one such day can produce FAIL on budget.
-4. **Memory, not disk:** the audit log grows ~1.15 MB/day (measured: 16 x 288 lines/day at ~250 bytes). The dashboard
-   export (every cycle) holds the whole file as text, then a list of line strings (~1.2x the file), then up to the
-   last 200,000 parsed events (a fixed ~220 MB floor once the log is older than ~43 days): peak ~300 MB at 2 months,
-   ~480 MB at 6, ~1 GB at 18, plus the bot's own ~150-250 MB. The parity check holds ~1.1 KB per line (~5 MB per
-   trial day; ~2.7 GB at 18 months). The repo does not record the VM's shape: **check `free -m` before day 0.** On
-   the 6 GB Ampere shape this is fine. On a 1 GB `E2.1.Micro`: run the parity check off the VM from day 1 (copy the
-   logs), and expect the export to be OOM-killed at ~4-6 months unless it is changed to read only the tail; an OOM
-   kill of the bot over midnight costs parity budget (item 3). Follow-ups (not made here, `src/`/`scripts/`
-   untouched): tail-read in `scripts/export_dashboard_data.py` (Platform Engineer); skip "already decided" lines
-   before JSON parsing in `scripts/paper_parity_check.py` (QA).
+4. **Memory, not disk (fixed by #107, `docs/ops_memory_followup.md`):** the audit log grows ~1.15 MB/day (16 x 288
+   lines at ~260 bytes). Both readers are now bounded: the dashboard export reads the log newest-first in 1 MiB chunks
+   and keeps only what the dashboard shows (measured peak RSS 33-34 MB at 2, 6 and 18 months, was 346 MB / 520 MB /
+   1450 MB); the parity check streams the log and keeps ~20 bytes per line (50 MB over the import baseline at 18
+   months, was 3.8 GB). The audit log is no longer a memory constraint, but the whole parity-check process still peaked
+   at ~0.67 GB (666 MB) on an 18-month-scale log (a 16-month real bot-loop trial, 2.2M audit lines; was 3.5 GB; mostly
+   the harness replay over the bar archive, which grows with trial length and symbols, not with the audit log). The
+   repo does not record the VM's shape: **check `free -m` before day 0.** On the 6 GB Ampere shape this is fine. On a
+   1 GB `E2.1.Micro` the export is fine (constant ~33 MB), but the parity check (~0.67 GB) plus the bot (~150-250 MB)
+   is too tight, so it should still run off the VM (copy the logs). An OOM kill of the bot over midnight costs parity
+   budget (item 3). The two follow-ups this item used to list are done: the export tail-read, and the parity check
+   no longer holds the "already decided" lines, in the form "parse, count and drop" rather than "skip before parsing"
+   (the echoes are the integrity evidence for `missing_decision_event`).
 5. **Bar source:** fixed by the switch to `*/USD` (§2). Residual: `data_long/` is Coinbase USD, not Kraken.
 6. **Merge timing (operational):** the VM auto-pulls `main` (`scripts/run_live.py` pulls when its dashboard push is
    rejected), so merging this change before the 1h bot is stopped puts the daily config under the 1h state at the
@@ -195,8 +198,8 @@ Found here:
 
 **Not part of this:** issue #99 (live-readiness blockers: order write-ahead marker, halt alert + reconcile, sell
 balance cap) stays open and untouched; live mode stays off. Also not here: the 0-60 min fill-delay cost on the 15m
-data (required before any real money, design §4), an intrabar catastrophe stop, the Phase 2/3 work, the dashboard
-display follow-ups, `volatility_scale_floor` pass-through.
+data (required before any real money, design §4), an intrabar catastrophe stop, the Phase 2/3 work,
+`volatility_scale_floor` pass-through. (The dashboard display follow-ups are done: #107.)
 
 ## 7. Verification (local; CI is dead until 2026-11-01)
 
@@ -215,8 +218,10 @@ display follow-ups, `volatility_scale_floor` pass-through.
    written to test, and that nothing now tests the shipped config only implicitly.
 3. The start-window procedure (runbook §2-§4) and the claim that a late first start contaminates the check.
 4. The kill-threshold re-simulation (§5) and whether the protocol should adopt it.
-5. Memory growth (§6 item 4) against the VM's actual shape.
+5. Memory (§6 item 4): fixed by #107 (audit log no longer a memory constraint; parity-check process ~0.67 GB at
+   18 months, so off-VM on a 1 GB shape). Confirm only the VM's actual shape (`free -m`).
 6. The `*/USD` switch (§2) and the runbook's stop-before-merge ordering (B1).
-7. Follow-ups not made here: `src/bot.py` stage 2b comment still says "this 1h signal" (comment only, `src/` not
-   touched); `run_live_bot_report.py`'s stale "config runs 1h" sentence; the export tail-read; dashboard "as of" label
-   and daily P/L default.
+7. Follow-ups: the export tail-read and the dashboard "as of" label / daily P/L default are done (#107); the
+   `src/bot.py` stage 2b comment is fixed (comment lines only); `run_live_bot_report.py`'s "config runs 1h" sentence
+   is deliberately left, because the committed reports are reproduced byte-for-byte from that text
+   (`docs/ops_memory_followup.md` §2.4).

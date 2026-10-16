@@ -66,9 +66,9 @@ These need **you** (the user), not the VM:
    the notifier/heartbeat log-redaction fix"), do them: check for leaked tokens (section 3 step 2), rotate the bot
    token in BotFather (`/revoke`), put the new one in `.env`. A rotated token makes any old leaked copy useless.
 5. **VM shape: check `free -m` before day 0** (over SSH: `nproc; free -m; df -h ~`). The repo does not record which
-   shape the VM is. On the 6 GB Ampere shape memory is fine for the whole trial; on a 1 GB `E2.1.Micro` it is not
-   (section 11: run the parity check off the VM from day 1, and expect the dashboard export to run out of memory
-   after ~4-6 months).
+   shape the VM is. On the 6 GB Ampere shape memory is fine for the whole trial; on a 1 GB `E2.1.Micro` the
+   dashboard export is fine (bounded since #107) but the weekly parity check is still too tight to run on the VM
+   (section 11: run it off the VM).
 6. **GitHub Actions**: `refresh-dashboard.yml`'s `schedule:` must stay disabled (it is, since 2026-09-29), and do not
    press its "Run workflow" button during the trial: that runs a second, independent bot cycle on CI.
 
@@ -421,11 +421,12 @@ the trial's equity.
 - `web/data.json` is regenerated and pushed by the VM after **every** cycle (~5 minutes), as before: the
   `generated_at` time keeps moving even though the bot's decisions only change once a day.
 - **Prices are the last daily close**, up to 24 hours old, and the annotated chart for an active plan shows **daily
-  candles** (the last 150). There is no "as of last daily close" label yet (a display follow-up in design §6).
+  candles** (the last 150). The dashboard says "prices as of <date> 00:00 UTC (last daily close)" in the top bar, under the Portfolio
+  Overview and after the annotated chart's title, and shows a `PAPER TRIAL` banner (`notifier.label`) (#107).
   The TradingView widget is TradingView's own live 15-minute chart, not the bot's bars.
-- Portfolio starts at 10,000 cash after the reset. P/L defaults to the **Hourly** tab, which is mostly empty at 1d:
-  use **Daily** / **Weekly**.
-- The pipeline "office" shows roles as working only for ~15 minutes after the 00:00 UTC decisions; idle the rest of
+- Portfolio starts at 10,000 cash after the reset. The P/L modal opens on **Daily** at a daily bar (the Hourly tab is mostly
+  empty at 1d; a tab you pick is not reset by the 30 s refresh).
+- The pipeline "office" shows roles as working for about an hour after the 00:00 UTC decisions; idle the rest of
   the day is normal. The Compliance Reviewer shows disabled (the advisor is off).
 - Signal history (14 days) shows planned / filled / closed / rejected events from the midnight cycles.
 
@@ -435,23 +436,24 @@ the trial's equity.
 
 Measured with the trial config (16 symbols, 300 s poll): the audit log grows **~1.15 MB/day** (~35 MB/month,
 ~0.63 GB at the 18-month maximum), mostly "already decided" lines; the closed-bar archive and plan history are
-negligible. Disk is not the problem. **Memory is**:
+negligible. Disk is not the problem, and since #107 (`docs/ops_memory_followup.md`) **the audit log is no longer a
+memory constraint**:
 
-- `scripts/export_dashboard_data.py` (run after every cycle) holds the whole audit log as text, then a list of its
-  line strings (~1.2x the file), then up to the last 200,000 parsed events (a fixed ~220 MB floor once the log is
-  older than ~43 days). Peak: **~300 MB at 2 months, ~480 MB at 6 months, ~1 GB at 18 months**, on top of the bot
-  process itself (~150-250 MB).
-- `scripts/paper_parity_check.py` parses every audit line: about **1.1 KB of RAM per line**, i.e. ~5 MB per trial day
-  (~0.9 GB after 6 months, ~2.7 GB after 18).
+- `scripts/export_dashboard_data.py` (run after every cycle) reads the audit log from the end in 1 MiB chunks and
+  keeps only what the dashboard shows: measured **33-34 MB peak RSS at 2, 6 and 18 months of log**, constant (was
+  346 / 520 / 1450 MB), on top of the bot process itself (~150-250 MB).
+- `scripts/paper_parity_check.py` streams the log and keeps ~20 bytes per audit line (50 MB over the import baseline
+  at 18 months, was 3.8 GB). The whole check process peaked at **~0.67 GB (666 MB)** on a 16-month trial of 2.2M audit
+  lines (was 3.5 GB); most of that is the harness replay over the bar archive, which grows with trial length and
+  symbols, not with the audit log.
 
 **6 GB Ampere shape:** fine for the whole trial; still watch `free -m` weekly.
 
-**1 GB `E2.1.Micro`:** run the weekly parity check **off the VM from day 1**: copy `logs/` and `config/` to another
+**1 GB `E2.1.Micro`:** the dashboard export is fine. The weekly parity check (~0.7 GB at 18 months) plus the bot
+(~150-250 MB) is too tight for 1 GB, so keep running the check **off the VM**: copy `logs/` and `config/` to another
 machine with the repo and point the check at them (`--config`, `--audit-log`, `--trade-log`, `--bar-decisions`,
-`--bars-dir`). Expect the dashboard export to be OOM-killed after **~4-6 months** unless the export is changed to
-read only the tail of the audit log (a Platform Engineer follow-up, not made here). An export OOM by itself only
-stops the dashboard, but an OOM kill of the bot process over midnight skips that day's entries and costs parity
-budget (section 6).
+`--bars-dir`), or at least not at the same time as a midnight decision pass. Check `free -m` once before day 0. An
+OOM kill of the bot process over midnight skips that day's entries and costs parity budget (section 6).
 
 Do **not** turn pruning back on mid-trial (`retention_days: 0` is a trial prerequisite) and do not delete or rotate
 `logs/audit_log.jsonl`.
