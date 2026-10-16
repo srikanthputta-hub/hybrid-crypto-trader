@@ -118,12 +118,28 @@ document.getElementById("role-modal-backdrop").addEventListener("click", (e) => 
   if (e.target.id === "role-modal-backdrop") hideRoleModal();
 });
 
+let currentData = null; // the latest data.json, for the display helpers used outside the render functions
+
 function renderSummary(data) {
   const modeBadge = document.getElementById("mode-badge");
   modeBadge.textContent = data.mode;
   modeBadge.className = `badge mode-${data.mode}`;
 
   document.getElementById("generated-at").textContent = `snapshot: ${fmtTime(data.generated_at)}`;
+
+  // Daily-bar bot (data.display, see web/display.js): a banner carrying notifier.label, and the "as of" the
+  // prices/equity/chart below are really from. Absent at the hourly default: banner and label stay hidden.
+  currentData = data;
+  const banner = document.getElementById("trial-banner");
+  const bannerText = DashboardDisplay.trialBannerText(data);
+  banner.hidden = !bannerText;
+  banner.textContent = bannerText || "";
+  const asOf = DashboardDisplay.asOfText(data);
+  for (const id of ["price-as-of", "overview-as-of"]) {
+    const el = document.getElementById(id);
+    el.hidden = !asOf;
+    el.textContent = asOf || "";
+  }
 }
 
 // --- Portfolio Overview: win-rate gauge + stat tiles + exposure bars -------
@@ -497,10 +513,14 @@ function updatePnlData(pnl) {
   if (backdrop && !backdrop.hidden) renderPnlPeriod(pnlCurrentPeriod);
 }
 
-function initPnl(pnl) {
+function initPnl(pnl, data) {
   updatePnlData(pnl);
 
+  // Which tab the modal opens on: Daily for a daily-bar bot (the Hourly tab is empty at one decision a day).
+  // Set once at load; the live-refresh poll never touches it, so a tab the viewer picked stays picked.
+  pnlCurrentPeriod = DashboardDisplay.defaultPnlPeriod(data);
   const buttons = document.querySelectorAll("#pnl-period-toggle .toggle-btn");
+  buttons.forEach((b) => b.classList.toggle("active", b.dataset.period === pnlCurrentPeriod));
   buttons.forEach((btn) => {
     btn.addEventListener("click", () => {
       buttons.forEach((b) => b.classList.toggle("active", b === btn));
@@ -1047,6 +1067,12 @@ window.addEventListener("resize", () => {
   lwcInstance.applyOptions({ width: containerEl.clientWidth });
 });
 
+// " · prices as of ..." after the annotated chart's title at a daily bar; empty at the hourly default.
+function annotatedChartSuffix() {
+  const asOf = DashboardDisplay.asOfText(currentData);
+  return asOf ? ` · ${escapeHtml(asOf)}` : "";
+}
+
 function symbolSignalStatus(symbol) {
   if (plansBySymbol[symbol]?.statusLabel === "OPEN") return "open";
   if (plansBySymbol[symbol]?.statusLabel === "PENDING") return "pending";
@@ -1074,7 +1100,7 @@ function selectSymbol(symbol) {
     // Active signal with candle data -- TradingView's free widget can't draw
     // custom price lines, so this uses our own chart library instead, which
     // can actually put the entry/stop/target/invalidation levels on it.
-    titleEl.innerHTML = `${symbol} — ${plan.pattern ?? "signal"} <span class="muted">— annotated chart</span>`;
+    titleEl.innerHTML = `${symbol} — ${plan.pattern ?? "signal"} <span class="muted">— annotated chart${annotatedChartSuffix()}</span>`;
     tvContainer.style.display = "none";
     renderAnnotatedChart(symbol, candles, plan);
   } else {
@@ -1172,7 +1198,7 @@ function refreshLiveMarketData(data) {
   if (plan && candles) {
     // Redraw in place -- a lightweight-charts instance, not an iframe, so
     // this is cheap and keeps the entry/stop/target lines current.
-    titleEl.innerHTML = `${currentSymbol} — ${plan.pattern ?? "signal"} <span class="muted">— annotated chart</span>`;
+    titleEl.innerHTML = `${currentSymbol} — ${plan.pattern ?? "signal"} <span class="muted">— annotated chart${annotatedChartSuffix()}</span>`;
     tvContainer.style.display = "none";
     renderAnnotatedChart(currentSymbol, candles, plan);
   } else if (showingAnnotated) {
@@ -1210,7 +1236,7 @@ async function main() {
   renderActiveFeed(data.positions || [], data.pending || [], selectSymbol);
   lastHistoryData = data.signal_history || [];
   renderHistoryFeed(lastHistoryData, historyPeriod);
-  initPnl(data.pnl);
+  initPnl(data.pnl, data);
   updateRiskData(data.risk);
   updateBacktestData(data.backtest, data.roles);
 

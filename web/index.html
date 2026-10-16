@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div id="trial-banner" class="trial-banner" role="status" hidden></div>
   <header class="topbar">
     <div class="brand">
       <span class="brand-dot"></span>
@@ -14,6 +15,7 @@
     </div>
     <div class="topbar-right">
       <span id="mode-badge" class="badge">—</span>
+      <span id="price-as-of" class="muted price-as-of" hidden></span>
       <span id="generated-at" class="muted">loading…</span>
     </div>
   </header>
@@ -48,6 +50,7 @@
           </div>
           <div id="overview-stats" class="stat-grid"><!-- stat tiles injected here --></div>
         </div>
+        <div id="overview-as-of" class="muted overview-as-of" hidden></div>
         <div class="exposure-section">
           <div class="exposure-title muted">Current Exposure</div>
           <div id="exposure-bars" class="exposure-bars"><!-- injected here --></div>
@@ -187,6 +190,7 @@
        library above. If this script is blocked (offline, strict network
        policy, ad blocker), app.js shows a fallback message instead of failing. -->
   <script src="https://s3.tradingview.com/tv.js"></script>
+  <script src="display.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
