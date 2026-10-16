@@ -50,6 +50,28 @@ def test_price_as_of_is_the_newest_closed_bars_close():
     assert new._price_as_of({}, day) is None and new._price_as_of(charts, None) is None
 
 
+@pytest.mark.parametrize("bad", [{}, {"time": None}, {"time": "soon"}, {"time": 1e30}, {"time": [1]}, None, 5])
+def test_price_as_of_survives_a_malformed_snapshot_candle(bad):
+    day = 86400
+    assert new._price_as_of({"A": {"candles": [{"time": day}, bad]}}, day) is None
+    assert new._price_as_of({"A": {"candles": [{"time": day}]}, "B": {"candles": [bad]}}, day) is None
+    block = new._display_block("1d", "PAPER TRIAL", {"A": {"candles": [bad]}})
+    assert block == {"timeframe": "1d", "label": "PAPER TRIAL", "price_as_of": None, "pnl_default_period": "daily"}
+
+
+def test_a_malformed_candle_does_not_stop_the_whole_export(tmp_path, monkeypatch):
+    audit = tmp_path / "audit.jsonl"
+    write_events(audit, recent_activity(40))
+    _snapshot(tmp_path / "snapshot.json", "1d")
+    snap = json.loads((tmp_path / "snapshot.json").read_text())
+    snap["symbols"]["S0/USD"]["candles"][-1]["time"] = None
+    (tmp_path / "snapshot.json").write_text(json.dumps(snap))
+    raw = main_raw(tmp_path, audit, timeframe="1d", label="PAPER TRIAL")
+    data = json.loads(run_main(new, tmp_path, raw, monkeypatch))
+    assert data["display"]["price_as_of"] is None and data["display"]["label"] == "PAPER TRIAL"
+    assert data["roles"] and data["portfolio"]
+
+
 @pytest.mark.parametrize("tf,label,expected", [
     ("1h", None, None), ("1h", "", None), ("15m", None, None), (None, None, None),
     ("1h", "PAPER TRIAL", {"timeframe": "1h", "label": "PAPER TRIAL", "price_as_of": None, "pnl_default_period": "hourly"}),

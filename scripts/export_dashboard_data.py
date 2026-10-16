@@ -170,10 +170,15 @@ def _price_as_of(charts: dict[str, dict[str, Any]], timeframe_seconds: int | Non
     (market_data's snapshot writes only CLOSED bars; `time` is the bar's open, epoch seconds) plus one bar."""
     if not timeframe_seconds:
         return None
-    opens = [c["candles"][-1]["time"] for c in charts.values() if c.get("candles")]
-    if not opens:
+    try:
+        opens = [c["candles"][-1]["time"] for c in charts.values() if c.get("candles")]
+        if not opens:
+            return None
+        return datetime.fromtimestamp(max(opens) + timeframe_seconds, tz=timezone.utc).isoformat()
+    except (KeyError, IndexError, TypeError, ValueError, OverflowError, OSError, AttributeError):
+        # A malformed snapshot candle (missing / None / string / absurd `time`) must not take the whole export down
+        # (same degrade-don't-crash contract as _load_market_snapshot): no "as of" hint, everything else exported.
         return None
-    return datetime.fromtimestamp(max(opens) + timeframe_seconds, tz=timezone.utc).isoformat()
 
 
 def _display_block(timeframe: str | None, label: str | None, charts: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
