@@ -877,8 +877,9 @@ class AuditEvidence:
             return []
         ns = np.frombuffer(self._stamp_ns, dtype=np.int64)
         bars = np.frombuffer(self._stamp_bar, dtype=np.int32)
-        order = np.argsort(ns, kind="stable")
-        ns, bars = ns[order], bars[order]
+        if not (ns[1:] >= ns[:-1]).all():  # the log is normally already in time order: then there is nothing to sort
+            order = np.argsort(ns, kind="stable")
+            ns, bars = ns[order], bars[order]
         starts = np.concatenate(([True], bars[1:] != bars[:-1]))
         return [(pd.Timestamp(int(t), tz="UTC"), self._bars[int(i)]) for t, i in zip(ns[starts], bars[starts])]
 
