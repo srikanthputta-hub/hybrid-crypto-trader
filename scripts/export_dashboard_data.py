@@ -151,6 +151,52 @@ def _parse_iso(ts: str | None) -> datetime | None:
         return None
 
 
+_TIMEFRAME_UNIT_SECONDS = {"m": 60, "h": 3600, "d": 86400, "w": 7 * 86400, "M": 30 * 86400}
+DAILY_SECONDS = 86400
+
+
+def _timeframe_seconds(timeframe: str | None) -> int | None:
+    """ccxt timeframe string ("15m", "1h", "1d", "1w", "1M") -> seconds, or None if it isn't one."""
+    if not isinstance(timeframe, str) or len(timeframe) < 2 or timeframe[-1] not in _TIMEFRAME_UNIT_SECONDS:
+        return None
+    digits = timeframe[:-1]
+    if not digits.isdigit() or int(digits) <= 0:
+        return None
+    return int(digits) * _TIMEFRAME_UNIT_SECONDS[timeframe[-1]]
+
+
+def _price_as_of(charts: dict[str, dict[str, Any]], timeframe_seconds: int | None) -> str | None:
+    """The close time of the newest closed bar behind the exported prices/candles: the last candle's open time
+    (market_data's snapshot writes only CLOSED bars; `time` is the bar's open, epoch seconds) plus one bar."""
+    if not timeframe_seconds:
+        return None
+    opens = [c["candles"][-1]["time"] for c in charts.values() if c.get("candles")]
+    if not opens:
+        return None
+    return datetime.fromtimestamp(max(opens) + timeframe_seconds, tz=timezone.utc).isoformat()
+
+
+def _display_block(timeframe: str | None, label: str | None, charts: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """Display hints for web/app.js. None (the key is omitted from data.json altogether) at the hourly default
+    with no `notifier.label`, so a 1h export is byte-for-byte what it was before this block existed.
+
+    At a daily-or-longer bar every price and candle is as of the last bar close, up to a bar old: the dashboard
+    says so ("as of <bar close>"), starts the P/L modal on its Daily tab (the Hourly tab is empty at one
+    decision a day), and shows a banner carrying `notifier.label` (e.g. "PAPER TRIAL") when one is set."""
+    seconds = _timeframe_seconds(timeframe)
+    daily_or_longer = seconds is not None and seconds >= DAILY_SECONDS
+    if timeframe == "1h" and not label:
+        return None
+    if not daily_or_longer and not label:
+        return None
+    return {
+        "timeframe": timeframe,
+        "label": label or None,
+        "price_as_of": _price_as_of(charts, seconds) if daily_or_longer else None,
+        "pnl_default_period": "daily" if daily_or_longer else "hourly",
+    }
+
+
 def _visible_candidates(summary: dict[str, Any] | None, now: datetime) -> list[dict[str, Any]]:
     """Dashboard-facing candidate list for the Testing modal's Passed/Failed
     tabs: a FAILED candidate (gates.overall == "FAIL") older than
@@ -169,23 +215,134 @@ def _visible_candidates(summary: dict[str, Any] | None, now: datetime) -> list[d
     return visible
 
 
-def _read_audit_tail(path: Path, max_lines: int = 200_000) -> list[dict[str, Any]]:
-    """`max_lines` is a safety ceiling against an unexpectedly huge audit log,
+AUDIT_TAIL_MAX_LINES = 200_000
+AUDIT_TAIL_CHUNK_BYTES = 1 << 20  # 1 MiB read chunks: the reader's whole working set, plus the longest single line
+# Byte ceiling on how far back from the end of the file the reader will ever go. It exists only to bound run
+# time on a pathological log (200,000 enormous lines); at the real ~250 bytes/line the 200,000-line cap above
+# binds long before it (about 50 MB), so for every realistic log the output is identical to a whole-file read.
+AUDIT_TAIL_MAX_BYTES = 128 * 1024 * 1024
+
+
+def _first_content_offset(path: Path) -> int | None:
+    """Byte offset where the physical line holding the file's first non-whitespace text starts (None if the
+    file is all whitespace). Reads only the leading blank prefix, normally nothing past the first line."""
+    offset = 0
+    with open(path, "rb") as f:
+        for segment in f:  # splits on 0x0A only, like the reverse reader
+            text = segment[:-1] if segment.endswith(b"\n") else segment
+            if text.decode("utf-8", errors="replace").strip():
+                return offset
+            offset += len(segment)
+    return None
+
+
+def _iter_raw_lines_reversed(path: Path, chunk_bytes: int, max_bytes: int | None):
+    """Every line of the file, newest first, one chunk in memory at a time (see _iter_audit_lines_reversed)."""
+
+    def lines_of(segment: bytes, start: int) -> list[str]:
+        # The 0x0A that ended the segment still counts as a line break: "x\u2028" + "\n" is two lines, "x" and "",
+        # exactly as the whole text splits. (After the file's last segment it only adds a trailing blank line,
+        # which is dropped.)
+        lines = (segment.decode("utf-8", errors="replace") + "\n").splitlines()
+        if start == head_start:  # `strip()` also removed the file's leading whitespace: the first content line loses its own
+            for i, line in enumerate(lines):
+                if line.strip():
+                    lines[i] = line.lstrip()
+                    break
+        return lines
+
+    head_start = _first_content_offset(path)
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        pos = f.tell()
+        read_total = 0
+        pieces: list[bytes] = []  # the unfinished (oldest) line, as pieces in REVERSE file order
+        while pos > 0:
+            if max_bytes is not None and read_total >= max_bytes:
+                return  # cap reached: the partial oldest line is discarded, never yielded
+            n = min(chunk_bytes, pos)
+            end = pos
+            pos -= n
+            f.seek(pos)
+            data = f.read(n)
+            read_total += n
+            if b"\n" not in data:
+                pieces.append(data)
+                continue
+            parts = data.split(b"\n")
+            start = end - len(parts[-1])  # absolute offset of the last segment (its tail may continue into `pieces`)
+            parts[-1] = parts[-1] + b"".join(reversed(pieces))
+            pieces = [parts[0]]
+            for i in range(len(parts) - 1, 0, -1):
+                yield from reversed(lines_of(parts[i], start))
+                start -= 1 + len(parts[i - 1])
+        # pos == 0: what is left is the first physical line of the file
+        yield from reversed(lines_of(b"".join(reversed(pieces)), 0))
+
+
+def _iter_audit_lines_reversed(
+    path: Path,
+    max_lines: int | None = AUDIT_TAIL_MAX_LINES,
+    chunk_bytes: int = AUDIT_TAIL_CHUNK_BYTES,
+    max_bytes: int | None = AUDIT_TAIL_MAX_BYTES,
+):
+    """Yields the audit log's lines NEWEST FIRST without ever holding more than one chunk (plus one line).
+
+    Line semantics are those of the former whole-file read,
+    `path.read_text().strip().splitlines()[-max_lines:]`: text split with `str.splitlines()` (so "\\r\\n", "\\r"
+    and the unicode separators split like before), trailing whitespace-only lines and the last line's trailing
+    whitespace dropped, the first non-blank line's leading whitespace dropped, and the cap counted in lines
+    (blank lines included). Splitting happens on the 0x0A byte BEFORE decoding, and 0x0A never occurs inside a
+    multi-byte UTF-8 sequence, so a character straddling a chunk edge is always decoded whole.
+
+    Deliberate differences, both only on corrupt input: invalid UTF-8 is replaced (U+FFFD) instead of aborting
+    the whole export with UnicodeDecodeError, and `max_bytes` bounds how far back the read goes."""
+    if max_lines is not None and max_lines < 0:
+        raise ValueError("max_lines must be >= 0 or None")
+    if max_lines == 0:
+        return
+    emitted = 0
+    started = False  # the newest non-blank line has been seen (trailing blank lines are dropped, as strip() did)
+    for line in _iter_raw_lines_reversed(path, chunk_bytes, max_bytes):
+        if not started:
+            if not line.strip():
+                continue
+            line = line.rstrip()
+            started = True
+        yield line
+        emitted += 1
+        if max_lines is not None and emitted >= max_lines:
+            return
+
+
+def _iter_audit_events_reversed(
+    path: Path,
+    max_lines: int | None = AUDIT_TAIL_MAX_LINES,
+    chunk_bytes: int = AUDIT_TAIL_CHUNK_BYTES,
+    max_bytes: int | None = AUDIT_TAIL_MAX_BYTES,
+):
+    """The parsed audit events, newest first, one at a time (unparseable lines skipped, as before). Nothing is
+    accumulated here: callers keep only what they need."""
+    if not path.exists():
+        return
+    for line in _iter_audit_lines_reversed(path, max_lines, chunk_bytes, max_bytes):
+        try:
+            yield json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+
+def _read_audit_tail(path: Path, max_lines: int = AUDIT_TAIL_MAX_LINES) -> list[dict[str, Any]]:
+    """The last `max_lines` parsed audit events, oldest first, as a list. Kept for callers and tests that want
+    the list; `main()` streams instead (see `_scan_audit`) so memory no longer grows with the log.
+
+    `max_lines` is a safety ceiling against an unexpectedly huge audit log,
     not a normal limit -- it needs to comfortably cover HISTORY_MAX_AGE's
     worth of lines (audit_log.jsonl gets one line per symbol per cycle, so at
     a 5-minute poll interval and 16 symbols that's ~4,600 lines/day; 200,000
     covers 2 weeks with plenty of headroom before src.log_retention's own
     30-day prune ever gets a chance to trim it)."""
-    if not path.exists():
-        return []
-    lines = path.read_text().strip().splitlines()
-    events = []
-    for line in lines[-max_lines:]:
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return events
+    return list(reversed(list(_iter_audit_events_reversed(path, max_lines))))
 
 
 def _fmt_price(n: Any) -> str:
@@ -321,26 +478,94 @@ def _backtester_role(summary: dict[str, Any] | None, now: datetime) -> dict[str,
     }
 
 
+_MISSING = object()
+
+
+def _scan_audit(
+    events_newest_first,
+    now: datetime,
+    max_age: "timedelta | None" = None,
+    max_items: "int | None" = None,
+) -> "AuditView":
+    """ONE pass over the audit events, newest first, keeping only what the dashboard shows: the newest event
+    (the Boss card's last_active), the newest event matching each role's marker keys, and the signal-history
+    items. This is exactly what `_role_statuses` (a reversed scan per role, to the first match) and
+    `_signal_history` (a reversed scan to its age/size cut-off) computed from the full list before -- same events
+    inspected in the same order -- but nothing else is retained, so memory no longer grows with the log.
+
+    The scan ends as soon as the history has hit its cut-off AND every role has been found; a role that never
+    appears (e.g. the advisor when it is disabled) keeps it going to the end of the stream, which the reader
+    bounds at AUDIT_TAIL_MAX_LINES."""
+    history = _HistoryCollector(
+        now,
+        HISTORY_MAX_AGE if max_age is None else max_age,
+        HISTORY_MAX_ITEMS if max_items is None else max_items,
+    )
+    pending = {role_id: marker_keys for role_id, _label, _tier, marker_keys in ROLE_MARKERS}
+    last_by_role: dict[str, dict[str, Any]] = {}
+    newest: Any = _MISSING
+    for event in events_newest_first:
+        if newest is _MISSING:
+            newest = event
+        for role_id in [r for r, keys in pending.items() if any(key in event for key in keys)]:
+            last_by_role[role_id] = event
+            del pending[role_id]
+        if not history.done:
+            history.feed(event)
+        if history.done and not pending:
+            break
+    return AuditView(newest=None if newest is _MISSING else newest, last_by_role=last_by_role, history=history.items)
+
+
+class AuditView:
+    """What `_scan_audit` keeps: see there."""
+
+    def __init__(self, newest: Any, last_by_role: dict[str, Any], history: list[dict[str, Any]]) -> None:
+        self.newest = newest
+        self.last_by_role = last_by_role
+        self.history = history
+
+
+def _role_recency_window(timeframe: str | None) -> timedelta:
+    """How recently a role's last audit event must be for the card to read "working". 15 minutes at 1h (and for
+    any timeframe up to 6h: unchanged). At a daily bar the whole decision pass for a closed bar happens in the
+    first hour after the close (the bot's own max_entry_delay guard is 60 min), so 15 minutes made the cards
+    flicker working for a few minutes a day; it scales as timeframe/24 (1d -> 1 h). Display only."""
+    seconds = _timeframe_seconds(timeframe)
+    if seconds is None:
+        return RECENCY_WINDOW
+    return max(RECENCY_WINDOW, timedelta(seconds=seconds / 24))
+
+
 def _role_statuses(
     events: list[dict[str, Any]],
     now: datetime,
     advisor_enabled: bool,
     backtest_summary: dict[str, Any] | None,
+    recency_window: timedelta = RECENCY_WINDOW,
+) -> list[dict[str, Any]]:
+    """List form (oldest-first `events`), kept for callers and tests; `main()` uses `_role_statuses_from_view`."""
+    view = _scan_audit(reversed(events), now)
+    return _role_statuses_from_view(view, now, advisor_enabled, backtest_summary, recency_window)
+
+
+def _role_statuses_from_view(
+    view: "AuditView",
+    now: datetime,
+    advisor_enabled: bool,
+    backtest_summary: dict[str, Any] | None,
+    recency_window: timedelta = RECENCY_WINDOW,
 ) -> list[dict[str, Any]]:
     roles = []
     for role_id, label, model_tier, marker_keys in ROLE_MARKERS:
-        last_event = None
-        for event in reversed(events):
-            if any(key in event for key in marker_keys):
-                last_event = event
-                break
+        last_event = view.last_by_role.get(role_id)
         status = "idle"
         last_active = None
         if last_event is not None and "timestamp" in last_event:
             last_active = last_event["timestamp"]
             try:
                 ts = datetime.fromisoformat(last_active)
-                if now - ts <= RECENCY_WINDOW:
+                if now - ts <= recency_window:
                     status = "working"
             except ValueError:
                 pass
@@ -361,6 +586,7 @@ def _role_statuses(
             }
         )
     working_specialists = [r for r in roles if r["status"] == "working"]
+    newest = view.newest
     roles.insert(
         0,
         {
@@ -368,7 +594,7 @@ def _role_statuses(
             "label": "CEO / Orchestrator",
             "model_tier": "opus",
             "status": "working" if working_specialists else "idle",
-            "last_active": events[-1]["timestamp"] if events and "timestamp" in events[-1] else None,
+            "last_active": newest["timestamp"] if newest is not None and "timestamp" in newest else None,
             "detail": (
                 f"Coordinating {len(working_specialists)} active role(s) this cycle"
                 if working_specialists
@@ -384,33 +610,33 @@ HISTORY_MAX_AGE = timedelta(days=14)
 HISTORY_MAX_ITEMS = 3000  # safety ceiling, not a normal limit -- see HISTORY_MAX_AGE
 
 
-def _signal_history(
-    events: list[dict[str, Any]], now: datetime, max_age: timedelta = HISTORY_MAX_AGE, max_items: int = HISTORY_MAX_ITEMS
-) -> list[dict[str, Any]]:
-    """A curated, human-readable timeline of the notable things that have
-    happened recently -- signals planned, fills, closes, risk rejections,
-    advisor vetoes -- as opposed to every single scanner tick. Powers the
-    dashboard's "Signal History" view, which groups this by hour/day/week
-    client-side (see web/app.js's renderHistoryFeed) -- up to `max_age` old,
-    not a fixed item count, since a fixed count would only ever cover a few
-    hours at this bot's cycle frequency."""
-    history: list[dict[str, Any]] = []
-    cutoff = now - max_age
-    for event in reversed(events):
+class _HistoryCollector:
+    """The loop body of the former `_signal_history`, fed one event at a time NEWEST FIRST. `done` flips when
+    the old loop would have `break`-ed: an event older than the cutoff, or `max_items` items collected."""
+
+    def __init__(self, now: datetime, max_age: timedelta, max_items: int) -> None:
+        self.cutoff = now - max_age
+        self.max_items = max_items
+        self.items: list[dict[str, Any]] = []
+        self.done = False
+
+    def feed(self, event: dict[str, Any]) -> None:
+        history = self.items
         symbol = event.get("symbol")
         ts = event.get("timestamp")
         if not symbol or not ts:
-            continue
+            return
         try:
             event_dt = datetime.fromisoformat(ts)
         except ValueError:
-            continue
+            return
         if event_dt.tzinfo is None:
             event_dt = event_dt.replace(tzinfo=timezone.utc)
-        if event_dt < cutoff:
-            # events is chronological, so everything from here on is even
+        if event_dt < self.cutoff:
+            # events arrive newest first, so everything from here on is even
             # older -- safe to stop scanning entirely, not just skip this one.
-            break
+            self.done = True
+            return
 
         if event.get("action") == "planned" and "plan" in event:
             plan = event["plan"]
@@ -489,9 +715,27 @@ def _signal_history(
                 }
             )
 
-        if len(history) >= max_items:
+        if len(history) >= self.max_items:
+            self.done = True
+
+
+def _signal_history(
+    events: list[dict[str, Any]], now: datetime, max_age: timedelta = HISTORY_MAX_AGE, max_items: int = HISTORY_MAX_ITEMS
+) -> list[dict[str, Any]]:
+    """A curated, human-readable timeline of the notable things that have
+    happened recently -- signals planned, fills, closes, risk rejections,
+    advisor vetoes -- as opposed to every single scanner tick. Powers the
+    dashboard's "Signal History" view, which groups this by hour/day/week
+    client-side (see web/app.js's renderHistoryFeed) -- up to `max_age` old,
+    not a fixed item count, since a fixed count would only ever cover a few
+    hours at this bot's cycle frequency. List form (oldest-first `events`);
+    `main()` collects the same items while streaming (see `_scan_audit`)."""
+    collector = _HistoryCollector(now, max_age, max_items)
+    for event in reversed(events):
+        collector.feed(event)
+        if collector.done:
             break
-    return history
+    return collector.items
 
 
 def _record_view(symbol: str, record, current_price: float | None) -> dict[str, Any]:
@@ -528,7 +772,10 @@ def main() -> None:
         current_path=PROJECT_ROOT / log_cfg.get("trade_plan_current_path", "logs/trade_plans_current.json"),
         history_path=PROJECT_ROOT / log_cfg.get("trade_plan_history_path", "logs/trade_plans_history.jsonl"),
     )
-    audit_events = _read_audit_tail(PROJECT_ROOT / log_cfg.get("audit_log_path", "logs/audit_log.jsonl"))
+    # Streamed newest-first and reduced as it goes (see _scan_audit): the whole audit log is never in memory.
+    audit_view = _scan_audit(
+        _iter_audit_events_reversed(PROJECT_ROOT / log_cfg.get("audit_log_path", "logs/audit_log.jsonl")), now
+    )
     trade_log_path = PROJECT_ROOT / log_cfg.get("trade_log_path", "logs/trades.csv")
     cash = reconstruct_cash(trade_log_path, cfg.risk["starting_cash_usd"])
     pnl_report = build_pnl_report(trade_log_path, now)
@@ -578,15 +825,20 @@ def main() -> None:
             "equity": round(equity, 2),
             "pnl_pct": round((equity - cfg.risk["starting_cash_usd"]) / cfg.risk["starting_cash_usd"], 4),
         },
-        "roles": _role_statuses(audit_events, now, cfg.advisor.get("enabled", False), backtest_summary),
+        "roles": _role_statuses_from_view(
+            audit_view, now, cfg.advisor.get("enabled", False), backtest_summary, _role_recency_window(cfg.timeframe)
+        ),
         "positions": positions,
         "pending": pending,
-        "signal_history": _signal_history(audit_events, now),
+        "signal_history": audit_view.history,
         "charts": charts,
         "pnl": pnl_report,
         "risk": risk_report,
         "backtest": visible_backtest,
     }
+    display = _display_block(cfg.timeframe, cfg.notifier_label, charts)
+    if display is not None:
+        data["display"] = display
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(OUT_PATH, "w") as f:
