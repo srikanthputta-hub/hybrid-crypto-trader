@@ -32,10 +32,13 @@ the existing 200,000-line cap, which is unchanged and is the only bound on how f
 ceiling, `AUDIT_TAIL_MAX_BYTES`, additionally bounds run time on a pathological log of enormous lines; at the real
 ~260 bytes/line the line cap binds first, at ~50 MB).
 
-Line semantics are exactly the old `read_text().strip().splitlines()[-max_lines:]`: split on `str.splitlines()`
-separators, trailing whitespace-only lines and trailing/leading whitespace of the last/first content line dropped,
-blank lines counted toward the cap. Splitting is on the 0x0A byte before decoding (0x0A never occurs inside a
-multi-byte UTF-8 sequence), so a character straddling a chunk edge is decoded whole.
+Line semantics follow the old `read_text().strip().splitlines()[-max_lines:]`: split on `str.splitlines()`
+separators, trailing whitespace-only lines and the trailing/leading whitespace of the last/first content line
+dropped, blank lines counted toward the cap. One representational difference: leading blank lines are still yielded
+(last, since the file is read backwards) and are only discarded at parse time, where a blank line is a skipped
+`JSONDecodeError`; they can never change an event, and because they are the oldest lines they are the first to fall
+off the cap. Splitting is on the 0x0A byte before decoding (0x0A never occurs inside a multi-byte UTF-8 sequence),
+so a character straddling a chunk edge is decoded whole.
 
 ### 2.2 `scripts/paper_parity_check.py`: one streaming pass, compact evidence
 
@@ -160,8 +163,19 @@ minutes until 2026-11-01):
 2. *The 128 MiB byte ceiling* (export only): only reachable if 200,000 lines exceed 128 MiB (>670 bytes/line on
    average; real lines are ~260). Beyond it the export drops the oldest part of its window instead of reading it.
 
-Unchanged (kept identical on purpose): a non-object JSON line (`123`, `[1]`) in the audit log still makes the
-export fail where the old one did; the parity check still rejects it with exit 2.
+Unchanged (kept identical on purpose, not fixed): a non-object JSON line (`123`, `[1]`, `"s"`) in the audit log
+still makes the export fail where the old one did, but the exception type can differ (`TypeError` from `key in 123`
+in the role scan versus `AttributeError` from `.get` in the history scan, depending on which scan reaches the line
+first); the parity check still rejects it with exit 2.
+
+**Found in review and fixed:** the parity check's 12-byte stamp store used `Timestamp.value`, which raises
+`OverflowError` for a timestamp outside pandas' nanosecond range (before 1677 / after 2262) on a line with a
+`bar_close`, giving a traceback and exit 1 where the old code reported normally. `AuditEvidence.feed` now switches
+to a plain list of Timestamps from the first such stamp on (slower and larger for that run only), so the report is
+identical to the old one (test: out-of-range stamps in the middle of a trial log, plus a unit comparison of the
+stamp list against the full sorted list). Likewise `_price_as_of` (daily-or-longer export) now returns no hint
+instead of raising when a snapshot candle's `time` is missing / None / a string / out of range, keeping
+`_load_market_snapshot`'s degrade-don't-crash contract.
 
 ## 5. Edits to apply to the #106 documents when it merges
 
