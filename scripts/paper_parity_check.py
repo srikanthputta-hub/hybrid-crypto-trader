@@ -62,6 +62,7 @@ import json
 import math
 import re
 import sys
+from array import array
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -202,10 +203,16 @@ def _parse_ts(value: Any, what: str) -> pd.Timestamp:
 # --------------------------------------------------------------------------- #
 # Input loading
 # --------------------------------------------------------------------------- #
-def read_audit(path: Path) -> list[dict]:
+def iter_audit(path: Path):
+    """The audit log's events one at a time as `(line number, event)`, in file order. Same checks, same error
+    messages and same line numbers as the former whole-file `read_audit`; only the accumulation is gone.
+    (A plain function wrapping a generator so a missing file raises at call time, as before.)"""
     if not path.exists():
         raise ParityInputError(f"audit log not found: {path}")
-    events: list[dict] = []
+    return _iter_audit(path)
+
+
+def _iter_audit(path: Path):
     try:
         with open(path, encoding="utf-8") as f:
             for n, line in enumerate(f, 1):
@@ -218,10 +225,18 @@ def read_audit(path: Path) -> list[dict]:
                     raise ParityInputError(f"{path}:{n}: not valid JSON ({exc.msg}); the audit log is corrupt") from exc
                 if not isinstance(event, dict):
                     raise ParityInputError(f"{path}:{n}: expected a JSON object per line, got {type(event).__name__}")
-                event["_line"] = n
-                events.append(event)
+                yield n, event
     except (OSError, UnicodeDecodeError) as exc:
         raise ParityInputError(f"cannot read audit log {path}: {exc}") from exc
+
+
+def read_audit(path: Path) -> list[dict]:
+    """Every event as a list, each tagged with its `_line`. Memory grows with the log (about 1.1 KB per line):
+    `build_report` does not use this any more (it uses `scan_audit`); it stays for tests and ad-hoc use."""
+    events: list[dict] = []
+    for n, event in iter_audit(path):
+        event["_line"] = n
+        events.append(event)
     return events
 
 
@@ -301,13 +316,13 @@ class BotBar:
     held_note: str | None = None
     note: str | None = None
     signal: dict | None = None
-    lines: list[int] = field(default_factory=list)
+    lines: Any = field(default_factory=list)   # audit line numbers: a list, or a compact array('I') from scan_audit
 
 
-def _bot_check(event: dict) -> dict:
+def _bot_check(event: dict, line: Any = None) -> dict:
     rd, plan = event["risk_decision"], event.get("plan") or {}
     if not isinstance(rd, dict) or "allowed" not in rd:
-        raise ParityInputError(f"audit line {event.get('_line')}: malformed risk_decision {rd!r}")
+        raise ParityInputError(f"audit line {line if line is not None else event.get('_line')}: malformed risk_decision {rd!r}")
     zone = plan.get("entry_zone")
     entry = _num(zone[1]) if isinstance(zone, (list, tuple)) and len(zone) == 2 else None
     signal = event.get("signal")
@@ -318,31 +333,49 @@ def _bot_check(event: dict) -> dict:
     )
 
 
-def collect_bot(events: list[dict]) -> tuple[dict[tuple[pd.Timestamp, str], BotBar], list[pd.Timestamp]]:
-    """Groups the audit events that carry `bar_close` by (bar, symbol). Returns the groups and every
-    bar close seen (any symbol)."""
-    groups: dict[tuple[pd.Timestamp, str], BotBar] = {}
-    for event in events:
+class _BotCollector:
+    """`collect_bot`'s loop body, fed one event at a time (so the audit log never has to be held in memory).
+    `compact` stores each group's audit line numbers in an array('I') (4 bytes each instead of ~36)."""
+
+    def __init__(self, compact: bool = False) -> None:
+        self.groups: dict[tuple[pd.Timestamp, str], BotBar] = {}
+        self.compact = compact
+        self._bars: dict[str, pd.Timestamp] = {}  # bar_close string -> parsed (the same few dozen strings repeat)
+
+    def parse_bar(self, event: dict, line: Any) -> pd.Timestamp:
+        raw = event["bar_close"]
+        if isinstance(raw, str):
+            bar = self._bars.get(raw)
+            if bar is None:
+                bar = self._bars[raw] = _parse_ts(raw, f"audit line {line}: bar_close")
+            return bar
+        return _parse_ts(raw, f"audit line {line}: bar_close")
+
+    def feed(self, event: dict, line: Any) -> pd.Timestamp | None:
+        """Returns the event's parsed bar close (None when it has no `bar_close`)."""
         if "bar_close" not in event:
-            continue
-        line = event.get("_line")
+            return None
         symbol = event.get("symbol")
         if not isinstance(symbol, str) or not symbol:
             raise ParityInputError(f"audit line {line}: event with bar_close has no symbol")
-        bar = _parse_ts(event["bar_close"], f"audit line {line}: bar_close")
-        info = groups.setdefault((bar, symbol), BotBar(bar=bar, symbol=symbol))
+        bar = self.parse_bar(event, line)
+        info = self.groups.get((bar, symbol))
+        if info is None:
+            info = self.groups[(bar, symbol)] = BotBar(bar=bar, symbol=symbol)
+            if self.compact:
+                info.lines = array("I")
         info.n_events += 1
         info.lines.append(line)
         note = event.get("note")
         if isinstance(note, str) and ALREADY_DECIDED in note:
-            continue  # the second+ tick of a bar: nothing decided here
+            return bar  # the second+ tick of a bar: nothing decided here
         info.n_decision_events += 1
         if "candidates" in event:
             info.n_scans += 1
         if "risk_decision" in event:
             info.n_checks += 1
             if info.check is None:
-                info.check = _bot_check(event)
+                info.check = _bot_check(event, line)
         if event.get("action") == "planned":
             info.planned = True
         if "advisor_verdict" in event and event.get("action") != "planned":
@@ -363,7 +396,56 @@ def collect_bot(events: list[dict]) -> tuple[dict[tuple[pd.Timestamp, str], BotB
         ex = event.get("execution")
         if isinstance(ex, dict) and ex.get("side") == "buy" and (event.get("action") == "planned" or action == "FILL"):
             info.entered = True
-    return groups, sorted({b for b, _ in groups})
+        return bar
+
+    def result(self) -> tuple[dict[tuple[pd.Timestamp, str], BotBar], list[pd.Timestamp]]:
+        return self.groups, sorted({b for b, _ in self.groups})
+
+
+def collect_bot(events: list[dict]) -> tuple[dict[tuple[pd.Timestamp, str], BotBar], list[pd.Timestamp]]:
+    """Groups the audit events that carry `bar_close` by (bar, symbol). Returns the groups and every
+    bar close seen (any symbol)."""
+    collector = _BotCollector()
+    for event in events:
+        collector.feed(event, event.get("_line"))
+    return collector.result()
+
+
+@dataclass
+class AuditScan:
+    """What the whole check needs from the audit log, built in ONE streaming pass by `scan_audit`: the
+    per-(bar, symbol) groups, every bar close, and the compact cross-check evidence. Its memory is the
+    groups (a few hundred bytes per (bar, symbol)) plus 16 bytes per audit line, not ~1.1 KB per line."""
+
+    bot: dict[tuple[pd.Timestamp, str], BotBar]
+    all_bars: list[pd.Timestamp]
+    evidence: AuditEvidence
+
+    @property
+    def n_events(self) -> int:
+        return self.evidence.n_events
+
+
+def scan_audit(path: Path) -> AuditScan:
+    """Streams the audit log once. Equivalent to `read_audit` + `collect_bot` + the evidence the later steps
+    read from the full event list, including error precedence: a corrupt / unreadable line anywhere in the file
+    is reported before a problem `collect_bot` finds in an earlier line (the whole file used to be read first),
+    so the first such problem is held back until the file has been read to its end."""
+    collector, evidence = _BotCollector(compact=True), AuditEvidence()
+    deferred: ParityInputError | None = None
+    for n, event in iter_audit(path):
+        if deferred is not None:
+            continue  # keep reading: a corrupt line further down takes precedence over this error
+        try:
+            bar = collector.feed(event, n)
+        except ParityInputError as exc:
+            deferred = exc
+            continue
+        evidence.feed(event, bar)
+    if deferred is not None:
+        raise deferred
+    bot, all_bars = collector.result()
+    return AuditScan(bot=bot, all_bars=all_bars, evidence=evidence)
 
 
 # --------------------------------------------------------------------------- #
@@ -635,13 +717,13 @@ def compare(
         if info.n_checks > 1 or info.n_scans > 1:
             mismatches.append(Mismatch(
                 "duplicate_decision", key[0], key[1],
-                f"{max(info.n_checks, info.n_scans)} entry scans/decisions for one bar (audit lines {info.lines}); P1 allows one",
+                f"{max(info.n_checks, info.n_scans)} entry scans/decisions for one bar (audit lines {list(info.lines)}); P1 allows one",
                 None, info.check, None,
             ))
         if info.n_events and info.n_decision_events == 0:
             mismatches.append(Mismatch(
                 "missing_decision_event", key[0], key[1],
-                f"only 'already decided' echoes remain for this bar (audit lines {info.lines}): the line that decided it is missing",
+                f"only 'already decided' echoes remain for this bar (audit lines {list(info.lines)}): the line that decided it is missing",
                 None, None, None,
             ))
 
@@ -750,8 +832,85 @@ def _bar_at(stamped: list[tuple[pd.Timestamp, pd.Timestamp]], when: pd.Timestamp
     return best if best is not None else (stamped[0][1] if stamped else default)
 
 
+class AuditEvidence:
+    """Everything the cross-checks need from the audit log besides the per-(bar, symbol) groups, kept compact:
+    the event count, the earliest event time, the "market data unavailable" days, the executed fills, and one
+    (wall-clock time, bar) stamp per bar-carrying line as two flat arrays (12 bytes a line) that
+    `stamps()` later collapses to one entry per run of equal bars. Fed one event at a time."""
+
+    def __init__(self) -> None:
+        self.n_events = 0
+        self.first_ts: pd.Timestamp | None = None            # earliest parseable `timestamp` of ANY event
+        self.fetch_failed: set[tuple[pd.Timestamp, str]] = set()
+        self.fills: list[tuple[str, str, str, pd.Timestamp]] = []  # (timestamp, symbol, side, bar): ALL bars, filtered by the caller
+        self._stamp_ns = array("q")
+        self._stamp_bar = array("i")
+        self._full: list[tuple[pd.Timestamp, pd.Timestamp]] | None = None  # overflow fallback, see feed()
+        self._bars: list[pd.Timestamp] = []
+        self._bar_index: dict[pd.Timestamp, int] = {}
+
+    def feed(self, event: dict, bar: pd.Timestamp | None) -> None:
+        """`bar` is the event's parsed `bar_close`, or None when it has none."""
+        self.n_events += 1
+        ts = _try_ts(event.get("timestamp"))
+        if ts is not None and (self.first_ts is None or ts < self.first_ts):
+            self.first_ts = ts
+        if bar is None:
+            if ts is not None and "market data unavailable" in str(event.get("error", "")) and isinstance(event.get("symbol"), str):
+                self.fetch_failed.add((ts.floor("D"), event["symbol"]))
+            return
+        if ts is not None:  # the old code required a str timestamp that parsed; a parseable one is always a str
+            idx = self._bar_index.get(bar)
+            if idx is None:
+                idx = self._bar_index[bar] = len(self._bars)
+                self._bars.append(bar)
+            if self._full is None:
+                try:
+                    ns = ts.value
+                except OverflowError:
+                    # a stamp outside pandas' nanosecond range (before 1677 / after 2262): keep every stamp as a
+                    # Timestamp from here on, exactly as the old list did (slower and larger, but never wrong)
+                    self._full = [(pd.Timestamp(int(t), tz="UTC"), self._bars[int(i)]) for t, i in zip(self._stamp_ns, self._stamp_bar)]
+                else:
+                    self._stamp_ns.append(ns)
+                    self._stamp_bar.append(idx)
+            if self._full is not None:
+                self._full.append((ts, bar))
+        if isinstance(event.get("execution"), dict):
+            ex = event["execution"]
+            self.fills.append((str(ex.get("timestamp")), str(event.get("symbol")), str(ex.get("side")), bar))
+
+    def stamps(self) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+        """The (time, bar) stamps sorted by time (stable), collapsed to the first stamp of each run of equal
+        bars. `_bar_at` (the last stamp at or before a time) and the first in-range stamp -- the only two
+        questions asked of the full list -- have the same answer on the collapsed list."""
+        if self._full is not None:
+            ordered = sorted(self._full, key=lambda x: x[0])  # stable, as the old code
+            return [x for i, x in enumerate(ordered) if i == 0 or ordered[i - 1][1] != x[1]]
+        if not len(self._stamp_ns):
+            return []
+        ns = np.frombuffer(self._stamp_ns, dtype=np.int64)
+        bars = np.frombuffer(self._stamp_bar, dtype=np.int32)
+        if not (ns[1:] >= ns[:-1]).all():  # the log is normally already in time order: then there is nothing to sort
+            order = np.argsort(ns, kind="stable")
+            ns, bars = ns[order], bars[order]
+        starts = np.concatenate(([True], bars[1:] != bars[:-1]))
+        return [(pd.Timestamp(int(t), tz="UTC"), self._bars[int(i)]) for t, i in zip(ns[starts], bars[starts])]
+
+
 def check_trade_log(
     events: list[dict], rows: list[dict] | None, since: pd.Timestamp, until: pd.Timestamp,
+) -> list[Mismatch]:
+    """List form: see `check_trade_log_evidence`."""
+    evidence = AuditEvidence()
+    for ev in events:
+        bar = _parse_ts(ev["bar_close"], f"audit line {ev.get('_line')}: bar_close") if "bar_close" in ev else None
+        evidence.feed(ev, bar)
+    return check_trade_log_evidence(evidence, rows, since, until)
+
+
+def check_trade_log_evidence(
+    evidence: AuditEvidence, rows: list[dict] | None, since: pd.Timestamp, until: pd.Timestamp,
 ) -> list[Mismatch]:
     """Every fill the audit log reports for bars in [since, until] must be a trades.csv row (same symbol, side and
     timestamp string -- the bot logs the FillResult's own timestamp), and every trades.csv row written at or after
@@ -759,21 +918,8 @@ def check_trade_log(
     (trades.csv is never pruned, so a missing audit TAIL shows up as trade rows with no audit fill; a row is
     assigned to the bar of the latest audit line written before it.)"""
     out: list[Mismatch] = []
-    fills: list[tuple[str, str, str, pd.Timestamp]] = []  # (timestamp, symbol, side, bar)
-    stamped: list[tuple[pd.Timestamp, pd.Timestamp]] = []  # (wall-clock time of an audit line, its bar close): ALL lines
-    for ev in events:
-        if "bar_close" not in ev:
-            continue
-        bar = _parse_ts(ev["bar_close"], f"audit line {ev.get('_line')}: bar_close")
-        if isinstance(ev.get("timestamp"), str):
-            try:
-                stamped.append((_parse_ts(ev["timestamp"], "audit timestamp"), bar))
-            except ParityInputError:
-                pass
-        if since <= bar <= until and isinstance(ev.get("execution"), dict):
-            ex = ev["execution"]
-            fills.append((str(ex.get("timestamp")), str(ev.get("symbol")), str(ex.get("side")), bar))
-    stamped.sort(key=lambda x: x[0])
+    fills = [f for f in evidence.fills if since <= f[3] <= until]  # (timestamp, symbol, side, bar)
+    stamped = evidence.stamps()                                    # (wall-clock time of an audit line, its bar close)
     if rows is None:
         for ts, sym, side, bar in fills:
             out.append(Mismatch("audit_trade_log", bar, sym, f"audit {side} at {ts} but no trade log was found", None, None, None))
@@ -880,14 +1026,14 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "_protected": protected_paths(raw_cfg, args.ack_file),
     }
 
-    events = read_audit(audit_path)
-    bot, all_bars = collect_bot(events)
-    if not events:
+    scan = scan_audit(audit_path)
+    bot, all_bars = scan.bot, scan.all_bars
+    if not scan.n_events:
         return _insufficient(report, "the audit log is empty: no decisions to compare yet")
     if not all_bars:
         return _insufficient(
             report,
-            f"none of the {len(events)} audit lines carries bar_close: the bot was not running with "
+            f"none of the {scan.n_events} audit lines carries bar_close: the bot was not running with "
             f"loop.bar_parity: true, so there are no per-bar decisions to compare",
         )
 
@@ -932,7 +1078,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     # the audit log no longer reaches back to the start of the trade record.
     trade_rows = read_trade_log(trade_path)
     if trade_rows and not args.trial_start:
-        first_event = min((t for t in (_try_ts(e.get("timestamp")) for e in events) if t is not None), default=None)
+        first_event = scan.evidence.first_ts
         first_trade = min((t for t in (_try_ts(r["timestamp"]) for r in trade_rows) if t is not None), default=None)
         if first_event is not None and first_trade is not None and first_trade < first_event:
             raise ParityInputError(
@@ -959,11 +1105,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
 
     evidence = Evidence(
         bars_with_events={bar for (bar, _s), i in bot.items() if i.n_decision_events},
-        fetch_failed={
-            (t.floor("D"), e["symbol"]) for e in events
-            if "bar_close" not in e and "market data unavailable" in str(e.get("error", "")) and isinstance(e.get("symbol"), str)
-            for t in [_try_ts(e.get("timestamp"))] if t is not None
-        },
+        fetch_failed=scan.evidence.fetch_failed,
     )
     try:
         fee = args.fee if args.fee is not None else _paper_fee()
@@ -973,7 +1115,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     cmp = compare(bot, hres, cum_since, until, level_rtol=args.level_rtol, size_rtol=args.size_rtol,
                   size_atol=args.size_atol, evidence=evidence)
     mismatches: list[Mismatch] = cmp["mismatches"]
-    mismatches += check_trade_log(events, trade_rows, cum_since, until)
+    mismatches += check_trade_log_evidence(scan.evidence, trade_rows, cum_since, until)
     mismatches.sort(key=lambda m: (m.bar, m.symbol, m.kind))
 
     # Acknowledgements (explicit, per bar and symbol, listed in the report) are applied after the downstream
