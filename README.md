@@ -37,11 +37,13 @@ market data (ccxt)     src/market_data.py   (infrastructure, not a stage)
    `logs/bar_decisions.json`), runs every monitor check before any new entry,
    then new entries in sorted(symbol) order with room/cash as held before this
    bar's exits, optionally skipping entries from a bar older than
-   `loop.max_entry_delay_minutes`. Orchestration, not a stage. Off by default.
+   `loop.max_entry_delay_minutes`. Orchestration, not a stage. On in the
+   shipped config (the paper daily-bar trial); `false` = the pre-trial cycle.
    |
    v
 1. SCANNER            src/scanner.py
-   Scans OHLCV 24/7 for five pattern types: Breakout, Pullback, Momentum,
+   Evaluates each symbol once per closed `market.timeframe` bar (shipped:
+   daily, right after the 00:00 UTC close) for five pattern types: Breakout, Pullback, Momentum,
    Trend Continuation, Reversal. Reports every candidate it sees with a raw
    0-1 strength score. No news/social/on-chain feeds (see "Extending it").
    |
@@ -120,6 +122,15 @@ whose latest closed bar is not decided yet, in sorted(symbol) order (see
 `logs/audit_log.jsonl` regardless of what happened — so "why didn't it trade
 at 14:32" is always answerable from that file alone.
 
+**Paper daily-bar trial (shipped config).** `config/config.yaml` runs the **paper** trial of
+`docs/multiday_hold_design.md` §5: `market.timeframe: "1d"`, `loop.bar_parity: true`,
+`loop.max_entry_delay_minutes: 60`, `logging.closed_bars_dir: "logs/daily_bars"`, `logging.retention_days: 0`,
+`notifier.label: "PAPER TRIAL"`, the 16 coins on their Kraken `*/USD` pairs (the evidence's own bars; they were
+`*/USDT` before), with every strategy and risk parameter unchanged (pinned by
+`tests/test_paper_trial_config.py`). Operator steps, start window, weekly check, kill rule and rollback:
+[deploy/PAPER_TRIAL_RUNBOOK.md](deploy/PAPER_TRIAL_RUNBOOK.md) (the VM auto-pulls `main`: stop the bot before
+merging a config change like this); risks: `docs/daily_trial_preflight.md`.
+
 **Paper-trial tooling.** `scripts/paper_parity_check.py` is the weekly check from the multi-day-hold design's paper-trial
 protocol: it replays the P6 backtest harness over the closed daily bars the bot archived (`logging.closed_bars_dir`) and
 compares entries, exits and plan levels with the audit log, printing PASS / WARN / FAIL (exit 1 on FAIL; exit 0 with
@@ -174,7 +185,7 @@ it**.
 | `mode` | `paper` (default) or `live` |
 | `exchange.id` / `exchange.testnet` | any ccxt exchange id; use its sandbox where supported |
 | `market.symbols` | whitelist — the bot only ever opens new plans on these (it keeps monitoring an existing plan until it closes, even if you remove its symbol here). At most one active plan per base asset (e.g. `BTC/USD` and `BTC/USDT` can't both be held) |
-| `market.timeframe` / `market.history_bars` | candle size the scanner runs on (default `1h`) and how many closed bars are fetched per symbol |
+| `market.timeframe` / `market.history_bars` | candle size the scanner runs on (shipped `1d` for the paper trial; was `1h`) and how many closed bars are fetched per symbol (>= 150 required with bar parity at 1d) |
 | `universe.*` | where the tradeable symbol list comes from; only `mode: static` (= `market.symbols`) is implemented and it is the only key read — the rest are reserved for a not-yet-built `discover` mode |
 | `indicators` | EMA fast/slow periods, RSI period (shared by scanner + planner) |
 | `scanner.*` | per-pattern thresholds — lookback windows, volume multiplier, momentum threshold, consolidation range, RSI extremes |
@@ -184,9 +195,9 @@ it**.
 | `risk.*` | position sizing (`max_position_pct`, `max_loss_per_trade_pct`, `volatility_scale_floor`), total exposure cap, daily loss limit, volatility filter, per-symbol cooldown, global new-entry rate cap (`max_new_entries_per_window`, `new_entry_window_minutes`), minimum order size (`min_order_quote_usd`, set to 10 per `docs/min_order_floor_study.md`; 0 = off), kill switch file. `volatility_scale_floor` is not yet passed through by `src/bot.py`; the engine's built-in 0.5 applies |
 | `advisor.*` | turn the Claude second opinion on/off (shipped **off**), model, fail-open/closed, timeout |
 | `loop.poll_interval_seconds` | seconds between full cycles in continuous mode |
-| `loop.bar_parity` / `loop.max_entry_delay_minutes` | backtest-parity cycle rules P1-P5 (one decision per symbol per closed bar, monitor before entries, sorted entry order, pre-exit room, 1d htf on the scan frame) and the entry-staleness guard; both off by default (`false` / `null` = today's behaviour). See `docs/bot_bar_parity.md` |
-| `notifier.label` | optional short tag (e.g. `PAPER TRIAL`) prefixed to every Telegram BUY / SELL / fill message; `null` (default) = the exact message text as before. With `loop.bar_parity` at `1d`, BUY messages also carry the bar and a "Valid until" line. Validated at startup. See `docs/paper_parity_check.md` |
-| `logging.*` | audit log / trade log / plan store / market snapshot paths, the bar-parity decision ledger (`bar_decisions_path`) and optional closed-bar archive (`closed_bars_dir`), and `retention_days` pruning (used by `scripts/run_live.py` only) |
+| `loop.bar_parity` / `loop.max_entry_delay_minutes` | backtest-parity cycle rules P1-P5 (one decision per symbol per closed bar, monitor before entries, sorted entry order, pre-exit room, 1d htf on the scan frame) and the entry-staleness guard; shipped `true` / `60` for the paper trial (absent = off, the pre-trial behaviour). See `docs/bot_bar_parity.md` |
+| `notifier.label` | optional short tag (e.g. `PAPER TRIAL`) prefixed to every Telegram BUY / SELL / fill message; shipped `PAPER TRIAL`, `null` = the exact message text as before. With `loop.bar_parity` at `1d`, BUY messages also carry the bar and a "Valid until" line. Validated at startup. See `docs/paper_parity_check.md` |
+| `logging.*` | audit log / trade log / plan store / market snapshot paths, the bar-parity decision ledger (`bar_decisions_path`) and optional closed-bar archive (`closed_bars_dir`, shipped `logs/daily_bars`), and `retention_days` pruning (used by `scripts/run_live.py` only; shipped `0` = keep everything for the trial) |
 
 ## Going live — read this before you do it
 
@@ -258,7 +269,7 @@ scripts/reset_portfolio.py, diagnose_recent_closes.py, replay_risk_rejections.py
 strategy_pack_run/            standalone real-pipeline backtest / strategy-evaluation harness and its reports (own README)
 research/v2_signals.py        scaffolding for a prospective v2 strategy; not wired into src/
 docs/                         playbook, design docs and validation write-ups; start at docs/STATUS.md
-deploy/                       systemd unit + notes for running scripts/run_live.py on an always-on host
+deploy/                       systemd unit + notes for running scripts/run_live.py on an always-on host; PAPER_TRIAL_RUNBOOK.md
 web/                          static dashboard (see below)
 tests/                        pytest suite covering every module above
 ```

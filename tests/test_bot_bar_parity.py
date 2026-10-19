@@ -41,6 +41,7 @@ from tests.test_bot_universe_wiring import (
     _FakeDatetime,
     _flat_hourly,
     _isolated_raw,
+    _pre_trial_hourly_raw,
     _random_walk_hourly,
     _seed_open_position,
     _seed_pending_plan,
@@ -127,12 +128,16 @@ def test_absent_keys_mean_today_behaviour(monkeypatch):
     assert s.decisions_path == "logs/bar_decisions.json"
 
 
-def test_real_config_parses_to_defaults(monkeypatch):
+def test_real_config_parses_to_the_paper_trial_values(monkeypatch):
     monkeypatch.setattr("src.config.DEFAULT_BAR_DECISIONS_PATH", "logs/bar_decisions.json")  # undo the fixture
-    # Merging this branch must not change the running paper bot: config.yaml spells the
-    # keys out with their off values.
+    # The shipped config runs the paper daily-bar trial (deploy/PAPER_TRIAL_RUNBOOK.md): bar parity on,
+    # the design's 60-min entry guard, the closed-bar archive on. Absent keys still mean "off"
+    # (test above); tests/test_paper_trial_config.py pins every trial value.
     s = load_config().bar_parity
-    assert s == BarParitySettings()
+    assert s == BarParitySettings(
+        enabled=True, max_entry_delay_minutes=60.0, decisions_path="logs/bar_decisions.json",
+        closed_bars_dir="logs/daily_bars",
+    )
 
 
 @pytest.mark.parametrize("bad", [1, 0, "true", "false", None, 1.0, [True]])
@@ -242,7 +247,8 @@ def test_default_mode_matches_pre_change_run_cycle_on_todays_config(tmp_path, me
     daily = {s: _daily(10.0 * (i + 1), uptrend=(i % 4 != 3)) for i, s in enumerate(symbols)}
 
     def raw_factory(logs):
-        return _isolated_raw(real_raw, logs)  # config.yaml's own loop block: bar_parity false
+        # The pre-trial 1h config (bar_parity false): this identity is about the default code path.
+        return _isolated_raw(_pre_trial_hourly_raw(real_raw), logs)
 
     # Two ticks per bar: the second one is the "same bar again" case P1 is about.
     ticks = []
@@ -320,7 +326,7 @@ def test_default_mode_matches_pre_change_run_cycle_at_1d(tmp_path, memo_indicato
     symbols = sorted(rows)
 
     def raw_factory(logs):
-        raw = _isolated_raw(load_config().raw, logs)
+        raw = _isolated_raw(_pre_trial_hourly_raw(load_config().raw), logs)  # flags off
         raw["market"]["symbols"] = symbols
         raw["market"]["timeframe"] = "1d"
         return raw

@@ -81,11 +81,12 @@ def test_absent_and_null_mean_no_label():
     assert parse_notifier_settings({"notifier": {"label": None}}).label is None
 
 
-def test_real_config_has_no_label(monkeypatch):
-    # Merging must not change the running bot's messages: config.yaml spells the key out as null.
+def test_real_config_has_the_paper_trial_label(monkeypatch):
+    # The shipped config runs the paper daily-bar trial: every BUY / SELL / fill message is prefixed
+    # "PAPER TRIAL" (design §3.1). null (no label, byte-identical messages) is tested above.
     cfg = load_config()
-    assert "notifier" in cfg.raw and cfg.raw["notifier"] == {"label": None}
-    assert cfg.notifier_label is None
+    assert "notifier" in cfg.raw and cfg.raw["notifier"] == {"label": "PAPER TRIAL"}
+    assert cfg.notifier_label == "PAPER TRIAL"
 
 
 @pytest.mark.parametrize("good", ["PAPER TRIAL", "A", "paper-trial 1d", "x" * NOTIFIER_LABEL_MAX_LEN, "PAPER (1d)", "🧪 PAPER"])

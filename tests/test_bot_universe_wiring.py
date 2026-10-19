@@ -151,7 +151,28 @@ def _isolated_raw(raw: dict, logs_dir: Path) -> dict:
         # run_cycle writes the market snapshot too; without this the tests overwrite the real
         # PROJECT_ROOT/logs/market_snapshot.json that the dashboard export reads.
         "market_snapshot_path": str(logs_dir / "market_snapshot.json"),
+        # Only read with loop.bar_parity on (the shipped paper-trial config has it on): without this a test
+        # that runs a cycle on the real config would write the real PROJECT_ROOT/logs/bar_decisions.json.
+        "bar_decisions_path": str(logs_dir / "bar_decisions.json"),
     }
+    return raw
+
+
+def _pre_trial_hourly_raw(raw: dict) -> dict:
+    """The shipped config as it was before the paper daily-bar trial switch: market.timeframe "1h",
+    loop.bar_parity false, no entry-delay guard, no Telegram label (the rest -- every strategy and risk
+    parameter -- unchanged, since the switch changed none of them).
+
+    The "on today's config" identity/parity tests compare frozen pre-change copies of run_cycle with the
+    current one on the DEFAULT (flags-off, hourly) code path, using the shipped strategy parameters for
+    realism, with hourly fixtures. The trial switch (deploy/PAPER_TRIAL_RUNBOOK.md) does not remove that
+    path -- rolling back to 1h paper is exactly this config -- so those tests keep testing it; the shipped
+    trial values themselves are pinned by tests/test_paper_trial_config.py."""
+    raw = copy.deepcopy(raw)
+    raw["market"]["timeframe"] = "1h"
+    raw["loop"] = {"poll_interval_seconds": 300, "bar_parity": False, "max_entry_delay_minutes": None}
+    raw["notifier"] = {"label": None}
+    raw.get("logging", {}).pop("closed_bars_dir", None)
     return raw
 
 
@@ -179,7 +200,7 @@ def _strip_wall_clock(event: dict) -> dict:
 
 
 def test_wired_run_cycle_matches_pre_wiring_run_cycle_on_todays_config(tmp_path):
-    real_raw = load_config().raw
+    real_raw = _pre_trial_hourly_raw(load_config().raw)  # the 1h default path (see that helper)
     symbols = list(real_raw["market"]["symbols"])
     assert len(symbols) == 16 and len({s.split("/")[0] for s in symbols}) == 16  # all-unique bases today
 

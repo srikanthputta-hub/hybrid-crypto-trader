@@ -7,6 +7,13 @@ pushing `web/data.json` after every cycle so the dashboard stays live too,
 and Telegram alerts (if `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` are set)
 fire the moment a signal is found, not on the next scheduled tick.
 
+**Running the paper daily-bar trial?** The switch from 1h to daily bars (log archive, portfolio reset, the
+00:01-00:45 UTC start window, weekly parity check, kill rule, rollback) is in
+[PAPER_TRIAL_RUNBOOK.md](PAPER_TRIAL_RUNBOOK.md). **The VM auto-pulls `main`** (`scripts/run_live.py` runs
+`git pull --no-rebase --no-edit` whenever its `web/data.json` push is rejected), so a config change merged to
+`main` lands on the VM's disk within ~5 minutes and takes effect at the next restart of any kind. Stop and
+disable the service *before* merging the trial change (or its rollback): runbook section 3, step 1.
+
 ## Provisioning the VM (Oracle Cloud "Always Free" tier)
 
 1. Sign up at oracle.com/cloud/free.
@@ -135,9 +142,13 @@ dance needed here.
 
 ```bash
 cd ~/hybrid-crypto-trader
-git pull
+git checkout -- web/data.json   # if the VM's dashboard file is modified
+git pull --no-rebase --no-edit   # Ubuntu 22.04's git 2.34 errors on divergent branches with a plain pull
 sudo systemctl restart hybrid-crypto-trader
 ```
+
+Note the loop already pulls `main` on its own (above), so "updating" is often just the restart. A change to
+`config/config.yaml` that changes the trading cycle (like the paper-trial switch) needs the runbook's ordering instead.
 
 ### After deploying the notifier/heartbeat log-redaction fix
 

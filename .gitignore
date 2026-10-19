@@ -8,6 +8,9 @@ logs/*.json
 logs/*.csv
 # closed-bar archive for the paper-trial parity check (logging.closed_bars_dir, docs/bot_bar_parity.md)
 logs/daily_bars/
+# scripts/reset_portfolio.py's dated archives (logs/archive/<UTC stamp>/trades.csv, audit_log.jsonl, ...) and
+# the paper-trial runbook's 1h-era archive: top-level logs/*.csv / *.jsonl patterns above don't cover subdirectories
+logs/archive/
 # temp files of atomic temp-then-replace writes (bar_decisions.json.tmp, market_snapshot.json.tmp)
 logs/*.tmp
 *.egg-info/

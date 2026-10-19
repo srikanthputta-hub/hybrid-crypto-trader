@@ -477,7 +477,7 @@ class TestBarParityConfig:
     def test_bar_parity_config_passes_on_real_repo(self) -> None:
         result = check_bar_parity_config()
         assert result.passed, result.message
-        assert "bar_parity=False" in result.message  # merging must not switch it on
+        assert "bar_parity=True" in result.message and "max_entry_delay_minutes=60.0" in result.message  # the paper trial
 
     def _check(self, config: dict):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -526,7 +526,7 @@ class TestNotifierConfig:
     def test_notifier_config_passes_on_real_repo(self) -> None:
         result = check_notifier_config()
         assert result.passed, result.message
-        assert "label=None" in result.message  # merging must not switch a label on
+        assert "label='PAPER TRIAL'" in result.message  # the paper trial
 
     def _check(self, config: dict):
         with tempfile.TemporaryDirectory() as tmpdir:
