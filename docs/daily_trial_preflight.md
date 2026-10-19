@@ -134,7 +134,7 @@ this config.
 The method reproduces the design's numbers on the original pool, so the P6-fixed row is what the design asked for.
 The independent review reproduced it (false stop 11%, power ~52% against -0.24R; design set on the corrected pool
 5.5% / 40%). **Recommendation: freeze -0.57 / -0.43 / -0.34 / -0.30 at 20 / 30 / 40 / 50 trades, plus the
-unchanged 30% equity-drawdown kill. USER MUST CONFIRM BEFORE DAY 0.** It keeps the pre-registered 11% false-stop
+unchanged 30% equity-drawdown kill. CONFIRMED by the owner on 2026-10-19 ("ill go with your 'My recommendation'"), frozen from here.** It keeps the pre-registered 11% false-stop
 level and raises power from ~40-42% to ~52-54%; keeping the design's set on the corrected pool would be more lenient
 than the design intended. These pools use trades from the `*/USD` data, i.e. the bars the trial now trades.
 

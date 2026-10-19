@@ -75,10 +75,11 @@ Background research: [crypto_bot_upgrade_playbook.md](crypto_bot_upgrade_playboo
   budget needs (> 0). The check evaluates the pre-registered 10% budget from the first entry by default;
   `--relaxed-early-budget` (from 20 entries) is a loosening that needs the user's acceptance and is off.
 - **Paper trial** - Option A (daily bars) approved by the user as a paper-only switch; config change and runbook on
-  `claude/daily-bar-paper-trial` (PR #106, not merged, waiting for the owner's deploy window). Before day 0 the user picks the kill thresholds
-  (recommended re-simulated set, `daily_trial_preflight.md` §5; USER MUST CONFIRM) and the fee tier the trial is judged
-  at. The Daily Backtester Routine must be paused and its promotion PRs left unmerged for the trial (CI is dead, so the
-  pin test cannot block a merge).
+  `claude/daily-bar-paper-trial` (PR #106, not merged, waiting for the owner's deploy window). The owner confirmed on 2026-10-19 the kill thresholds
+  (-0.57 / -0.43 / -0.34 / -0.30 at 20 / 30 / 40 / 50 trades, plus the 30% drawdown stop; `daily_trial_preflight.md` §5),
+  frozen. The fee tier the trial is judged at stays Kraken T3 taker unless the owner says otherwise. The Daily Backtester
+  Routine was **paused on 2026-10-19** and its promotion PRs stay unmerged for the trial (CI is dead, so the pin test
+  cannot block a merge).
 - Not built: `universe.mode: discover` (raises `NotImplementedError`), wiring `rank_signals` into `bot.py`,
   passing `risk.volatility_scale_floor` through `bot.py` (the engine's 0.5 default applies).
 

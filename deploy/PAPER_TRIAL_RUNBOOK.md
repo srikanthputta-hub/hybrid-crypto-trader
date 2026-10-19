@@ -58,8 +58,9 @@ These need **you** (the user), not the VM:
    406.2%, Sharpe 1.03, maxDD -27.7%** (original harness, $10 floor); `data/` 154 / 0.18 is unchanged; the P6-fixed
    numbers are 132 / 0.22 and 546 / 0.50 (`docs/min_order_floor_10_rebaseline.md`). PR **#29** (Cloudflare Cron
    Trigger) must also stay unmerged: it would run a second bot process.
-2. **Confirm the kill thresholds (USER MUST CONFIRM BEFORE DAY 0).** Recommended: the re-simulated set
-   **-0.57 / -0.43 / -0.34 / -0.30** at 20 / 30 / 40 / 50 trades (section 8). Write the choice down before day 0.
+2. **Kill thresholds (CONFIRMED by the owner 2026-10-19).** The re-simulated set
+   **-0.57 / -0.43 / -0.34 / -0.30** at 20 / 30 / 40 / 50 trades, plus the 30% drawdown stop (section 8), is frozen.
+   Do not change it after day 0. The Daily Backtester Routine is paused for the trial (2026-10-19).
 3. **Decide the venue and fee tier the trial is judged at** (design §8 decision 8). You follow the alerts by hand
    on Kraken: Kraken T3 taker (0.38% fee + 0.05% slippage per side) is the default; use your actual tier.
 4. **Telegram token.** If you have not already done the post-#103 steps in [README.md](README.md) ("After deploying
@@ -344,7 +345,7 @@ minimum 6 months (expected 8-12 months at 4-6 trades a month).
 
 ---
 
-## 8. Kill rule (catastrophe guard): USER MUST CONFIRM BEFORE DAY 0
+## 8. Kill rule (catastrophe guard): CONFIRMED by the owner 2026-10-19
 
 **Recommended (freeze this unless you decide otherwise):** stop if mean re-costed R falls below
 **-0.57 at 20 trades, -0.43 at 30, -0.34 at 40, or -0.30 at 50**, or if paper equity drawdown exceeds **30%**.
