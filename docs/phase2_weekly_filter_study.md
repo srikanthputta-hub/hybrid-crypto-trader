@@ -382,7 +382,7 @@ trial changes.
 ## 5. Observations outside the decision rule (post hoc; NOT a pass, NOT a recommendation)
 
 - **W2 improves risk metrics consistently.** Its max drawdown is lower than the baseline's in every
-  one of the 8 dataset/offset cells: `data/` about -13% to -16% vs -24% to -26%; `data_long/` -21.7%
+  one of the 8 dataset/offset cells: `data/` -12.9% to -15.7% vs -23.5% to -25.9%; `data_long/` -21.7%
   vs -28.7%.
   - Sharpe is higher in all 8 cells: `data/` 0.78 / 0.56 / 0.27 / 0.18 vs 0.51 / 0.31 / 0.05 / -0.04;
     `data_long/` 1.06-1.09 vs 1.01-1.03.
@@ -408,7 +408,7 @@ trial changes.
 - **Survivorship (`data_long/`).** Same 16 coins that exist today. Delisted or collapsed coins are
   missing, which flatters every `data_long/` row equally, but it may interact with W2: survivors are
   the coins that recovered from bear markets.
-- **2-year sample (`data/`).** It has 69-98 entry days, and its day-block CIs are about ±0.4R wide.
+- **2-year sample (`data/`).** The baseline's 132 trades fall on 93 distinct entry days, and its day-block CIs are about ±0.4R wide.
   The baseline itself swings from +0.22 to -0.05 avg R under a 21-day start shift. No candidate effect
   measured here is distinguishable from that noise.
 - **Venue mix.** `data_long/` is Coinbase. The `data/` gate seed is Coinbase before 2024-10-12, but it
