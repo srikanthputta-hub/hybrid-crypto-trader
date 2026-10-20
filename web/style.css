@@ -1,720 +1,337 @@
+/* Trading desk dashboard. Mobile-first: the base rules are the phone layout, min-width queries add columns.
+   Theme: custom properties below; dark when the system prefers it unless the viewer chose (data-theme on <html>,
+   set by theme.js before first paint). No external fonts, images or requests. */
+
 :root {
-  --bg: #0a1120;
-  --bg-panel: #101a2e;
-  --bg-card: #131f36;
-  --border: #22314e;
-  --text: #e6edf7;
-  --muted: #7b8bab;
-  --accent: #38bdf8;
-  --green: #22c55e;
-  --red: #ef4444;
-  --tier-haiku: #22c55e;
-  --tier-sonnet: #3b82f6;
-  --tier-opus: #c084fc;
+  color-scheme: light;
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --border: #dde2e9;
+  --text: #121821;
+  --muted: #566274;
+  --faint: #7a8596;
+  --accent: #1f55d1;
+  --accent-soft: rgba(31, 85, 209, 0.12);
+  --pos: #0b7a3b;
+  --pos-soft: rgba(11, 122, 59, 0.12);
+  --neg: #bd2430;
+  --neg-soft: rgba(189, 36, 48, 0.12);
+  --warn: #8a5500;
+  --warn-soft: rgba(224, 150, 0, 0.18);
+  --info: #3b4a63;
+  --shadow: 0 1px 2px rgba(18, 24, 33, 0.06), 0 2px 8px rgba(18, 24, 33, 0.04);
+  --radius: 12px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --surface: #151b24;
+  --surface-2: #1c2431;
+  --border: #29323f;
+  --text: #e8edf4;
+  --muted: #9aa6b8;
+  --faint: #7d8899;
+  --accent: #6e9fff;
+  --accent-soft: rgba(110, 159, 255, 0.16);
+  --pos: #3fcf80;
+  --pos-soft: rgba(63, 207, 128, 0.14);
+  --neg: #ff7077;
+  --neg-soft: rgba(255, 112, 119, 0.16);
+  --warn: #f4c04e;
+  --warn-soft: rgba(244, 192, 78, 0.16);
+  --info: #b3bfd1;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --surface: #151b24;
+    --surface-2: #1c2431;
+    --border: #29323f;
+    --text: #e8edf4;
+    --muted: #9aa6b8;
+    --faint: #7d8899;
+    --accent: #6e9fff;
+    --accent-soft: rgba(110, 159, 255, 0.16);
+    --pos: #3fcf80;
+    --pos-soft: rgba(63, 207, 128, 0.14);
+    --neg: #ff7077;
+    --neg-soft: rgba(255, 112, 119, 0.16);
+    --warn: #f4c04e;
+    --warn-soft: rgba(244, 192, 78, 0.16);
+    --info: #b3bfd1;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
 }
 
 * { box-sizing: border-box; }
-
+[hidden] { display: none !important; } /* author display rules (flex, grid) must not defeat the hidden attribute */
+html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
-  background: radial-gradient(ellipse at top, #101c33 0%, var(--bg) 60%);
+  background: var(--bg);
   color: var(--text);
-  font-family: "SF Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace;
-  font-size: 14px;
+  font: 15px/1.45 var(--font);
+  font-variant-numeric: tabular-nums;
+  overflow-x: hidden; /* belt and braces: nothing below is allowed to widen the page */
 }
+h1, h2, h3, p, ul, dl, dd { margin: 0; }
+ul { padding: 0; list-style: none; }
+a { color: var(--accent); }
+button, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
-header.topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px 24px;
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip-link { position: absolute; left: -999px; top: 0; background: var(--surface); padding: 8px 12px; z-index: 50; }
+.skip-link:focus { left: 8px; top: 8px; }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+.small { font-size: 13px; }
+.pos { color: var(--pos); }
+.neg { color: var(--neg); }
+
+/* ---- status strip ---------------------------------------------------------------------------------------- */
+.strip {
+  position: relative; z-index: 20;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
-  background: rgba(10, 17, 32, 0.9);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  flex-wrap: wrap;
-  gap: 10px;
+  padding: 10px 12px 8px;
+  box-shadow: var(--shadow);
 }
-
-.brand {
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  font-size: 15px;
-}
-.brand-dot {
-  display: inline-block;
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--green);
-  margin-right: 8px;
-  box-shadow: 0 0 8px var(--green);
-}
-.brand-sub { color: var(--muted); font-weight: 400; letter-spacing: normal; }
-
-/* Daily-bar bot only (data.display, web/display.js): the banner carrying notifier.label, and the "as of" for prices. */
-.trial-banner {
-  background: rgba(251, 191, 36, 0.14);
-  border-bottom: 1px solid #fbbf24;
-  color: #fbbf24;
-  text-align: center;
-  padding: 6px 24px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-.trial-banner[hidden], .price-as-of[hidden], .overview-as-of[hidden] { display: none; }
-.price-as-of { font-size: 12px; }
-.overview-as-of { font-size: 11px; margin: 8px 0 0; }
-
-.topbar-right { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
-
+.strip-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.strip-id { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-width: 0; }
+.brand { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); flex-basis: 100%; }
+#inst-name { font-size: 20px; line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; overflow-wrap: anywhere; }
 .badge {
-  padding: 3px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase; background: var(--surface-2); color: var(--info); border: 1px solid var(--border);
 }
-.badge.mode-paper { color: var(--accent); border-color: var(--accent); }
-.badge.mode-live { color: var(--red); border-color: var(--red); }
+.badge-label { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.badge.mode-paper { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.badge.mode-live { background: var(--neg-soft); color: var(--neg); border-color: transparent; }
+.icon-btn {
+  flex: none; width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2);
+  display: inline-grid; place-items: center; cursor: pointer;
+}
+.icon-btn svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.icon-btn .ti-moon { fill: currentColor; stroke: none; }
+.icon-btn .ti-sun { display: none; }
+:root[data-theme="dark"] .icon-btn .ti-sun { display: inline; }
+:root[data-theme="dark"] .icon-btn .ti-moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .icon-btn .ti-sun { display: inline; }
+  :root:not([data-theme="light"]) .icon-btn .ti-moon { display: none; }
+}
 
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
-.tier-haiku { background: var(--tier-haiku); }
-.tier-sonnet { background: var(--tier-sonnet); }
-.tier-opus { background: var(--tier-opus); }
+.tabs { display: flex; gap: 4px; margin-top: 8px; padding: 3px; background: var(--surface-2); border-radius: 10px; overflow-x: auto; }
+.tabs button {
+  flex: 1 0 auto; border: 0; background: transparent; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-weight: 600; color: var(--muted);
+}
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 
-.muted { color: var(--muted); font-size: 12px; }
+.strip-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: var(--surface-2); color: var(--info); border: 1px solid var(--border);
+}
+.chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: 0.85; flex: none; }
+.chip.ok { background: var(--pos-soft); color: var(--pos); border-color: transparent; }
+.chip.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.chip.bad { background: var(--neg-soft); color: var(--neg); border-color: transparent; }
+.chip.none::before { opacity: 0.35; }
 
-.legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.alert {
+  margin: 10px 12px 0; padding: 10px 12px; border-radius: var(--radius); font-weight: 600;
+  background: var(--neg-soft); color: var(--neg); border: 1px solid var(--neg);
+}
+.alert.warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.asof { margin: 8px 12px 0; font-size: 13px; color: var(--muted); }
 
-.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
-.status-dot.working { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.6s infinite; }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-
+/* ---- page + cards ---------------------------------------------------------------------------------------- */
+.page { max-width: 1260px; margin: 0 auto; padding: 12px; display: grid; gap: 12px; }
 .card {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px 18px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow);
+  min-width: 0; /* a grid child may not grow past the viewport because of its content */
 }
-
-/* --- three-column trading-terminal layout: agents | overview+chart | feed.
-   Collapses to a single column below 1100px, with the center column
-   (portfolio + chart) reordered first since it's the highest-priority
-   content on a small screen. Either sidebar can also be manually collapsed
-   to a thin rail (see .agents-collapsed/.feed-collapsed below) so the
-   center column can claim the space when a sidebar isn't needed. --- */
-.layout {
-  max-width: 1500px;
-  margin: 0 auto;
-  padding: 20px;
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 300px;
-  gap: 16px;
-  align-items: start;
-  transition: grid-template-columns 0.2s ease;
-}
-.col { min-width: 0; transition: padding 0.2s ease; }
-/* Collapse-to-rail only applies once the layout is actually 3 columns wide
-   (desktop). Below 1100px it stacks to a single column and a collapsed
-   sidebar would just be a dead strip with no content and no label, so the
-   collapsed *state* can still be stored (see app.js), but nothing here may
-   visually act on it below this width -- content always shows stacked. */
-@media (min-width: 1101px) {
-  .layout.agents-collapsed { grid-template-columns: 44px minmax(0, 1fr) 300px; }
-  .layout.feed-collapsed { grid-template-columns: 260px minmax(0, 1fr) 44px; }
-  .layout.agents-collapsed.feed-collapsed { grid-template-columns: 44px minmax(0, 1fr) 44px; }
-}
-@media (max-width: 1100px) {
-  .layout, .layout.agents-collapsed, .layout.feed-collapsed, .layout.agents-collapsed.feed-collapsed {
-    grid-template-columns: 1fr;
-  }
-  .center-col { order: 1; }
-  .agents-col { order: 2; }
-  .feed-col { order: 3; }
-  /* Nothing to reclaim space for in a single stacked column, so the
-     collapse control itself is hidden here rather than left to toggle a
-     no-op state. */
-  .collapse-toggle { display: none; }
-}
-
-.panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px; flex-wrap: wrap; }
-.panel-header h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text); }
-
-.collapse-toggle {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 6px;
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
-  padding: 0;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  line-height: 1;
-}
-.collapse-toggle:hover { border-color: var(--accent); color: var(--accent); }
-
-/* Collapsed sidebar (desktop only, see the min-width:1101px block above):
-   shrink to a rail, hide everything but the header row (which itself
-   shrinks to just the toggle button) so re-expanding is always one click
-   away. */
-@media (min-width: 1101px) {
-  .agents-col.collapsed, .feed-col.collapsed {
-    padding: 12px 6px;
-    overflow: hidden;
-  }
-  .agents-col.collapsed .panel-header, .feed-col.collapsed .panel-header {
-    justify-content: center;
-    margin-bottom: 0;
-  }
-  .agents-col.collapsed .panel-header h2,
-  .agents-col.collapsed #agents-count,
-  .feed-col.collapsed .panel-header h2,
-  .feed-col.collapsed .pnl-btn,
-  .agents-col.collapsed .agent-cards,
-  .agents-col.collapsed .agents-legend,
-  .feed-col.collapsed .signals-toggle,
-  .feed-col.collapsed .history-period-toggle,
-  .feed-col.collapsed .feed-list {
-    display: none;
-  }
-}
-
-.status-pill {
-  padding: 3px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--green);
-  color: var(--green);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.status-pill.idle { border-color: var(--border); color: var(--muted); }
-
-/* --- AI Trading Agents: one compact card per pipeline role. Status dot +
-   tier pill up top, the role's last audit-log detail as the body text (real
-   data, not decoration), a working role gets a glowing accent border --
-   same "is this role active right now" signal the old office-desk view gave
-   via a glowing head-light, just as a card instead of a figure. --- */
-.agent-cards { display: flex; flex-direction: column; gap: 10px; }
-.agent-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.agent-card:hover { border-color: var(--accent); }
-.agent-card.is-working { border-color: var(--green); box-shadow: 0 0 12px rgba(34,197,94,0.2); }
-.agent-card.is-boss.is-working { border-color: #fbbf24; box-shadow: 0 0 12px rgba(251,191,36,0.25); }
-.agent-card.is-disabled { opacity: 0.55; }
-.agent-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 12px rgba(56,189,248,0.3); }
-
-.agent-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; gap: 6px; }
-.agent-card-name { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; }
-.agent-card-crown { font-size: 12px; }
-.agent-card-detail {
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  min-height: 2.8em;
-}
-.agent-card-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; gap: 6px; }
-
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.card h2 { font-size: 16px; font-weight: 700; letter-spacing: -0.005em; }
+.card h3 { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+.card h3.sub { margin-top: 14px; }
+.lede { margin-bottom: 10px; }
+.note { font-size: 13px; color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+.empty { color: var(--muted); padding: 10px 0; }
 .pill {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 10px; font-weight: 600; letter-spacing: 0.03em;
-  padding: 2px 6px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--muted);
+  display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; background: var(--surface-2); color: var(--info);
 }
-.pill-tier.tier-haiku { color: var(--tier-haiku); border-color: var(--tier-haiku); }
-.pill-tier.tier-sonnet { color: var(--tier-sonnet); border-color: var(--tier-sonnet); }
-.pill-tier.tier-opus { color: var(--tier-opus); border-color: var(--tier-opus); }
-.pill-status { text-transform: none; font-weight: 500; }
+.pill.ok { background: var(--pos-soft); color: var(--pos); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--neg-soft); color: var(--neg); }
 
-.agents-legend { display: flex; gap: 14px; margin-top: 12px; flex-wrap: wrap; }
+/* ---- KPI row --------------------------------------------------------------------------------------------- */
+.kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; box-shadow: var(--shadow); min-width: 0; }
+.kpi-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.kpi-value { font-size: 21px; font-weight: 700; line-height: 1.25; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.kpi-value.pos { color: var(--pos); }
+.kpi-value.neg { color: var(--neg); }
+.kpi-cap { font-size: 12px; color: var(--muted); line-height: 1.35; margin-top: 2px; overflow-wrap: anywhere; }
+.kpi:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
-/* --- generic centered-overlay modal, shared shape for the role detail
-   modal and (via its own near-identical classes) the P/L modal --- */
-.role-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(5, 9, 18, 0.75);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 80;
-  padding: 16px;
-}
-.role-modal-backdrop[hidden] { display: none; } /* see .pnl-modal-backdrop[hidden] below for why this is needed */
-.role-modal {
-  position: relative;
-  width: 100%;
-  max-width: 320px;
-  background: var(--bg-panel);
-  border: 1px solid var(--accent);
-  border-radius: 12px;
-  padding: 18px 20px;
-  box-shadow: 0 0 32px rgba(56,189,248,0.2);
-}
-.role-modal-close {
-  position: absolute; top: 10px; right: 12px;
-  background: none; border: none; color: var(--muted);
-  font-size: 18px; line-height: 1; cursor: pointer;
-}
-.role-modal-close:hover { color: var(--text); }
-.role-modal-title { font-weight: 700; font-size: 14px; margin-bottom: 8px; padding-right: 18px; }
-.role-modal-crown { font-size: 13px; margin-right: 3px; }
-.role-modal-status { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
-.role-modal-detail { font-size: 12px; line-height: 1.5; color: var(--text); margin-bottom: 12px; min-height: 1.5em; }
-.role-modal-owns { font-size: 12px; line-height: 1.5; color: var(--muted); }
+/* ---- charts ---------------------------------------------------------------------------------------------- */
+.chart-box { width: 100%; min-height: 60px; }
+.chart { display: block; max-width: 100%; height: auto; overflow: visible; }
+.ch-grid { stroke: var(--border); stroke-width: 1; }
+.ch-axis { fill: var(--muted); font-size: 11px; }
+.ch-axis-title { fill: var(--faint); font-size: 11px; }
+.ch-empty { fill: var(--muted); font-size: 13px; }
+.ch-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ch-line.pre { stroke: var(--faint); stroke-dasharray: 4 4; }
+.ch-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.ch-end { fill: var(--text); font-size: 12px; font-weight: 700; }
+.ch-area.below { fill: var(--accent-soft); }
+.ch-area.above { fill: var(--neg-soft); }
+.chart.drawdown .ch-line { stroke: var(--neg); }
+.chart.drawdown .ch-dot { fill: var(--neg); }
+.ch-ref { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 3 3; }
+.ch-ref.limit, .dd-limit { stroke: var(--neg); stroke-width: 1.5; stroke-dasharray: none; }
+.ch-ref-label { fill: var(--faint); font-size: 11px; }
+.ch-ref-label.limit { fill: var(--neg); font-weight: 600; }
+.ch-zero { stroke: var(--muted); stroke-width: 1; }
+.ch-prezone { fill: var(--surface-2); opacity: 0.7; }
+.ch-threshold { fill: none; stroke: var(--neg); stroke-width: 2; }
+.ch-cp { fill: var(--surface); stroke: var(--neg); stroke-width: 2; }
+.ch-cp.ok { fill: var(--pos); stroke: var(--pos); }
+.ch-cp.breach { fill: var(--neg); }
+.ch-cp-label { fill: var(--neg); font-size: 11px; font-weight: 600; }
+.dd-track { fill: var(--surface-2); }
+.dd-max { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; }
+.dd-max.breach { fill: var(--neg-soft); stroke: var(--neg); }
+.dd-cur { fill: var(--accent); }
+.meter-box { padding-top: 6px; }
 
-/* --- Portfolio Overview: win-rate gauge (a CSS conic-gradient ring, no
-   chart-library dependency for something this simple) + equity/cash/P&L
-   stat tiles + per-position exposure bars. --- */
-.overview-card { margin-bottom: 16px; }
-.overview-grid { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
-.gauge-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none; }
-.gauge {
-  --pct: 0;
-  width: 108px; height: 108px;
-  border-radius: 50%;
-  background: conic-gradient(var(--green) calc(var(--pct) * 1%), var(--border) 0);
-  display: flex; align-items: center; justify-content: center;
-  position: relative;
-  transition: background 0.3s ease;
-}
-.gauge::before {
-  content: "";
-  position: absolute; inset: 10px;
-  background: var(--bg-panel);
-  border-radius: 50%;
-}
-.gauge-value { position: relative; z-index: 1; font-size: 20px; font-weight: 700; }
-.gauge-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.kill-grid { display: grid; gap: 16px; }
+.cps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cps li { font-size: 12.5px; padding: 3px 9px; border-radius: 8px; background: var(--surface-2); color: var(--muted); }
+.cps li.ok { background: var(--pos-soft); color: var(--pos); }
+.cps li.breach { background: var(--neg-soft); color: var(--neg); font-weight: 700; }
+.cps li.partial, .cps li.nodata { background: var(--warn-soft); color: var(--warn); }
 
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-  gap: 10px;
-  flex: 1;
-  min-width: 200px;
+/* ---- decisions ------------------------------------------------------------------------------------------- */
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.filters button {
+  border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px; padding: 4px 11px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--muted);
 }
-.stat-tile {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
+.filters button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.dec-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.dec { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; align-items: center; padding: 6px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); min-width: 0; }
+.dec-sym { font-weight: 700; }
+.dec-state { justify-self: end; }
+.dec-reason { grid-column: 1 / -1; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.dec-meta { grid-column: 1 / -1; font-size: 12px; color: var(--faint); }
+.st { display: inline-block; padding: 1px 9px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; background: var(--surface); color: var(--info); border: 1px solid var(--border); }
+.st-scan { color: var(--info); }
+.st-skip { color: var(--faint); }
+.st-holding { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.st-blocked { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.st-entered { background: var(--pos-soft); color: var(--pos); border-color: transparent; }
+.st-exited { background: var(--pos-soft); color: var(--pos); border-color: transparent; }
+.st-error, .st-nodata { background: var(--neg-soft); color: var(--neg); border-color: transparent; }
+
+/* ---- responsive tables: a real table on wide screens, one card per row on a phone ------------------------- */
+.rt { width: 100%; border-collapse: collapse; }
+.rt thead { display: none; }
+.rt tbody, .rt tr, .rt td { display: block; }
+.rt tr { padding: 9px 0; border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px 10px; }
+.rt tr:first-child { border-top: 0; padding-top: 0; }
+.rt td { min-width: 0; overflow-wrap: anywhere; }
+.rt td { font-size: 14px; }
+.rt td::before { content: attr(data-label); display: block; font-size: 10.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.rt td.primary { grid-column: 1 / -1; font-weight: 700; font-size: 15px; }
+.more { margin-top: 10px; width: 100%; padding: 9px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); font-weight: 600; cursor: pointer; color: var(--accent); }
+.rt td.primary::before { display: none; }
+.rt .num { text-align: left; }
+.cap { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+
+/* ---- health ---------------------------------------------------------------------------------------------- */
+.health { display: grid; gap: 0; }
+.health > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto); gap: 2px 10px; padding: 9px 0; border-top: 1px solid var(--border); align-items: baseline; }
+.health > div:first-child { border-top: 0; padding-top: 0; }
+.health dt, .health dd { min-width: 0; overflow-wrap: anywhere; }
+.health dt { font-weight: 600; }
+.health dd { text-align: right; font-weight: 700; }
+.health dd.ok { color: var(--pos); }
+.health dd.warn { color: var(--warn); }
+.health dd.bad { color: var(--neg); }
+.health dd.none { color: var(--muted); }
+.health .why { grid-column: 1 / -1; font-size: 12.5px; color: var(--muted); font-weight: 400; overflow-wrap: anywhere; }
+.roles { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.role { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+.role.working { background: var(--pos-soft); color: var(--pos); border-color: transparent; }
+.role.disabled { opacity: 0.7; text-decoration: line-through; }
+
+/* ---- folds ----------------------------------------------------------------------------------------------- */
+.fold { padding: 0; }
+.fold > summary { list-style: none; cursor: pointer; padding: 14px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::after { content: "+"; font-weight: 700; color: var(--muted); margin-left: auto; padding-left: 8px; }
+.fold[open] > summary::after { content: "\2212"; }
+.fold-body { padding: 0 14px 14px; }
+.field { display: grid; gap: 4px; font-size: 13px; font-weight: 600; color: var(--muted); max-width: 320px; }
+select { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); }
+.sym-chart { width: 100%; height: 320px; margin-top: 10px; }
+.hist-day { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 12px 0 4px; }
+.hist-row { padding: 6px 0; border-top: 1px solid var(--border); display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+.hist-row .when { grid-column: 1 / -1; font-size: 12px; color: var(--faint); }
+.kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.kv > div { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
+.kv .k { font-size: 12px; color: var(--muted); }
+.kv .v { font-weight: 700; }
+
+.foot { max-width: 1260px; margin: 0 auto; padding: 8px 12px 28px; display: grid; gap: 4px; }
+
+/* ---- wider screens --------------------------------------------------------------------------------------- */
+@media (min-width: 560px) {
+  .kpis { grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); }
+  .kpi:last-child:nth-child(odd) { grid-column: auto; }
+  .dec-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-.stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-.stat-value { font-size: 15px; font-weight: 700; margin-top: 2px; }
-.stat-value.positive { color: var(--green); }
-.stat-value.negative { color: var(--red); }
-
-.exposure-section { margin-top: 16px; }
-.exposure-title { margin-bottom: 8px; }
-.exposure-bars { display: flex; flex-direction: column; gap: 8px; }
-.exposure-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
-.exposure-symbol { width: 76px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.exposure-bar-track { flex: 1; height: 6px; background: var(--border); border-radius: 999px; overflow: hidden; }
-.exposure-bar-fill { height: 100%; border-radius: 999px; background: var(--accent); }
-.exposure-bar-fill.positive { background: var(--green); }
-.exposure-bar-fill.negative { background: var(--red); }
-.exposure-pct { width: 44px; flex: none; text-align: right; color: var(--muted); }
-.exposure-empty { color: var(--muted); font-style: italic; font-size: 11px; }
-
-.chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
-.chart-header h2 { margin: 0; font-size: 15px; }
-#chart-container { width: 100%; height: 360px; }
-.confidence-row { display: flex; gap: 18px; font-size: 12px; color: var(--muted); }
-.stars { color: #fbbf24; letter-spacing: 1px; }
-
-.live-market-section { padding: 18px; }
-.tv-widget-container { width: 100%; height: 420px; border-radius: 8px; overflow: hidden; }
-
-/* --- custom symbol dropdown (replaces a plain <select>, so each row can
-   carry a colored live-signal dot) --- */
-.signal-dot {
-  display: inline-block;
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--muted);
-  opacity: 0.5;
-  flex: none;
+@media (min-width: 760px) {
+  .strip { padding: 12px 20px 10px; position: sticky; top: 0; }
+  .brand { flex-basis: auto; }
+  .page { padding: 16px 20px; gap: 16px; }
+  .card { padding: 18px; }
+  .kill-grid { grid-template-columns: 1.4fr 1fr; gap: 24px; }
+  .dec-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .alert, .asof { margin-left: 20px; margin-right: 20px; }
+  .rt thead { display: table-header-group; }
+  .rt tbody { display: table-row-group; }
+  .rt tr { display: table-row; padding: 0; }
+  .rt tr:first-child { padding-top: 0; }
+  .rt td { display: table-cell; padding: 9px 10px; border-top: 1px solid var(--border); vertical-align: baseline; }
+  .rt tr:first-child td { border-top: 0; }
+  .rt td::before { display: none; }
+  .rt td, .rt td.primary { font-size: inherit; }
+  .rt th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .rt .num, .rt th.num { text-align: right; }
+  .health > div { grid-template-columns: 220px 1fr; }
+  .health dd { text-align: left; }
+  .health .why { grid-column: 2; margin-top: -2px; }
+  .kv { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
-.signal-dot.open { background: var(--green); opacity: 1; box-shadow: 0 0 6px var(--green); animation: pulse 1.6s infinite; }
-.signal-dot.pending { background: #fbbf24; opacity: 1; box-shadow: 0 0 6px #fbbf24; }
-
-.signal-dot-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 10px; }
-.signal-dot-legend .legend-item { display: inline-flex; align-items: center; gap: 6px; }
-
-.symbol-dropdown { position: relative; }
-.symbol-dropdown-btn {
-  display: flex; align-items: center; gap: 8px;
-  background: var(--bg-card);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  min-width: 160px;
+@media (min-width: 1100px) {
+  .dec-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
-.symbol-dropdown-btn:hover { border-color: var(--accent); }
-.symbol-dropdown-label { flex: 1; text-align: left; }
-.symbol-dropdown-caret { color: var(--muted); font-size: 10px; }
-.symbol-dropdown-list {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 200px;
-  max-height: 320px;
-  overflow-y: auto;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-  z-index: 6;
-}
-.symbol-dropdown-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.symbol-dropdown-item:hover { background: rgba(255,255,255,0.04); }
-.symbol-dropdown-item.selected { background: rgba(56,189,248,0.1); color: var(--accent); }
-.symbol-dropdown-item span:nth-child(2) { flex: 1; }
-.signal-tag {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 1px 6px;
+@media (prefers-reduced-motion: no-preference) {
+  .chip, .tabs button, .filters button { transition: background-color 0.15s, color 0.15s; }
 }
 
-/* --- Live Signals Feed: a scrollable list of compact cards instead of a
-   wide table, since this panel lives in a narrow sidebar column. --- */
-.signals-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
-.history-period-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
-.toggle-btn {
-  background: var(--bg-card);
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 14px;
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.toggle-btn:hover { color: var(--text); }
-.toggle-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(56,189,248,0.08); }
+.hist-row .st { align-self: start; justify-self: start; }
+.health dd.why { text-align: left; }
 
-.pnl-btn {
-  background: var(--bg-card);
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 14px;
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.pnl-btn:hover { color: var(--accent); border-color: var(--accent); }
-
-.feed-list { display: flex; flex-direction: column; gap: 8px; max-height: 640px; overflow-y: auto; }
-/* Same fix as .pnl-modal-backdrop[hidden] above: the `display: flex` rule
-   otherwise overrides the browser's built-in `[hidden] { display: none }`,
-   so the Active/History toggle's `.hidden = true` stopped actually hiding
-   the other list -- both rendered stacked together regardless of which tab
-   was selected. */
-.feed-list[hidden] { display: none; }
-/* Time-bucket header inserted between groups of history rows (see
-   web/app.js's renderHistoryFeed) -- "Today"/"Yesterday"/hour/week labels
-   depending on the selected Hourly/Daily/Weekly granularity. */
-.feed-section-header {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  padding-top: 4px;
-  margin-top: 4px;
-  border-top: 1px solid var(--border);
-}
-.feed-section-header:first-child { margin-top: 0; padding-top: 0; border-top: none; }
-.feed-row {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 11px;
-}
-.feed-row.row-clickable { cursor: pointer; }
-.feed-row.row-clickable:hover { border-color: var(--accent); }
-.feed-row.row-selected { border-color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
-.feed-row-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
-.feed-row-symbol { font-weight: 700; }
-.feed-row-time { color: var(--muted); font-size: 10px; margin-bottom: 4px; }
-.feed-row-detail { color: var(--text); line-height: 1.4; }
-.feed-empty { color: var(--muted); font-style: italic; text-align: center; padding: 16px 0; font-size: 11px; }
-
-.status-badge, .kind-badge {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  border-radius: 999px;
-  padding: 2px 8px;
-  white-space: nowrap;
-}
-.status-badge.status-open { color: var(--green); border: 1px solid var(--green); }
-.status-badge.status-pending { color: #fbbf24; border: 1px solid #fbbf24; }
-.kind-badge.kind-signal { color: var(--accent); border: 1px solid var(--accent); }
-.kind-badge.kind-filled { color: var(--green); border: 1px solid var(--green); }
-.kind-badge.kind-take_profit { color: var(--green); border: 1px solid var(--green); }
-.kind-badge.kind-stop_loss { color: var(--red); border: 1px solid var(--red); }
-.kind-badge.kind-rejected, .kind-badge.kind-vetoed { color: var(--muted); border: 1px solid var(--border); }
-
-/* --- P/L modal: a broker-style realized P/L statement, opened from the
-   feed panel's P/L button. Full-viewport overlay since this is a
-   dashboard-wide view, not scoped to one panel. --- */
-.pnl-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(5, 9, 18, 0.75);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 80;
-  padding: 16px;
-}
-/* `display: flex` above otherwise overrides the browser's built-in
-   `[hidden] { display: none }` rule, since an author stylesheet rule always
-   wins over that UA default -- without this, JS setting `.hidden = true`
-   would stop being visually hidden but still sit there intercepting clicks. */
-.pnl-modal-backdrop[hidden] { display: none; }
-.pnl-modal {
-  position: relative;
-  width: 100%;
-  max-width: 640px;
-  max-height: 88vh;
-  overflow-y: auto;
-  background: var(--bg-panel);
-  border: 1px solid var(--accent);
-  border-radius: 12px;
-  padding: 20px 22px;
-  box-shadow: 0 0 32px rgba(56,189,248,0.2);
-}
-.pnl-modal-close {
-  position: absolute; top: 12px; right: 14px;
-  background: none; border: none; color: var(--muted);
-  font-size: 20px; line-height: 1; cursor: pointer;
-}
-.pnl-modal-close:hover { color: var(--text); }
-.pnl-modal-title { font-weight: 700; font-size: 15px; margin-bottom: 14px; padding-right: 20px; }
-
-.pnl-period-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
-.pnl-chart-container { width: 100%; height: 220px; }
-.pnl-empty { padding: 24px 0; text-align: center; }
-
-/* --- Risk modal: statistical validation on the bot's own realized trades
-   (VaR/CVaR, drawdown, win-rate significance) -- same near-duplicate shape
-   as .pnl-modal-*, kept separate rather than unified so a change here can
-   never risk the already-tested P/L modal. --- */
-.risk-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(5, 9, 18, 0.75);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 80;
-  padding: 16px;
-}
-.risk-modal-backdrop[hidden] { display: none; } /* see .pnl-modal-backdrop[hidden] above for why this is needed */
-.risk-modal {
-  position: relative;
-  width: 100%;
-  max-width: 640px;
-  max-height: 88vh;
-  overflow-y: auto;
-  background: var(--bg-panel);
-  border: 1px solid var(--accent);
-  border-radius: 12px;
-  padding: 20px 22px;
-  box-shadow: 0 0 32px rgba(56,189,248,0.2);
-}
-.risk-modal-close {
-  position: absolute; top: 12px; right: 14px;
-  background: none; border: none; color: var(--muted);
-  font-size: 20px; line-height: 1; cursor: pointer;
-}
-.risk-modal-close:hover { color: var(--text); }
-.risk-modal-title { font-weight: 700; font-size: 15px; margin-bottom: 14px; padding-right: 20px; }
-.risk-empty { padding: 24px 0; text-align: center; }
-
-.risk-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; margin: 16px 0 8px; }
-.risk-section-title:first-of-type { margin-top: 0; }
-.risk-hint { text-transform: none; letter-spacing: normal; }
-
-/* The win-rate significance verdict -- the headline number in this modal --
-   gets its own card with a left accent bar colored by verdict, so "is this
-   losing streak actually meaningful" reads at a glance before the stat
-   tiles below it. */
-.risk-significance-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--muted);
-  border-radius: 8px;
-  padding: 10px 14px;
-  margin-bottom: 4px;
-}
-.risk-significance-card.verdict-surprising { border-left-color: var(--red); }
-.risk-significance-card.verdict-plausible { border-left-color: #fbbf24; }
-.risk-significance-card.verdict-unremarkable { border-left-color: var(--green); }
-.risk-significance-headline { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
-.risk-significance-headline.verdict-surprising { color: var(--red); }
-.risk-significance-headline.verdict-plausible { color: #fbbf24; }
-.risk-significance-headline.verdict-unremarkable { color: var(--green); }
-.risk-significance-detail { font-size: 12px; line-height: 1.5; color: var(--text); }
-
-.footer { text-align: center; padding: 24px; }
-
-/* --- Testing (backtest) modal: reuses .risk-modal-backdrop/.risk-modal for
-   the overlay/card chrome, but needs a lot more room than the Risk modal --
-   it's a whole report (per-strategy, per-dataset, per-cost-preset table
-   plus a gates grid), not a handful of stat tiles. Backtest data is a
-   static snapshot (see scripts/backtest_summary.json), not live-refreshed
-   like .risk-modal's data, so nothing here needs a 30s-poll re-render path. --- */
-.backtest-modal { max-width: 920px; }
-.backtest-methodology {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--muted);
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 14px;
-  margin-bottom: 10px;
-}
-.backtest-datasets {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 10px;
-  margin-bottom: 4px;
-}
-.backtest-dataset-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.backtest-dataset-card .backtest-dataset-label { font-weight: 700; font-size: 12px; margin-bottom: 2px; }
-.backtest-dataset-card .muted { font-size: 11px; }
-
-.backtest-strategy { margin-top: 18px; }
-.backtest-strategy-header { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
-.backtest-strategy-desc { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
-
-.backtest-table-wrap { overflow-x: auto; margin-bottom: 12px; }
-.backtest-table { width: 100%; border-collapse: collapse; font-size: 11.5px; white-space: nowrap; }
-.backtest-table th, .backtest-table td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--border); }
-.backtest-table th:first-child, .backtest-table td:first-child { text-align: left; }
-.backtest-table th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.03em; }
-.backtest-table td.positive { color: var(--green); }
-.backtest-table td.negative { color: var(--red); }
-.backtest-table tr.backtest-row-divider td { border-top: 1px dashed var(--border); }
-
-.backtest-gates-wrap { overflow-x: auto; }
-.backtest-gates-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
-.backtest-gates-table th, .backtest-gates-table td { padding: 6px 8px; text-align: center; border-bottom: 1px solid var(--border); }
-.backtest-gates-table th:first-child, .backtest-gates-table td:first-child { text-align: left; }
-.backtest-gates-table th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.02em; }
-.backtest-gate-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.02em; }
-.backtest-gate-badge.pass { background: rgba(34,197,94,0.15); color: var(--green); }
-.backtest-gate-badge.fail { background: rgba(248,113,113,0.15); color: var(--red); }
-
-/* --- Candidate strategies: the daily automated-sweep leaderboard, appended
-   below the two fixed reference strategies. Each candidate is its own card
-   rather than a table row -- descriptions/notes vary a lot in length, and a
-   card reads better than a table cell for that. An all-5-gates-passing
-   candidate gets the same green-accent treatment as .risk-significance-card's
-   "unremarkable" (good) verdict, so a real find is visually unmistakable. --- */
-.backtest-candidates-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-top: 18px;
-  margin-bottom: 4px;
-}
-.backtest-section-title { font-size: 14px; font-weight: 700; }
-.backtest-candidate-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--muted);
-  border-radius: 8px;
-  padding: 10px 14px;
-  margin-bottom: 10px;
-}
-.backtest-candidate-card.all-pass { border-left-color: var(--green); }
-.backtest-candidate-card.is-promoted { border-left-color: var(--accent); box-shadow: 0 0 10px rgba(56,189,248,0.15); }
-.backtest-candidate-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.backtest-candidate-name { font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.backtest-candidate-meta { font-size: 10.5px; color: var(--muted); }
-.backtest-candidate-desc { font-size: 12px; color: var(--text); margin: 4px 0 8px; line-height: 1.4; }
-.backtest-candidate-stats { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; margin-bottom: 6px; }
-.backtest-candidate-stats span.label { color: var(--muted); margin-right: 3px; }
-.backtest-candidate-gates { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
-.backtest-candidate-notes { font-size: 11px; color: var(--muted); line-height: 1.4; }
-.pill-promoted { color: var(--accent); border-color: var(--accent); background: rgba(56,189,248,0.08); }
-.backtest-candidate-promoted { font-size: 11px; color: var(--accent); margin-bottom: 6px; }
-.backtest-candidate-promoted a { color: inherit; text-decoration: underline; }
-
-/* --- Candidate Strategies tabs: Live / Passed / Failed, replacing the old
-   single ever-growing list. Reuses .signals-toggle/.toggle-btn so this tab
-   bar matches the Active/History toggle elsewhere on the dashboard. --- */
-.backtest-candidates-toggle { margin-top: 10px; }
-.backtest-candidates-tab { min-height: 20px; }
-.backtest-live-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--muted);
-  border-radius: 8px;
-  padding: 10px 14px;
-}
-.backtest-live-card.is-working { border-left-color: var(--accent); }
-.backtest-live-headline { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
-.backtest-live-card.is-working .backtest-live-headline { color: var(--accent); }
-.backtest-live-detail { font-size: 12px; color: var(--text); margin-bottom: 6px; line-height: 1.4; }
-.backtest-live-note { font-size: 10.5px; line-height: 1.4; }
-
-@media (max-width: 640px) {
-  #chart-container { height: 260px; }
-  .symbol-dropdown-list { min-width: 170px; }
-  .overview-grid { flex-direction: column; align-items: stretch; }
-  .gauge-wrap { align-self: center; }
-  .pnl-modal { max-width: none; padding: 16px; }
-  .pnl-chart-container { height: 180px; }
-  .risk-modal { max-width: none; padding: 16px; }
-  .backtest-modal { max-width: none; padding: 16px; }
-}
+.page.stale .kpis, .page.stale .card { opacity: 0.72; }

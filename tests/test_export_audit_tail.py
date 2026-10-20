@@ -9,7 +9,8 @@ origin/main's script (tests/_legacy_export_dashboard_data.py); these tests run o
      plus a randomised fuzz;
   B. the streaming reducers (`_scan_audit`) against the legacy `_role_statuses` / `_signal_history` on the
      committed fixtures, a generated trial log and a multi-month log, below and above the 200,000-line cap;
-  C. the whole `main()` run old vs new, byte-for-byte on web/data.json (1h config);
+  C. the whole `main()` run old vs new, byte-for-byte on web/data.json (1h config) once the additive `ops` block the
+     redesigned dashboard reads (tests/test_export_ops.py) is set aside: every pre-existing key is unchanged;
   D. peak memory, and the byte cap.
 """
 from __future__ import annotations
@@ -376,6 +377,14 @@ def run_main(module, tmp: Path, raw: dict, monkeypatch) -> bytes:
     return out.read_bytes()
 
 
+def without_ops(raw_bytes: bytes) -> bytes:
+    """data.json as the legacy script would have written it: the additive `ops` key (the redesigned dashboard's
+    block) set aside, re-serialised exactly as main() writes (indent=2, same key order, no trailing newline)."""
+    data = json.loads(raw_bytes)
+    data.pop("ops", None)
+    return json.dumps(data, indent=2, default=str).encode()
+
+
 def main_raw(tmp: Path, audit: Path, timeframe: str = "1h", label: str | None = None) -> dict:
     raw = copy.deepcopy(load_config().raw)
     raw["market"]["timeframe"] = timeframe
@@ -396,9 +405,9 @@ def test_main_output_is_byte_identical_to_the_legacy_at_1h(tmp_path, monkeypatch
     raw["advisor"]["enabled"] = advisor
     before = run_main(old, tmp_path, raw, monkeypatch)
     after = run_main(new, tmp_path, raw, monkeypatch)
-    assert after == before
+    assert without_ops(after) == before
     data = json.loads(after)
-    assert "display" not in data  # the hourly export gained no key
+    assert "display" not in data and "ops" in data  # the hourly export gained exactly one key: `ops`
     assert data["signal_history"] and data["roles"][0]["id"] == "boss"
 
 
@@ -421,7 +430,7 @@ def test_main_output_is_byte_identical_for_a_log_over_the_200k_line_cap(tmp_path
     raw["advisor"]["enabled"] = True
     before = run_main(old, tmp_path, raw, monkeypatch)
     after = run_main(new, tmp_path, raw, monkeypatch)
-    assert after == before
+    assert without_ops(after) == before
 
 
 def test_main_output_is_byte_identical_on_the_generated_trial_log(tmp_path, monkeypatch):
@@ -430,7 +439,7 @@ def test_main_output_is_byte_identical_on_the_generated_trial_log(tmp_path, monk
     trial = _generate_trial(tmp_path / "trial", bars=5, ticks=2)
     _snapshot(tmp_path / "snapshot.json", "1h")
     raw = main_raw(tmp_path, trial.dir / "audit.jsonl")
-    assert run_main(new, tmp_path, raw, monkeypatch) == run_main(old, tmp_path, raw, monkeypatch)
+    assert without_ops(run_main(new, tmp_path, raw, monkeypatch)) == run_main(old, tmp_path, raw, monkeypatch)
 
 
 @pytest.mark.parametrize("what", ["missing", "empty"])
@@ -440,7 +449,7 @@ def test_main_output_is_byte_identical_without_audit_events(tmp_path, monkeypatc
         audit.write_text("")
     _snapshot(tmp_path / "snapshot.json", "1h")
     raw = main_raw(tmp_path, audit)
-    assert run_main(new, tmp_path, raw, monkeypatch) == run_main(old, tmp_path, raw, monkeypatch)
+    assert without_ops(run_main(new, tmp_path, raw, monkeypatch)) == run_main(old, tmp_path, raw, monkeypatch)
 
 
 # --------------------------------------------------------------------------- #
