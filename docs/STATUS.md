@@ -1,23 +1,25 @@
-# Project status (as of 2026-10-16)
+# Project status (as of 2026-10-20)
 
 Read this first when picking the repo up cold. It summarises the "system redesign" work and what is
 waiting on whom. The detail lives in the linked docs; the PR/issue numbers are GitHub numbers.
 
-> **DO NOT MERGE `claude/daily-bar-paper-trial` outside the deploy window.** The VM auto-pulls `main`; merging
-> before the 1h bot is stopped and disabled would put the daily config under the 1h state at the next restart.
-> Follow `deploy/PAPER_TRIAL_RUNBOOK.md` section 3 (stop + disable, archive/reset, *then* merge, then pull and start
-> between 00:01 and 00:45 UTC).
+> **TRIAL RUNNING (day 0 = 2026-10-20 00:05 UTC).** PR #106 was merged on 2026-10-19 after the 1h bot was stopped and
+> archived; the paper bot has run the daily-bar config since. First-cycle check (20:14 UTC): 16 `*/USD` symbols, every
+> audit line `bar_close` 2026-10-20T00:00, 0 stale-bar skips, 0 errors, no entries yet (a quiet day is normal).
+> Kill rule frozen: stop if mean re-costed R < -0.57 / -0.43 / -0.34 / -0.30 at 20 / 30 / 40 / 50 trades, or equity
+> drawdown > 30%. The Daily Backtester Routine is paused and its PRs (#78, #82, #83, #85, #88, #29) stay unmerged.
+> Weekly routine, reports and rollback: `deploy/PAPER_TRIAL_RUNBOOK.md` sections 6-9. Paper only; live stays blocked
+> (issue #99).
 
-**Paper daily-bar trial (PR #106, branch `claude/daily-bar-paper-trial`, waiting for the owner's deploy window; not merged):** the shipped config
+**Paper daily-bar trial (PR #106, merged 2026-10-19; running):** the shipped config
 switches the **paper** bot to daily bars with bar parity on and the 16 coins on their `*/USD` pairs (the evidence's
 bars), with no strategy or risk parameter change and `mode: paper`. Operator steps: [../deploy/PAPER_TRIAL_RUNBOOK.md](../deploy/PAPER_TRIAL_RUNBOOK.md);
 pre-flight risks, the per-key timeframe audit and the kill-threshold re-simulation the design requires before
-freezing: [daily_trial_preflight.md](daily_trial_preflight.md). The tooling it needs is all on `main` now (#103,
-#104, #105, #107 below); PR #106 is the last piece and waits for the owner's deploy window. Until it is merged and
-deployed, the paragraph below describes the running bot.
+freezing: [daily_trial_preflight.md](daily_trial_preflight.md). The tooling it needs is all on `main` (#103,
+#104, #105, #107 below).
 
-**The bot is unchanged in behaviour by the redesign so far:** paper mode, static 16-symbol
-universe (`market.symbols`), 1h candles, daily-trend gate on, Claude advisor off. Nothing below has
+**Behaviour of the bot now:** paper mode, static 16-symbol
+universe (`market.symbols`), daily candles, daily-trend gate on, Claude advisor off. Nothing below has
 promoted a strategy or a universe change to the live config. The one risk-parameter change is
 `risk.min_order_quote_usd: 0 -> 10` (dust/phantom hygiene, not an edge change; see "Risk floor"
 below; merged, #104). It moved the harness baselines; the current numbers are in
