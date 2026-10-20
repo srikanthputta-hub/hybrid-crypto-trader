@@ -34,3 +34,10 @@ strategy_pack_run/data_15m_raw/
 strategy_pack_run/data_universe/raw_kraken/*.csv
 !strategy_pack_run/data_universe/raw_kraken/manifest.csv
 strategy_pack_run/data_universe/raw_long/*.csv
+
+# Intraday P0 dataset (docs/intraday_data.md): raw 15m/1h Coinbase candles + fetch state, regeneratable via
+# strategy_pack_run/fetch_intraday_p0.py. Committed instead: SHA256SUMS.txt and coverage_summary.json.
+strategy_pack_run/data_intraday/15m/
+strategy_pack_run/data_intraday/1h/
+strategy_pack_run/data_intraday/_state/
+strategy_pack_run/data_intraday/_kraken/
