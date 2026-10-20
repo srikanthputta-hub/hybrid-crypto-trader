@@ -1,12 +1,11 @@
 """The dashboard at a daily bar (docs/ops_memory_followup.md §3): scripts/export_dashboard_data.py's optional
-`display` block, the timeframe-scaled "working" window for the role cards, and web/app.js + web/display.js showing
-"prices as of <bar close>", a banner for notifier.label, and the P/L modal opening on Daily.
+`display` block and the timeframe-scaled "working" window for the role cards, plus the pure display layer
+(web/display.js, run under node) that the redesigned page (web/app.js) is built on.
 
-Golden contract: at the hourly default NOTHING changes.
-  - export: web/data.json is byte-identical to the frozen pre-change script's (no `display` key at 1h with no label);
-  - page: web/app.js + index.html, run in node against a DOM stub built from index.html's own ids, leave every element
-    that existed before in exactly the state the frozen pre-change page leaves it, for the same 1h data.json.
-At 1d the differences are exactly the new ones, asserted value by value.
+Golden contract kept from #107: at the hourly default the export is what the frozen pre-change script wrote (byte for
+byte, once the additive `ops` block of the redesigned page is set aside). The page itself was redesigned
+(docs/dashboard/README.md), so the old "page identical to the frozen page" comparison is gone; the page is tested for
+real in Chromium by tests/test_dashboard_page.py, and every number it shows comes from display.js, tested below.
 """
 from __future__ import annotations
 
@@ -20,12 +19,11 @@ import pytest
 
 import scripts.export_dashboard_data as new
 import tests._legacy_export_dashboard_data as old
-from tests.test_export_audit_tail import NOW, SYMBOLS, _snapshot, main_raw, run_main, write_events
+from tests.test_export_audit_tail import NOW, _snapshot, main_raw, run_main, without_ops, write_events
 
 REPO = Path(__file__).resolve().parent.parent
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
-STUB = REPO / "tests" / "dashboard_stub.js"
 
 
 # --------------------------------------------------------------------------- #
@@ -105,7 +103,9 @@ def export_pair(tmp_path, monkeypatch, timeframe: str, label, minutes_ago: int):
     raw = main_raw(tmp_path, audit, timeframe=timeframe, label=label)
     before = json.loads(run_main(old, tmp_path, raw, monkeypatch))
     raw_bytes_after = run_main(new, tmp_path, raw, monkeypatch)
-    return before, json.loads(raw_bytes_after), raw_bytes_after, raw
+    after = json.loads(raw_bytes_after)
+    after.pop("ops")  # the additive block of the redesigned page (tests/test_export_ops.py); everything else is compared
+    return before, after, raw_bytes_after, raw
 
 
 def statuses(data):
@@ -119,7 +119,7 @@ def test_hourly_export_is_byte_identical_and_has_no_display_key(tmp_path, monkey
     raw = main_raw(tmp_path, audit, timeframe="1h", label=None)
     before = run_main(old, tmp_path, raw, monkeypatch)
     after = run_main(new, tmp_path, raw, monkeypatch)
-    assert after == before
+    assert without_ops(after) == before
     assert "display" not in json.loads(after) and statuses(json.loads(after))["market_analyst"] == "working"
 
 
@@ -192,101 +192,3 @@ def test_display_js_helpers():
     assert got["weekly"] == ["prices as of 2026-10-12 00:00 UTC (last weekly close)"]
     assert got["bad"] == ["hourly", "nope", "—"]
     assert got["utc"] == "2026-10-16 00:00 UTC" and got["tz"] == "2026-10-16 00:00 UTC"
-
-
-# --------------------------------------------------------------------------- #
-# the page, old vs new, in node
-# --------------------------------------------------------------------------- #
-NEW_IDS = {"trial-banner", "price-as-of", "overview-as-of"}
-
-
-def run_page(index: Path, app: Path, display: Path | None, data_path: Path) -> dict:
-    out = subprocess.run([NODE, str(STUB), str(index), str(app), str(display) if display else "-", str(data_path)],
-                         capture_output=True, text=True, timeout=120)
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
-
-
-def page_new(data_path: Path) -> dict:
-    return run_page(REPO / "web" / "index.html", REPO / "web" / "app.js", REPO / "web" / "display.js", data_path)
-
-
-def page_old(data_path: Path) -> dict:
-    return run_page(REPO / "tests" / "_legacy_web" / "index.html", REPO / "tests" / "_legacy_web" / "app.js", None, data_path)
-
-
-def data_file(tmp_path, monkeypatch, timeframe, label, pending: bool = True, minutes_ago: int = 40) -> Path:
-    _, _, raw_bytes, _ = export_pair(tmp_path, monkeypatch, timeframe, label, minutes_ago=minutes_ago)
-    data = json.loads(raw_bytes)
-    data["symbols"] = SYMBOLS[:4]  # the symbols the snapshot has candles for
-    if pending:
-        data["pending"] = [{"symbol": "S0/USD", "pattern": "BREAKOUT", "entry_zone": [1.0, 2.0], "stop_loss": 0.5, "take_profit": 3.0,
-                            "risk_reward": 2.0, "confidence_rule_based": 3, "timestamp": NOW.isoformat()}]
-    path = tmp_path / "page_data.json"
-    path.write_text(json.dumps(data))
-    return path
-
-
-def common_ids(a: dict, b: dict) -> list[str]:
-    return sorted(i for i in (set(a) & set(b)) - NEW_IDS if not i.startswith("__"))
-
-
-@needs_node
-def test_hourly_page_is_identical_to_the_pre_change_page(tmp_path, monkeypatch):
-    path = data_file(tmp_path, monkeypatch, "1h", None)
-    before, after = page_old(path), page_new(path)
-    assert len(common_ids(before, after)) > 40  # every element and the P/L tab buttons are compared
-    for element_id in common_ids(before, after):
-        assert after[element_id] == before[element_id], element_id
-    assert after["__pnlButtons"] == before["__pnlButtons"]
-    assert "annotated chart</span>" in after["chart-title"]["innerHTML"]  # the plan's chart title, no "as of" suffix
-    # the new elements exist but stay hidden and empty
-    for element_id in NEW_IDS:
-        assert after[element_id]["hidden"] is True and after[element_id]["textContent"] == ""
-    assert [b["classes"] for b in after["__pnlButtons"]] == [["active", "toggle-btn"], ["toggle-btn"], ["toggle-btn"]]
-
-
-@needs_node
-def test_hourly_page_with_a_label_only_adds_the_banner(tmp_path, monkeypatch):
-    path = data_file(tmp_path, monkeypatch, "1h", "PAPER TRIAL")
-    before, after = page_old(path), page_new(path)
-    for element_id in common_ids(before, after):
-        assert after[element_id] == before[element_id], element_id
-    assert after["trial-banner"]["hidden"] is False and after["trial-banner"]["textContent"] == "PAPER TRIAL · 1h bars"
-    assert after["price-as-of"]["hidden"] is True and after["overview-as-of"]["hidden"] is True
-    assert after["__pnlButtons"] == before["__pnlButtons"]
-
-
-@needs_node
-def test_daily_page_shows_the_as_of_label_the_banner_and_opens_pnl_on_daily(tmp_path, monkeypatch):
-    path = data_file(tmp_path, monkeypatch, "1d", "PAPER TRIAL")
-    before, after = page_old(path), page_new(path)
-    as_of = "prices as of 2026-10-16 00:00 UTC (last daily close)"
-    assert after["trial-banner"] == dict(after["trial-banner"], hidden=False, textContent="PAPER TRIAL · 1d bars")
-    for element_id in ("price-as-of", "overview-as-of"):
-        assert after[element_id]["hidden"] is False and after[element_id]["textContent"] == as_of
-    assert [(b["period"], "active" in b["classes"]) for b in after["__pnlButtons"]] == [("hourly", False), ("daily", True), ("weekly", False)]
-    assert f"annotated chart · {as_of}</span>" in after["chart-title"]["innerHTML"]
-    # everything else on the page is what the old page rendered from the same data
-    differing = {i for i in common_ids(before, after) if after[i] != before[i]}
-    assert differing == {"chart-title"}, differing
-    assert [b["classes"] for b in before["__pnlButtons"]] == [["active", "toggle-btn"], ["toggle-btn"], ["toggle-btn"]]
-
-
-@needs_node
-def test_daily_page_without_a_label_has_no_banner_but_keeps_the_as_of(tmp_path, monkeypatch):
-    path = data_file(tmp_path, monkeypatch, "1d", None, pending=False)
-    after = page_new(path)
-    assert after["trial-banner"]["hidden"] is True and after["trial-banner"]["textContent"] == ""
-    assert after["price-as-of"]["hidden"] is False
-    assert "annotated chart" not in after["chart-title"]["innerHTML"]  # no plan selected: the live-market title as before
-
-
-@needs_node
-def test_every_id_the_page_script_asks_for_exists_in_the_html():
-    """The stub returns null for an unknown id, so a mismatch would have thrown above; this pins the new ids."""
-    html = (REPO / "web" / "index.html").read_text()
-    for element_id in NEW_IDS:
-        assert f'id="{element_id}"' in html
-    assert html.index('src="display.js"') < html.index('src="app.js"')
-    assert "/display.js" in (REPO / "web" / "_headers").read_text()

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "default": "daily",
+  "instances": [
+    {
+      "id": "daily",
+      "name": "Daily trial",
+      "data": "data.json",
+      "kill_rule": {
+        "label": "Frozen by the owner on 2026-10-19",
+        "source": "deploy/PAPER_TRIAL_RUNBOOK.md section 8; docs/daily_trial_preflight.md section 5",
+        "avg_r": [
+          { "n": 20, "max": -0.57 },
+          { "n": 30, "max": -0.43 },
+          { "n": 40, "max": -0.34 },
+          { "n": 50, "max": -0.30 }
+        ],
+        "max_drawdown": 0.30
+      }
+    }
+  ]
+}

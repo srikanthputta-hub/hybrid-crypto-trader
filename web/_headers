@@ -1,4 +1,23 @@
+# Cloudflare static-asset headers. Rules are cumulative: a request gets the headers of every pattern it matches.
+
+# Security headers on every response. The page makes no request outside its own origin and loads no inline script or
+# style, so the policy can be strict: it also makes any accidental external request (or injected markup) fail loudly.
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+
+# Live data and the page itself: always revalidate.
 /data.json
+  Cache-Control: no-cache, must-revalidate
+
+# One data file per bot instance (web/instances.json). A second instance writes data_<id>.json; add its line here
+# (the static-asset default is also max-age=0, must-revalidate, and the page fetches with cache: "no-store").
+/data_intraday.json
+  Cache-Control: no-cache, must-revalidate
+
+/instances.json
   Cache-Control: no-cache, must-revalidate
 
 /
@@ -14,4 +33,7 @@
   Cache-Control: no-cache, must-revalidate
 
 /display.js
+  Cache-Control: no-cache, must-revalidate
+
+/theme.js
   Cache-Control: no-cache, must-revalidate

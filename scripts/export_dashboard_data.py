@@ -16,6 +16,9 @@ one self-contained JSON file the page reads. Re-run it (e.g. on a cron, or
 right before a git push if you're using the GitHub -> Cloudflare Pages
 auto-deploy flow from the README) to refresh what the dashboard shows.
 
+The additive `ops` key (see "`ops`" below) feeds the redesigned page; options `--config/--out/--instance-id/
+--instance-name` export a second bot instance (web/instances.json). With no options this is exactly as before.
+
 Portfolio itself (src/portfolio.py) is in-memory only and doesn't survive a
 process restart, so "cash" here is reconstructed the same way src/bot.py
 reconstructs it at startup: replaying logs/trades.csv from the configured
@@ -23,8 +26,11 @@ starting balance (see src.portfolio.reconstruct_cash).
 """
 from __future__ import annotations
 
+import argparse
+import csv
 import json
 import sys
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -489,6 +495,7 @@ def _scan_audit(
     now: datetime,
     max_age: "timedelta | None" = None,
     max_items: "int | None" = None,
+    collectors: "tuple[Any, ...]" = (),
 ) -> "AuditView":
     """ONE pass over the audit events, newest first, keeping only what the dashboard shows: the newest event
     (the Boss card's last_active), the newest event matching each role's marker keys, and the signal-history
@@ -498,7 +505,11 @@ def _scan_audit(
 
     The scan ends as soon as the history has hit its cut-off AND every role has been found; a role that never
     appears (e.g. the advisor when it is disabled) keeps it going to the end of the stream, which the reader
-    bounds at AUDIT_TAIL_MAX_LINES."""
+    bounds at AUDIT_TAIL_MAX_LINES.
+
+    `collectors` (optional, empty by default = exactly the behaviour above) are extra one-event-at-a-time reducers
+    with a `feed(event)` method and a `done` flag (see `_DecisionCollector`): they see the same newest-first
+    stream, are not fed once `done`, and the scan also waits for them before stopping early."""
     history = _HistoryCollector(
         now,
         HISTORY_MAX_AGE if max_age is None else max_age,
@@ -515,7 +526,10 @@ def _scan_audit(
             del pending[role_id]
         if not history.done:
             history.feed(event)
-        if history.done and not pending:
+        for collector in collectors:
+            if not collector.done:
+                collector.feed(event)
+        if history.done and not pending and all(collector.done for collector in collectors):
             break
     return AuditView(newest=None if newest is _MISSING else newest, last_by_role=last_by_role, history=history.items)
 
@@ -766,8 +780,548 @@ def _record_view(symbol: str, record, current_price: float | None) -> dict[str, 
     return view
 
 
-def main() -> None:
-    cfg = load_config()
+# --------------------------------------------------------------------------- #
+# `ops`: the additive block the redesigned dashboard (web/app.js) reads
+# --------------------------------------------------------------------------- #
+# Everything the page needs that the original export did not carry: instance identity, the per-symbol decision for
+# the latest bar, per-trade R (as booked and re-costed), an equity curve, health counters, the kill-switch file,
+# the newest parity report. It is ADDED under one new key; every pre-existing key is unchanged, and a failure while
+# building it only drops this key (main() warns on stderr and still writes everything else). Nothing here touches
+# trading: this script only reads the bot's files (and appends to its own small equity-sample log).
+#
+# Memory: the audit log is only ever read through `_scan_audit`'s newest-first stream (the tail-read of #107), with
+# one more reducer (`_DecisionCollector`) that keeps two events per symbol and a few counters. trades.csv and the
+# plan history are small (a few lines per trade) and are streamed line by line.
+OPS_SCHEMA = 1
+OPS_HEALTH_WINDOW = timedelta(days=7)
+# The cost tier the paper daily trial is JUDGED at: Kraken T3 taker, 0.38% fee + 0.05% slippage per side
+# (docs/STATUS.md "fee tier the trial is judged at stays Kraken T3 taker"; deploy/PAPER_TRIAL_RUNBOOK.md section 7;
+# the same numbers as strategy_pack_run/engine.py's COST_PRESETS["kraken_T3_taker"]). The kill-rule thresholds are
+# defined on this re-costed R, so the exported R series is re-costed with exactly the harness's formula.
+RECOST_FEE = 0.0038
+RECOST_SLIPPAGE = 0.0005
+RECOST_LABEL = "Kraken T3 taker: 0.38% fee + 0.05% slippage per side"
+CLOSED_TRADES_EXPORTED = 50  # rows for the "recent closed trades" table
+R_SERIES_MAX = 1000  # every trade's R in close order (the kill rule needs the first 20/30/40/50)
+PLAN_MATCH_TOLERANCE = timedelta(minutes=10)  # trades.csv row vs plan-history record, same symbol, closest in time
+EQUITY_SAMPLE_MIN_GAP = timedelta(hours=6)
+EQUITY_POINTS_MAX = 1500
+DECISION_REASON_MAX = 240
+
+
+def _clip(text: Any, limit: int = DECISION_REASON_MAX) -> str:
+    text = str(text)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _note_of(event: dict[str, Any]) -> str:
+    note = event.get("note")
+    return note if isinstance(note, str) else ""
+
+
+def _is_unavailable(event: dict[str, Any]) -> bool:
+    return "market data unavailable" in str(event.get("error") or "")
+
+
+def _classify_decision(event: dict[str, Any]) -> tuple[str, str]:
+    """(state, reason) for one audit event, from what src/bot.py wrote on it. States: `scan` (scanned, nothing to
+    trade), `skip` (deliberately not acted on), `holding` (open position / pending plan), `blocked` (a gate said no),
+    `entered` / `exited` (a fill this bar), `error`, `nodata`. The reason is the audit's own wording, never invented."""
+    err = event.get("error")
+    if err:
+        if _is_unavailable(event):
+            return "nodata", "market data unavailable this cycle"
+        return "error", _clip(f"error: {err}")
+    note = _note_of(event)
+    execution = event.get("execution") if isinstance(event.get("execution"), dict) else None
+    monitor = event.get("monitor_action")
+    monitor_action = monitor.get("action") if isinstance(monitor, dict) else None
+    if execution and monitor_action == "STOP_LOSS":
+        return "exited", f"stop-loss hit, sold at {_fmt_price(execution.get('price'))}"
+    if execution and monitor_action == "TAKE_PROFIT":
+        return "exited", f"target reached, sold at {_fmt_price(execution.get('price'))}"
+    if execution and monitor_action == "FILL":
+        return "entered", f"pending plan filled at {_fmt_price(execution.get('price'))}"
+    if event.get("action") == "planned":
+        if execution:
+            return "entered", f"bought at {_fmt_price(execution.get('price'))}"
+        return "holding", "plan queued, waiting for price to reach the entry zone"
+    if note.startswith("OPEN plan active"):
+        return "holding", "open position, no stop/target trigger this cycle"
+    if note.startswith("PENDING plan active"):
+        return "holding", "pending plan, no entry trigger this cycle"
+    if note.startswith("stale bar"):
+        delay = event.get("entry_delay_minutes")
+        late = f" ({delay} min after the close)" if delay is not None else ""
+        return "skip", f"stale bar: entries skipped{late}"
+    if note.startswith("bearish signal"):
+        return "skip", "bearish signal logged only (long-only bot)"
+    if "monitor-only" in note:
+        return "skip", "monitor-only symbol (not in the tradeable universe)"
+    if note.startswith("blocked:"):
+        return "blocked", _clip(note[len("blocked:"):].strip())
+    decision = event.get("risk_decision")
+    if isinstance(decision, dict) and not decision.get("allowed"):
+        return "blocked", _clip(f"risk check said no: {decision.get('reason')}")
+    verdict = event.get("advisor_verdict")
+    if isinstance(verdict, dict) and verdict.get("verdict") == "VETO":
+        return "blocked", _clip(f"advisor veto: {verdict.get('reasoning')}")
+    if event.get("daily_trend_confirmed") is False:
+        return "blocked", "daily trend not confirmed bullish (higher-timeframe filter)"
+    if isinstance(event.get("signal"), dict):
+        return "skip", _clip(note) if note else "signal found but no plan could be built"
+    candidates = event.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        parts = [f"{c.get('pattern')} {c.get('strength')}" for c in candidates[:3] if isinstance(c, dict)]
+        return "scan", _clip(f"{len(candidates)} candidate(s) ({', '.join(parts)}), no signal")
+    if "candidates" in event:
+        return "scan", "scanned: no setup"
+    return "skip", _clip(note or "no action recorded")
+
+
+def _pattern_of(event: dict[str, Any]) -> str | None:
+    signal = event.get("signal")
+    if isinstance(signal, dict) and signal.get("pattern"):
+        return str(signal["pattern"])
+    plan = event.get("plan")
+    if isinstance(plan, dict) and plan.get("pattern"):
+        return str(plan["pattern"])
+    candidates = [c for c in (event.get("candidates") or []) if isinstance(c, dict)] if isinstance(event.get("candidates"), list) else []
+    best = max(candidates, key=lambda c: _num(c.get("strength")) or 0, default=None)
+    return str(best["pattern"]) if best and best.get("pattern") else None
+
+
+class _DecisionCollector:
+    """Fed the audit events newest first (see `_scan_audit`). Keeps, per symbol, only the newest event and the newest
+    event that is not an "already decided" echo (the deciding line, or a held symbol's monitor line), plus counters
+    for the latest bar and for the last OPS_HEALTH_WINDOW. A "market data unavailable" line is never the deciding
+    event (a one-cycle outage must not hide the bar's real decision); it only flags the symbol.
+
+    `done` flips once an event is older than the window. Timestamps are compared as ISO strings: the bot writes
+    them as UTC `datetime.isoformat()`, which sorts chronologically (the window is a display bound, so an odd
+    timestamp format can only move its edge, never change a decision)."""
+
+    def __init__(self, now: datetime, window: timedelta = OPS_HEALTH_WINDOW) -> None:
+        self.cutoff_iso = (now - window).isoformat()
+        self.window = window
+        self.done = False
+        self.newest: dict[str, dict[str, Any]] = {}
+        self.deciding: dict[str, dict[str, Any]] = {}
+        self.latest_bar: str | None = None
+        self.latest_decided: set[str] = set()
+        self.latest_stale = 0
+        self.latest_errors = 0
+        self.events = 0
+        self.stale_skips = 0
+        self.errors = 0
+        self.unavailable = 0
+        self.oldest: str | None = None
+
+    def feed(self, event: dict[str, Any]) -> None:
+        ts = event.get("timestamp")
+        if isinstance(ts, str) and ts < self.cutoff_iso:
+            self.done = True
+            return
+        symbol = event.get("symbol")
+        if not isinstance(symbol, str) or not symbol:
+            return
+        note = _note_of(event)
+        err = event.get("error")
+        unavailable = bool(err) and _is_unavailable(event)
+        stale = note.startswith("stale bar")
+        self.events += 1
+        if isinstance(ts, str):
+            self.oldest = ts
+        self.stale_skips += stale
+        self.unavailable += unavailable
+        self.errors += bool(err) and not unavailable
+        bar = event.get("bar_close")
+        if isinstance(bar, str) and self.latest_bar is None:
+            self.latest_bar = bar
+        if isinstance(bar, str) and bar == self.latest_bar:
+            if not err:
+                self.latest_decided.add(symbol)
+            self.latest_stale += stale
+            self.latest_errors += bool(err) and not unavailable
+        if symbol not in self.newest:
+            self.newest[symbol] = event
+        if "already decided" not in note and not unavailable and symbol not in self.deciding:
+            self.deciding[symbol] = event
+
+    def rows(self, symbols: list[str]) -> list[dict[str, Any]]:
+        ordered = list(symbols) + sorted(s for s in set(self.newest) | set(self.deciding) if s not in symbols)
+        rows = []
+        for symbol in ordered:
+            event = self.deciding.get(symbol)
+            newest = self.newest.get(symbol)
+            if event is None:
+                reason = "market data unavailable this cycle" if newest is not None else "no audit line for this symbol in the last 7 days"
+                state, event = "nodata", (newest or {})
+            else:
+                state, reason = _classify_decision(event)
+            row = {
+                "symbol": symbol,
+                "state": state,
+                "reason": reason,
+                "bar_close": event.get("bar_close"),
+                "timestamp": event.get("timestamp"),
+                "pattern": _pattern_of(event),
+            }
+            if newest is not None and _is_unavailable(newest):
+                row["data_unavailable"] = True
+            rows.append(row)
+        return rows
+
+    def health(self, expected_symbols: int) -> dict[str, Any]:
+        return {
+            "expected_symbols": expected_symbols,
+            "latest_bar": {
+                "bar_close": self.latest_bar,
+                "symbols_decided": len(self.latest_decided),
+                "stale_skips": self.latest_stale,
+                "errors": self.latest_errors,
+            },
+            "window": {
+                "days": self.window.days,
+                "since": self.oldest,
+                "events": self.events,
+                "stale_skips": self.stale_skips,
+                "errors": self.errors,
+                "unavailable": self.unavailable,
+            },
+        }
+
+
+def _num(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number and number not in (float("inf"), float("-inf")) else None
+
+
+def _load_round_trips(trade_log_path: Path) -> list[dict[str, Any]]:
+    """Closed round-trips from trades.csv, oldest first: the same pairing as src.pnl.load_closed_trades (the most
+    recent open BUY per symbol with the next SELL), but keeping the prices and the base amount the R maths needs.
+    A malformed row is skipped (never aborts the export)."""
+    if not trade_log_path.exists():
+        return []
+    open_buys: dict[str, dict[str, Any]] = {}
+    trips: list[dict[str, Any]] = []
+    with open(trade_log_path, newline="") as f:
+        for row in csv.DictReader(f):
+            try:
+                symbol, side = row["symbol"], row["side"]
+                when = _parse_iso(row["timestamp"]) if isinstance(row["timestamp"], str) else None
+                price, base, quote = float(row["price"]), float(row["base_amount"]), float(row["quote_amount"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            if when is None:
+                continue
+            if side == "buy":
+                open_buys[symbol] = {"time": when, "price": price, "base": base, "quote": quote}
+            elif side == "sell" and symbol in open_buys:
+                buy = open_buys.pop(symbol)
+                cost = buy["quote"]
+                trips.append(
+                    {
+                        "symbol": symbol,
+                        "opened_at": buy["time"],
+                        "closed_at": when,
+                        "entry": buy["price"],
+                        "exit": price,
+                        "base": buy["base"],
+                        "pnl": quote - cost,
+                        "pnl_pct": (quote - cost) / cost if cost else 0.0,
+                    }
+                )
+    return trips
+
+
+def _closed_plan_records(history_path: Path, keep: int = 5000) -> list[dict[str, Any]]:
+    """The CLOSED, actually-filled records of the plan history (trade_plans_history.jsonl), as compact dicts. The
+    file is streamed line by line; only the few fields the R maths needs are kept, newest `keep` records at most."""
+    if not history_path.exists():
+        return []
+    kept: deque[dict[str, Any]] = deque(maxlen=keep)
+    with open(history_path, errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(rec, dict) or rec.get("status") != "CLOSED" or rec.get("fill_price") is None:
+                continue
+            plan = rec.get("plan") if isinstance(rec.get("plan"), dict) else {}
+            zone = plan.get("entry_zone")
+            entry_high = _num(zone[1]) if isinstance(zone, (list, tuple)) and len(zone) == 2 else None
+            stop = _num(plan.get("stop_loss"))
+            kept.append(
+                {
+                    "symbol": rec.get("symbol"),
+                    "closed_at": _parse_iso(rec["closed_at"]) if isinstance(rec.get("closed_at"), str) else None,
+                    "reason": rec.get("close_reason"),
+                    "risk": (entry_high - stop) if entry_high is not None and stop is not None else None,
+                }
+            )
+    return list(kept)
+
+
+def _r_recosted(entry: float, exit_: float, risk: float | None, fee: float, slippage: float) -> float | None:
+    """R of one round-trip at a given cost tier, with strategy_pack_run's definition (diag_1h_edge.py /
+    backtest_live_bot.record_trade): per unit of quote spent, qty = (1 - fee) / (entry * (1 + slippage)), the exit
+    fills at exit * (1 - slippage) less the fee, and R = net / (qty * planned risk), the planned risk per unit being
+    entry_zone high - stop_loss. Scale-free, so it needs only the two raw prices and the plan's risk."""
+    if risk is None or risk <= 0 or entry <= 0 or exit_ <= 0:
+        return None
+    qty = (1 - fee) / (entry * (1 + slippage))
+    net = qty * (exit_ * (1 - slippage)) * (1 - fee) - 1.0
+    return net / (qty * risk)
+
+
+def _trade_stats(trips: list[dict[str, Any]], plans: list[dict[str, Any]]) -> dict[str, Any]:
+    """Per-trade R for every closed round-trip (booked = the paper broker's actual P/L over the planned risk;
+    re-costed = at RECOST_*), the recent rows for the table, and the roll-ups. A trip with no matching plan record
+    (or a plan with no usable risk) has no R: counted in `r_missing`, never guessed."""
+    unused = list(range(len(plans)))
+    rows: list[dict[str, Any]] = []
+    for trip in sorted(trips, key=lambda t: t["closed_at"]):
+        best_i, best_gap = None, None
+        for i in unused:
+            plan = plans[i]
+            if plan["symbol"] != trip["symbol"] or plan["closed_at"] is None:
+                continue
+            gap = abs(plan["closed_at"] - trip["closed_at"])
+            if gap <= PLAN_MATCH_TOLERANCE and (best_gap is None or gap < best_gap):
+                best_i, best_gap = i, gap
+        plan = plans[best_i] if best_i is not None else None
+        if best_i is not None:
+            unused.remove(best_i)
+        risk = plan["risk"] if plan else None
+        r_booked = trip["pnl"] / (trip["base"] * risk) if risk and risk > 0 and trip["base"] > 0 else None
+        r_recost = _r_recosted(trip["entry"], trip["exit"], risk, RECOST_FEE, RECOST_SLIPPAGE)
+        rows.append(
+            {
+                "symbol": trip["symbol"],
+                "opened_at": trip["opened_at"].isoformat(),
+                "closed_at": trip["closed_at"].isoformat(),
+                "reason": plan["reason"] if plan else None,
+                "entry": trip["entry"],
+                "exit": trip["exit"],
+                "pnl": round(trip["pnl"], 2),
+                "pnl_pct": round(trip["pnl_pct"], 4),
+                "r_booked": None if r_booked is None else round(r_booked, 4),
+                "r_recosted": None if r_recost is None else round(r_recost, 4),
+            }
+        )
+    n = len(rows)
+    booked = [r["r_booked"] for r in rows if r["r_booked"] is not None]
+    recost = [r["r_recosted"] for r in rows if r["r_recosted"] is not None]
+    wins = sum(1 for r in rows if r["pnl"] > 0)
+    return {
+        "closed_trades": rows[-CLOSED_TRADES_EXPORTED:][::-1],  # newest first
+        "r_recosted_series": [r["r_recosted"] for r in rows[-R_SERIES_MAX:]],  # close order, None where unknown
+        "stats": {
+            "n": n,
+            "wins": wins,
+            "win_rate": round(wins / n, 4) if n else None,
+            "avg_r_booked": round(sum(booked) / len(booked), 4) if booked else None,
+            "avg_r_recosted": round(sum(recost) / len(recost), 4) if recost else None,
+            "r_known": len(recost),
+            "r_missing": n - len(recost),
+        },
+    }
+
+
+def _read_equity_samples(path: Path) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    try:
+        if not path.is_file():
+            return []
+        for line in _iter_audit_lines_reversed(path, EQUITY_POINTS_MAX):
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict) and isinstance(item.get("t"), str) and _num(item.get("equity")) is not None:
+                samples.append(item)
+    except OSError as exc:  # unreadable sample log: the curve restarts from the seed instead of failing the export
+        print(f"warning: couldn't read {path}: {exc}", file=sys.stderr)
+        return []
+    samples.reverse()
+    return samples
+
+
+def _first_event_time(audit_path: Path) -> datetime | None:
+    """Timestamp of the audit log's first parseable line (reads at most the first few lines): the trial's start."""
+    if not audit_path.exists():
+        return None
+    with open(audit_path, errors="replace") as f:
+        for _ in range(50):
+            line = f.readline()
+            if not line:
+                return None
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ts = _parse_iso(event["timestamp"]) if isinstance(event, dict) and isinstance(event.get("timestamp"), str) else None
+            if ts is not None:
+                return ts
+    return None
+
+
+def _equity_samples_to_store(
+    samples: list[dict[str, Any]], now: datetime, equity: float, cash: float, seed_at: datetime | None, starting_cash: float | None
+) -> list[dict[str, Any]]:
+    """Which samples to append to the sample log this run. The portfolio is only held in memory by the bot, so the
+    only mark-to-market history there can ever be is the one this exporter keeps: a sample whenever (equity, cash)
+    changed since the last one or EQUITY_SAMPLE_MIN_GAP passed (a daily bar moves prices once a day, so this is a
+    handful of lines per day). The very first run also writes a seed at the audit log's first line, at the starting
+    cash: before the first event nothing had been traded, by construction."""
+    new: list[dict[str, Any]] = []
+    if not samples and seed_at is not None and starting_cash is not None and seed_at < now:
+        new.append({"t": seed_at.isoformat(), "equity": round(starting_cash, 2), "cash": round(starting_cash, 2), "seed": True})
+    last = (new or samples or [None])[-1]
+    sample = {"t": now.isoformat(), "equity": round(equity, 2), "cash": round(cash, 2)}
+    last_t = _parse_iso(last["t"]) if last else None
+    changed = last is None or (last.get("equity"), last.get("cash")) != (sample["equity"], sample["cash"])
+    if changed or last_t is None or now - last_t >= EQUITY_SAMPLE_MIN_GAP:
+        new.append(sample)
+    return new
+
+
+def _equity_curve(
+    path: Path, now: datetime, equity: float, cash: float, seed_at: datetime | None, starting_cash: float | None
+) -> dict[str, Any]:
+    samples = _read_equity_samples(path)
+    if seed_at is not None:
+        # Samples older than the audit log's first line belong to an earlier run of the portfolio (the log was reset
+        # or archived, scripts/reset_portfolio.py): they would draw a curve for a portfolio that no longer exists.
+        # (With log retention on, the audit log's start slides and so does this window; the paper trial keeps it off.)
+        samples = [x for x in samples if (_parse_iso(x["t"]) or seed_at) >= seed_at]
+    new = _equity_samples_to_store(samples, now, equity, cash, seed_at, starting_cash)
+    if new:
+        try:
+            with open(path, "a") as f:
+                for item in new:
+                    f.write(json.dumps(item) + "\n")
+        except OSError as exc:  # the curve is a nicety: a read-only/full disk only means this run's sample is not kept
+            print(f"warning: couldn't append to {path}: {exc}", file=sys.stderr)
+    stored = samples + new
+    points = [[s["t"], s["equity"], s.get("cash")] for s in stored]
+    if not stored or stored[-1]["t"] != now.isoformat():  # always end the curve at "now" with the live equity
+        points.append([now.isoformat(), round(equity, 2), round(cash, 2)])
+    return {
+        "since": points[0][0] if points else None,
+        "source": "samples kept by the dashboard export (mark-to-market at each export), seeded at the audit log's first line with the starting cash",
+        "points": points,
+    }
+
+
+def _load_parity_summary(directory: Path) -> dict[str, Any] | None:
+    """The newest `parity_*.json` (the weekly scripts/paper_parity_check.py --json-out report, runbook section 6),
+    reduced to what the page shows. None when there is none or it cannot be read: the page then says so."""
+    try:
+        files = sorted(directory.glob("parity_*.json"))
+    except OSError:
+        return None
+    for path in reversed(files):
+        try:
+            report = json.loads(path.read_text())
+            if not isinstance(report, dict) or not report.get("status"):
+                continue
+            window = report.get("window") if isinstance(report.get("window"), dict) else None
+            return {
+                "status": str(report["status"]),
+                "message": _clip(report.get("message") or ""),
+                "window": {k: window.get(k) for k in ("since", "until", "decided_bars")} if window else None,
+                "trial_start": report.get("trial_start"),
+                "budget": report.get("budget"),
+                "file": path.name,
+                "file_modified": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat(),
+            }
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def _timeframe_word(timeframe: str | None) -> str:
+    return {"1d": "daily", "1w": "weekly", "1M": "monthly"}.get(timeframe or "", timeframe or "bot")
+
+
+def _build_ops(
+    cfg: Any,
+    now: datetime,
+    audit_view: "AuditView",
+    decisions: "_DecisionCollector",
+    *,
+    audit_path: Path,
+    trade_log_path: Path,
+    plan_history_path: Path,
+    equity: float,
+    cash: float,
+    instance_id: str | None,
+    instance_name: str | None,
+) -> dict[str, Any]:
+    starting_cash = _num(cfg.risk.get("starting_cash_usd"))
+    newest = audit_view.newest if isinstance(audit_view.newest, dict) else {}
+    stats = _trade_stats(_load_round_trips(trade_log_path), _closed_plan_records(plan_history_path))
+    kill_file = cfg.risk.get("kill_switch_file", "KILL_SWITCH")
+    health = decisions.health(len(cfg.symbols))
+    health.update(
+        last_event_at=newest.get("timestamp"),
+        last_bar_close=decisions.latest_bar,
+        poll_interval_seconds=cfg.loop.get("poll_interval_seconds"),
+        max_entry_delay_minutes=cfg.loop.get("max_entry_delay_minutes"),
+    )
+    return {
+        "schema": OPS_SCHEMA,
+        "instance": {
+            "id": instance_id or _timeframe_word(cfg.timeframe),
+            "name": instance_name or f"{_timeframe_word(cfg.timeframe).capitalize()} bot",
+            "label": cfg.notifier_label,
+            "mode": cfg.mode,
+            "timeframe": cfg.timeframe,
+            "exchange_id": cfg.exchange_id,
+        },
+        "starting_cash": starting_cash,
+        "kill_switch": {"present": (PROJECT_ROOT / kill_file).exists(), "file": Path(kill_file).name},
+        "recost": {"label": RECOST_LABEL, "fee": RECOST_FEE, "slippage": RECOST_SLIPPAGE},
+        "trade_stats": stats["stats"],
+        "r_recosted_series": stats["r_recosted_series"],
+        "closed_trades": stats["closed_trades"],
+        "decisions": decisions.rows(cfg.symbols),
+        "health": health,
+        "equity_curve": _equity_curve(
+            audit_path.parent / "dashboard_equity.jsonl", now, equity, cash, _first_event_time(audit_path), starting_cash
+        ),
+        "parity": _load_parity_summary(audit_path.parent),
+    }
+
+
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Export the bot's live state to a dashboard JSON file (default web/data.json). All options are "
+        "for running a SECOND bot instance (see web/instances.json); with none, the export is exactly as before."
+    )
+    parser.add_argument("--config", help="config.yaml of the bot instance to export (default: config/config.yaml)")
+    parser.add_argument("--out", help="output file (default: web/data.json)")
+    parser.add_argument("--instance-id", help="short id for ops.instance.id (default: derived from market.timeframe)")
+    parser.add_argument("--instance-name", help="display name for ops.instance.name (default: '<Timeframe> bot')")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    # argv is None for the programmatic/test call and the VM's `python scripts/export_dashboard_data.py`
+    # (the __main__ block below passes sys.argv[1:]); nothing here parses sys.argv on its own.
+    args = _parse_args(argv) if argv is not None else argparse.Namespace(config=None, out=None, instance_id=None, instance_name=None)
+    cfg = load_config(args.config) if args.config else load_config()
     log_cfg = cfg.logging_cfg
     now = datetime.now(timezone.utc)
 
@@ -776,9 +1330,9 @@ def main() -> None:
         history_path=PROJECT_ROOT / log_cfg.get("trade_plan_history_path", "logs/trade_plans_history.jsonl"),
     )
     # Streamed newest-first and reduced as it goes (see _scan_audit): the whole audit log is never in memory.
-    audit_view = _scan_audit(
-        _iter_audit_events_reversed(PROJECT_ROOT / log_cfg.get("audit_log_path", "logs/audit_log.jsonl")), now
-    )
+    audit_path = PROJECT_ROOT / log_cfg.get("audit_log_path", "logs/audit_log.jsonl")
+    decisions = _DecisionCollector(now)  # feeds the additive `ops` block below
+    audit_view = _scan_audit(_iter_audit_events_reversed(audit_path), now, collectors=(decisions,))
     trade_log_path = PROJECT_ROOT / log_cfg.get("trade_log_path", "logs/trades.csv")
     cash = reconstruct_cash(trade_log_path, cfg.risk["starting_cash_usd"])
     pnl_report = build_pnl_report(trade_log_path, now)
@@ -843,11 +1397,31 @@ def main() -> None:
     if display is not None:
         data["display"] = display
 
-    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(OUT_PATH, "w") as f:
+    # Additive block for the redesigned page. Built last and on its own: if anything in it raises, the key is simply
+    # missing (the page says "no data" for what it needs) and every field above is still written.
+    try:
+        data["ops"] = _build_ops(
+            cfg,
+            now,
+            audit_view,
+            decisions,
+            audit_path=audit_path,
+            trade_log_path=trade_log_path,
+            plan_history_path=PROJECT_ROOT / log_cfg.get("trade_plan_history_path", "logs/trade_plans_history.jsonl"),
+            equity=equity,
+            cash=cash,
+            instance_id=args.instance_id,
+            instance_name=args.instance_name,
+        )
+    except Exception as exc:  # noqa: BLE001 — the new block must never cost the dashboard its existing data
+        print(f"warning: couldn't build the ops block, exporting without it: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+    out_path = Path(args.out) if args.out else OUT_PATH
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
         json.dump(data, f, indent=2, default=str)
-    print(f"wrote {OUT_PATH}")
+    print(f"wrote {out_path}")
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
