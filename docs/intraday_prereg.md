@@ -13,6 +13,16 @@
   the report contents and the verdict logic. **After this commit none of it may change.** A later implementer only
   builds what is written here; a later reviewer checks the run against it.
 
+> **Amendment 1 (pre-run, 2026-10-20).** Made on the orchestrator's decisions on the open questions of §9, **before
+> any family has been run and before any result has been seen** (the harness of `docs/intraday_harness_changes.md`
+> does not exist yet), so it is a legitimate pre-registration edit, not a post-hoc change. The original text is in
+> commit `fb6485c`. Changes: (1) G2's multiple-testing budget is **36** (3 families x 12 sets), not 72 (§6.5, §6.6);
+> (2) `risk_reward=None` and daily ATR% stay, marked as P4 prerequisites (§1.4, §8.8); (3) separate paper portfolios,
+> combined-exposure cap is a P4 decision, live with two instances out of scope until issue #99 (§8.1); (4) the
+> shortened IS window of 15m mid-cap sets is stated in the report (§7); (5) fee tier = Kraken T3 taker, Coinbase
+> prints are research evidence only (§5.1); (6) placebo results must not depend on parallelism (§6.3); (7) daily
+> baselines use the committed datasets and reports (harness doc AT1). Everything else is unchanged and frozen.
+
 ## 0. Rules of the pre-registration itself
 
 1. **One shot.** Each family is run once, with the 12 sets below, on the frozen data snapshot (§4.1), with the code
@@ -116,8 +126,8 @@ engine's `max_quote_amount`; nothing sizes a trade up. Inputs:
 | `portfolio_equity` | equity at the decision bar close (cash + open positions at that close) |
 | `entry_price` | the decision bar's close (the plan reference; the fill is the next open) |
 | `stop_loss` | the family's initial stop (below) |
-| `risk_reward` | family 2: `(target - entry_price) / (entry_price - stop_loss)`; families 1 and 3 have no fixed target, so `None` (the engine then skips its R:R check; see open question Q1) |
-| `atr_pct` | **daily** ATR(14) / price from the latest completed day, for every family, so the 8% volatility cap and the taper keep the meaning they were calibrated with on daily data (an intraday ATR% of 0.6-2.5% would silently disable both; using the daily one can only reject or shrink more) |
+| `risk_reward` | family 2: `(target - entry_price) / (entry_price - stop_loss)`; families 1 and 3 have no fixed target, so `None` (the engine then skips its R:R check). **P4 prerequisite (Amendment 1):** needs Risk Officer (Opus) review and owner sign-off before any paper instance is configured |
+| `atr_pct` | **daily** ATR(14) / price from the latest completed day, for every family, so the 8% volatility cap and the taper keep the meaning they were calibrated with on daily data (an intraday ATR% of 0.6-2.5% would silently disable both; using the daily one can only reject or shrink more). **P4 prerequisite (Amendment 1):** needs Risk Officer (Opus) review and owner sign-off before any paper instance is configured |
 | `open_positions_value`, `cash_available` | P6 accounting: open positions at the decision close plus gross quote already committed by fills queued earlier on the same decision bar; exits queued on this bar do not free room (`count_same_bar_approvals=True` semantics, `docs/p6_harness_exposure_fix.md` §0.3) |
 | `now` | the decision bar's close time (so the cooldown, the 5-per-120-min cap and the UTC daily-loss baseline run on bar time) |
 
@@ -336,8 +346,11 @@ FAIL, most likely on gate 4 (timing does not beat shifted copies) or gate 5.
   on every fill: entries, stops, trailing stops, targets, time stops, regime and rank exits, and the end-of-window
   close. Buys fill at `open * (1 + 0.0005)`, sells at `px * (1 - 0.0005)`; the fee is charged on the filled notional.
   **Round trip 0.86%.** Gates 2, 3, 4 and 5 and the champion selection are all computed at this cost.
-- No funding / overnight cost (spot, §1.4). The fee tier is the one the daily trial is judged at; the owner's real
-  tier is an open question (Q5).
+- No funding / overnight cost (spot, §1.4). **Fee tier (Amendment 1): the owner's tier is Kraken T3 taker**, already
+  decided and the same tier the daily trial is judged at.
+- **Venue substitution (Amendment 1):** every backtest here runs on Coinbase prints. They count as **research
+  evidence only**. The check on the substitution is the P4 paper trial on Kraken prices (its parity check against
+  the harness on the bars the bot actually saw); no Coinbase-only result is evidence about Kraken fills.
 
 ### 5.2 Stress and tiered slippage
 
@@ -398,6 +411,11 @@ are reported in full. The selection is replicated inside every placebo draw (§6
 
 - **200 draws**, `numpy.random.default_rng(0)`, `d = rng.integers(184, 1660)` days per draw (10%..90% of the 1,845-day
   B window), drawn once and **shared by all sets and all three families**.
+- **Seeds fixed per draw (Amendment 1):** the 200 shifts `d_1..d_200` are generated once, in the main process, before
+  any worker starts, and written to the results JSON. Draw i is a pure function of `(d_i, family, set, data)`: no
+  random number is consumed inside a draw, and any later random step (the bootstrap) runs in the main process with
+  its own fixed seed. Running the placebo in parallel is allowed; its results must be identical for any number of
+  workers and any completion order (harness doc AT15).
 - **What is shifted:** each coin's raw entry-signal series on the global decision-bar axis, circularly, by `d` whole
   days (`d * bars_per_day` bars). Raw = the family's entry condition **without** `REG_ON` and without the ADX filter;
   for family 3, the full ranking state (the vector of `r_c,t` over coins at each rebalance). **The same shift for every
@@ -432,15 +450,21 @@ are reported in full. The selection is replicated inside every placebo draw (§6
 
 ### 6.5 Multiple testing (registered trial count and what it does)
 
-- **Registered evaluations: 72** = 3 families x 12 sets x 2 universes (A and B), as the orchestrator asked both
-  universes to be counted. Cost presets, the +25% stress, the touch exit model, tiered slippage, maker fills, the
-  7-day block CI and the 15m core-only view are reports of the same 72 evaluations, not extra trials; none of them can
-  turn a FAIL into a PASS (only the +25% stress gates, and it can only remove a pass).
-- **Gate 2:** Bonferroni over all 72 evaluations. One-sided alpha = 0.025 / 72 = **0.000347**, so the gate uses the
-  **0.0347th percentile** of the bootstrap distribution (about the 17th smallest of 50,000), roughly z = 3.39 instead of
-  1.96. Why this rule: it is the simplest bound that is valid however the 36 sets are correlated and whichever was
-  selected, it cannot be argued to be lenient, and it is cheap to compute. The uncorrected 2.5th percentile and the
-  3-champion (Bonferroni m = 3) percentile are printed next to it for information.
+- **Evaluations run: 72** = 3 families x 12 sets x 2 universes (A and B). **Multiple-testing budget for G2: 36**
+  (3 families x 12 sets; Amendment 1). Universe A is not counted as a trial for G2: it is a robustness requirement
+  (R1, PASS needs A's avg R and return > 0), an extra hurdle on the same set, not an independent chance to pass.
+  Cost presets, the +25% stress, the touch exit model, tiered slippage, maker fills, the 7-day block CI and the 15m
+  core-only view are reports of the same evaluations, not extra trials; none of them can turn a FAIL into a PASS
+  (only the +25% stress gates, and it can only remove a pass).
+- **Gate 2 (Amendment 1):** Bonferroni over the 36 sets at a one-sided family-wise alpha of 0.05:
+  alpha = 0.05 / 36 = **0.001389**, so the gate uses the **0.139th percentile** of the bootstrap distribution (about the
+  69th smallest of 50,000), roughly z = 2.99 instead of 1.96. Why 36: the selection among the 12 sets inside a family
+  is already penalised by G4, whose placebo re-runs the champion pick over all 12 sets, and A is a robustness
+  condition, not a trial; the bound stays valid however the 36 sets are correlated and whichever one was selected.
+  Stated for transparency: the plan's "95% CI lower bound" is a one-sided 2.5% test, and its strict Bonferroni
+  analogue would be 0.025 / 36 (the 0.0694th percentile); the orchestrator registered 0.05 / 36 and that is the rule.
+  The uncorrected 2.5th percentile and the 0.0694th percentile are printed next to it for information only.
+  (Original text, superseded before any run: Bonferroni over 72, the 0.0347th percentile, z about 3.39.)
 - **Gate 4:** within a family, the selection-aware max statistic of §6.3 already accounts for picking the best of 12
   (it is the placebo distribution of "the best of 12 chosen the same way"); across the three families, Bonferroni
   m = 3: per-family alpha = 0.05 / 3 = 0.0167. With the add-one permutation p-value
@@ -450,15 +474,16 @@ are reported in full. The selection is replicated inside every placebo draw (§6
 - **Information only:** the Deflated Sharpe Ratio of each champion with N = 36 trials (playbook §6 item 8), and the
   share of the 12 sets with positive B avg R per family.
 - What this does to power, stated now: with per-trade sigma about 1.8R and a design effect about 2, a champion needs
-  avg R of about **0.50R at 300 trades, 0.27R at 1,000, 0.19R at 2,000** to clear gate 2. The daily strategy's 11-year
-  result (+0.49R on 552 trades) would clear it; its 2-year result (+0.17R on 137) would not.
+  avg R of about **0.44R at 300 trades, 0.24R at 1,000, 0.17R at 2,000** to clear gate 2 at z = 2.99 (Amendment 1;
+  it was 0.50 / 0.27 / 0.19 at m = 72). The daily strategy's 11-year result (+0.49R on 552 trades) would clear it;
+  its 2-year result (+0.17R on 137) would not.
 
 ### 6.6 The gates, exact pass rules (champion, universe B, `kraken_T3_taker` unless stated)
 
 | gate | plan text | pass rule registered here |
 |---|---|---|
 | **G1** | >= 300 trades | >= 300 closed trades on B's full window **and** >= 100 distinct bootstrap blocks containing an entry |
-| **G2** | bootstrap avg-R 95% CI lower bound > 0, day-block | the 0.0347th percentile of the §6.4 block bootstrap of avg R is > 0 |
+| **G2** | bootstrap avg-R 95% CI lower bound > 0, day-block | the **0.139th percentile** (alpha 0.05 / 36, Amendment 1) of the §6.4 block bootstrap of avg R is > 0 |
 | **G3** | later-30% OOS avg R > 0; walk-forward by year: at most one losing year | OOS (entries >= 2025-04-14) has >= 60 trades and avg R > 0, **and** at least 3 of the 5 folds are scored, **and** at most 1 scored fold has avg R < 0 |
 | **G4** | 200-sim time-shift placebo >= 95th percentile | the real champion strictly beats >= 198 of the 200 selection-aware draw-champions on full-window avg R **and** on total return (§6.5) |
 | **G5** | net return > 0 and Sharpe above buy-and-hold at taker, still > 0 at +25% costs | net total return > 0 **and** Sharpe > the benchmark's Sharpe, both at `kraken_T3_taker`; **and** net total return > 0 at +25% costs. Sharpe for both = mean / std of **daily** (UTC close) equity returns x sqrt(365), whatever the decision timeframe. Benchmark = equal-weight buy-and-hold of the run's universe from the window start (each coin from its first eligible day), no rebalancing, no costs; 15m runs exclude masked windows (§1.2) |
@@ -510,6 +535,9 @@ survivorship (§1.2), Coinbase-not-Kraken prints and the volume caveat, the mask
 11. **Placebo:** histogram summary of the 200 draw-champions (percentiles of avg R and return), which set each draw
     selected, the real champion's rank.
 12. **15m-specific (family 2):** trades lost to the mask rule, and the core-only view (BTC, ETH, SOL, LTC) as a report.
+    The report must state (Amendment 1) that the IS/OOS cut (2025-04-14) falls inside the 2025-01-01..04-30 mask, so
+    the in-sample window of the 15m sets is shortened for every masked coin (no entries from about 2024-12-31 to the
+    cut, i.e. its last ~3.5 IS months, plus the earlier masks), and give each 15m set's usable IS days per coin.
 13. **Per-trade log** written with the columns listed in `docs/intraday_harness_changes.md` H8, and a rejected-signal
     log; both gitignored, with their SHA-256 in the JSON.
 
@@ -519,9 +547,10 @@ These describe changes for a later, separately approved PR. They are the Archite
 its owner per `CLAUDE.md`, and `bot.py` orchestration gets an Opus read-through.
 
 1. **Separate instance (plan P4):** its own process, `logs/` directory, portfolio, plan store, bar-decision ledger and
-   Telegram label; the daily trial keeps running untouched. Each instance's risk engine caps only its own portfolio,
-   so the two instances together could hold up to 80% of combined equity: an open question for the Risk Officer and
-   the owner (Q2), not something to solve inside the strategy.
+   Telegram label; the daily trial keeps running untouched. **Each instance is a separate paper portfolio with its own
+   starting cash** (Amendment 1), and each instance's risk engine caps only its own portfolio. **Rules:** a
+   combined-exposure cap across instances is a **P4 decision** (Risk Officer and owner), not something to solve inside
+   the strategy; and **live (real-money) trading with two instances is out of scope until issue #99 is done.**
 2. **Base feed and decision bars:** `market.timeframe` = the base timeframe (`"1h"` for a family-1/3 pass or a 1h
    family-2 pass; `"15m"` only for a 15m family-2 pass). 4h decision bars are built inside the bot from the cached 1h
    frame with the **same** resampling function as the harness (complete bins, 00/04/... UTC); Kraken's native 4h is not
@@ -557,22 +586,29 @@ its owner per `CLAUDE.md`, and `bot.py` orchestration gets an Opus read-through.
    planner, the slot `rank_signals` was built for; that is a new-stage decision, documented in README's architecture
    section in the same PR, and only made if family 3 passes.
 8. **Risk inputs:** `bot.py` would pass the daily ATR% as `atr_pct` and `risk_reward=None` for no-target plans, as in
-   §1.4. Both are risk-policy choices that need the Risk Officer and the owner (Q1) before P4; the backtest uses them,
-   so live must match or the evidence does not apply.
+   §1.4. Both are **P4 prerequisites needing Risk Officer (Opus) review and owner sign-off before any paper instance is
+   configured** (Amendment 1). The backtest uses them as written, so the paper instance must match or the evidence
+   does not apply.
 9. **Inert-gate note:** at 15m/1h/4h the cooldown, the daily-loss halt and the 5-per-120-min cap all bind in the
    backtest (unlike at 1d); the report's risk-engine mix shows how often. Live parity requires the same clock
    (decision-bar close time as `now`), which bar parity already provides.
 
-## 9. Open questions (not settled here; for the owner / Risk Officer)
+## 9. Open questions and their resolution (Amendment 1, 2026-10-20, pre-run)
 
-- **Q1** `risk_reward=None` for plans without a fixed target (families 1, 3) and daily ATR% as `atr_pct` (all): risk
-  policy, needs sign-off before P4 even though it does not change `risk_engine.py`.
-- **Q2** Combined exposure across the daily instance and an intraday instance (up to 80% of combined equity).
-- **Q3** Gate strictness: Bonferroni over 72 (as the orchestrator asked, counting A) costs power; m = 36 would move the
-  gate-2 percentile from 0.0347 to 0.0694. Registered as 72; changing it after results is not allowed.
-- **Q4** The IS/OOS cut (2025-04-14) falls inside the 2025-01-01..04-30 15m mask, so 15m mid-cap sets lose their last
-  3.5 IS months; accepted as is.
-- **Q5** The owner's actual Kraken fee tier and whether Coinbase-print backtests are acceptable evidence for Kraken
-  execution (P0 could cross-check only 30 days).
-- **Q6** Compute: the selection-aware placebo is 200 x 36 = 7,200 full runs on B (plus 72 base runs and the cost views).
-  Budget it (multi-process, as `diag_1h_edge.py` did) before starting; a partial placebo is not a gate result.
+All six were decided by the orchestrator before any run; the decisions are written into the sections cited.
+
+- **Q1 (resolved: kept, P4 prerequisite).** `risk_reward=None` for plans without a fixed target (families 1, 3) and
+  daily ATR% as `atr_pct` (all) stay as written in §1.4. Both need Risk Officer (Opus) review and owner sign-off
+  before any paper instance is configured (§1.4, §8.8).
+- **Q2 (resolved).** Each instance is a separate paper portfolio with its own starting cash; a combined-exposure cap
+  across instances is a P4 decision; live trading with two instances is out of scope until issue #99 is done (§8.1).
+- **Q3 (resolved: m = 36).** G2's Bonferroni budget is 36 (3 families x 12 sets), alpha 0.05 / 36, the 0.139th
+  percentile, z about 2.99 (§6.5, §6.6). 72 evaluations are still run. Frozen; no change after results.
+- **Q4 (resolved: accepted).** The cut at 2025-04-14 inside the 2025-01-01..04-30 mask shortens the IS window of the
+  15m sets for masked coins; the report states it with the usable IS days per coin (§7 item 12).
+- **Q5 (resolved).** Fee tier = Kraken T3 taker. Coinbase prints are research evidence only; the P4 paper trial on
+  Kraken prices is the check on that substitution (§5.1).
+- **Q6 (resolved).** Parallel placebo is allowed; the 200 shifts are fixed before any worker starts and no random
+  number is consumed inside a draw, so results cannot depend on the number of workers (§6.3, harness doc AT15). The
+  compute (200 x 36 = 7,200 runs on B plus 72 base runs and the cost views) is still to be estimated on one set before
+  launch; a partial placebo is not a gate result.

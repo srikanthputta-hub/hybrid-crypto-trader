@@ -8,6 +8,9 @@
   `run_live_bot_report.py`, `run_report.py`, `tiered_slippage.py` and everything under `src/` stay untouched. The one
   existing file that changes is `resample_ohlcv.py` (one additive keyword, default = today's behaviour). This is what
   makes AT1 (byte-identical baselines) achievable by construction rather than by luck.
+- **Amendment 1 (pre-run, 2026-10-20):** follows `docs/intraday_prereg.md` Amendment 1, made before anything here was
+  built or run: the G2 percentile is 0.139 (Bonferroni over 36), the placebo must be parallel-invariant with seeds
+  fixed per draw (AT15), and AT1's daily baseline uses the committed datasets and committed reports.
 - **Order:** this list is built and every acceptance test is green, on a committed hash, **before** any family is run
   on evaluation data (`intraday_prereg.md` §0 rules 1 and 3). The run then records that hash.
 
@@ -91,7 +94,7 @@ fill_model, signals_override=None)`, walking the **base** bar axis (1h, or 15m f
 - `purged_split(trades, cut)`: IS-score set (entry and exit < cut), OOS set (entry >= cut), straddlers flagged.
 - `champion(results_by_set)`: highest purged IS avg R among sets with >= 150 purged IS trades; ties: more IS trades,
   lower set number.
-- `block_bootstrap(trades, start, block_days, n=50_000, seed=1)` returning the percentile array needed (0.0347, 0.0694,
+- `block_bootstrap(trades, start, block_days, n=50_000, seed=1)` returning the percentile array needed (0.139 = the G2 gate after Amendment 1; 0.0694 for information;
   2.5, 97.5 and the 7-day-block variant), the design effect and `n_eff`. `block_days = max(1, ceil(median hold days))`.
 - `folds(trades)`: F1-F5 of prereg §6.1 with the scored/losing rules.
 - `daily_sharpe(equity_daily)` = mean/std of daily returns x sqrt(365); `buy_hold_daily(universe, masks)` (equal
@@ -131,7 +134,7 @@ flags exist only for `--workers` and output paths.
 
 | id | test | pass condition |
 |---|---|---|
-| **AT1** | **Existing baselines byte-identical.** On the pre-change commit and the post-change commit, run: `run_live_bot_report.py --data-dir data` and `--data-dir data_long`, each with and without `--count-same-bar-approvals`; `run_report.py --data-dir data --timeframe 1d`; and the 1h baseline `run_live_bot_report.py --data-dir data_15m --timeframe 1h` on P2.0's parquet files | every report file `cmp`-identical between the two commits. If P2.0's `data_15m/` parquet files are not available on the machine, the 1h item is reported as "not reproducible here" and replaced by the same before/after comparison on a synthetic 1h fixture; that substitution is stated in the PR |
+| **AT1** | **Existing baselines byte-identical (Amendment 1).** *Daily*, against the **committed datasets and committed reports**: from `strategy_pack_run/`, run the four commands of `docs/min_order_floor_10_rebaseline.md` (`run_live_bot_report.py --data-dir data` and `--data-dir data_long`, `--cost kraken_T3_taker --sims 200 --equity 10000`, each with and without `--count-same-bar-approvals`) and `run_report.py --data-dir data --timeframe 1d` / `--data-dir data_long --timeframe 1d` (needs TA-Lib) | each output `cmp`-identical to the committed file: `min_order_floor_study/rebaseline_floor10/report_data_p6off.md`, `report_data_p6on.md`, `report_data_long_p6off.md`, `report_data_long_p6on.md` (the current-config baselines; config unchanged), and `report_kraken_720.md` / `report_long.md`. The older `report_live_strategy_*.md` / `report_p6_live_strategy_*.md` predate the $10 order floor and are not the reference. If a committed file does not reproduce on the **pre-change** commit too, that is reported as a pre-existing drift (not caused by this work) and the pre/post `cmp` is the test. *1h*: `run_live_bot_report.py --data-dir data_15m --timeframe 1h` on P2.0's parquet files, pre- vs post-change `cmp`; if `data_15m/` is absent on the machine, the same pre/post comparison on the stated synthetic 1h fixture, said so in the PR |
 | AT2 | existing suites | root `python -m pytest -q`, `cd strategy_pack_run && python -m pytest -q`, `PYTHONPATH=. python scripts/validate_invariants.py`, `python research/v2_signals.py`: all pass, no existing test modified |
 | AT3 | `resample_ohlcv` | `source_minutes=15` default output identical to before on the existing test fixtures; with `source_minutes=60`, a 4h bin needs exactly 4 hourly rows, bins open at 00/04/.../20 UTC, incomplete bins dropped, truncation-invariant at every bar |
 | AT4 | snapshot | `verify_snapshot` passes on the 32 files; flipping one byte inside the prefix fails; appending rows after the prefix passes |
@@ -145,12 +148,12 @@ flags exist only for `--workers` and output paths.
 | AT12 | P/L reconciliation | sum of net P/L = final equity - start equity (1e-9 relative); every trade's R recomputes from its logged fields; fees on both sides at every cost view; the +25% view charges exactly 1.25x |
 | AT13 | tiered costs | the tier of base bar t on day D uses day D-1's 30-day median daily volume / 3; hourly volume is never fed in directly |
 | AT14 | maker model | trade-through rule, timeout of one decision bar, missed order releases its quote, fill at the limit with 0.22% and no slippage, exits taker except family 2's target |
-| AT15 | placebo | shifts are whole days, identical for all coins, circular; regime/ADX/masks/eligibility/costs re-applied at landing; the draw-champion is chosen by the same purged-IS rule; same seed -> identical results with 1 and with N workers |
+| AT15 | placebo | shifts are whole days, identical for all coins, circular; regime/ADX/masks/eligibility/costs re-applied at landing; the draw-champion is chosen by the same purged-IS rule; the 200 shifts are generated once in the main process before any worker starts and stored; no random number is consumed inside a draw; results byte-identical with 1, 4 and N workers and with shuffled draw completion order (Amendment 1) |
 | AT16 | bootstrap and stats | block construction from the window start; deterministic with seed 1; on an iid fixture the design effect is about 1; the purge drops straddling trades from both the IS score and OOS; fold F1 includes the 2021 stub |
 | AT17 | sanity (playbook §2 check 1) | synthetic clean uptrend: family 1 goes long and ends net positive at zero cost; clean downtrend or regime off: no family-1 or family-3 position; synthetic range with mean reversion: family 2 is gross-positive at zero cost |
 | AT18 | independent second implementation (playbook Prompt F) | for one set per family, a separate minimal pandas loop written from the prereg text alone reproduces the runner's trade list (symbol, entry/exit time, entry/exit price, reason) exactly on BTC+ETH+LTC data before 2021-03-01 (the only real data allowed before the run) |
 | AT19 | mutation check | each mutation is caught by at least one test: signal reads bar t+1; regime reads the forming day; entry fills at the signal close; P6 commit not counted; mask rule off; placebo shifts the post-regime entries; placebo shift not shared across coins; bootstrap resamples trades instead of blocks; purge disabled; tiered cost uses day D instead of D-1 |
-| AT20 | constants | a test asserts the module constants (grids, windows, cut 2025-04-14, folds, seeds 0/1, 200 draws, 50,000 resamples, percentiles 0.0347 / 198-of-200, thresholds 300/100/60/150/30) equal the values in `docs/intraday_prereg.md` |
+| AT20 | constants | a test asserts the module constants (grids, windows, cut 2025-04-14, folds, seeds 0/1, 200 draws, 50,000 resamples, G2 percentile 0.139 (alpha 0.05/36) / G4 198-of-200, thresholds 300/100/60/150/30) equal the values in `docs/intraday_prereg.md` |
 
 ## Notes for the builder and reviewer
 
