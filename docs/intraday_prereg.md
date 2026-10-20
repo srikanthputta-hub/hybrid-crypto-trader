@@ -16,7 +16,10 @@
 > **Amendment 1 (pre-run, 2026-10-20).** Made on the orchestrator's decisions on the open questions of §9, **before
 > any family has been run and before any result has been seen** (the harness of `docs/intraday_harness_changes.md`
 > does not exist yet), so it is a legitimate pre-registration edit, not a post-hoc change. The original text is in
-> commit `fb6485c`. Changes: (1) G2's multiple-testing budget is **36** (3 families x 12 sets), not 72 (§6.5, §6.6);
+> commit `fb6485c`. Changes: (1) G2's multiple-testing budget is **36** (3 families x 12 sets), not 72, at
+> alpha 0.025 / 36 = the **0.0694th percentile** (z about 3.20), consistent with the earlier gates' "95% CI lower
+> bound > 0"; a first draft of this amendment (commit `16730f6`) used 0.05 / 36 (0.139th percentile), corrected
+> before any run, and that value is now an informational printout only (§6.5, §6.6);
 > (2) `risk_reward=None` and daily ATR% stay, marked as P4 prerequisites (§1.4, §8.8); (3) separate paper portfolios,
 > combined-exposure cap is a P4 decision, live with two instances out of scope until issue #99 (§8.1); (4) the
 > shortened IS window of 15m mid-cap sets is stated in the report (§7); (5) fee tier = Kraken T3 taker, Coinbase
@@ -456,15 +459,16 @@ are reported in full. The selection is replicated inside every placebo draw (§6
   Cost presets, the +25% stress, the touch exit model, tiered slippage, maker fills, the 7-day block CI and the 15m
   core-only view are reports of the same evaluations, not extra trials; none of them can turn a FAIL into a PASS
   (only the +25% stress gates, and it can only remove a pass).
-- **Gate 2 (Amendment 1):** Bonferroni over the 36 sets at a one-sided family-wise alpha of 0.05:
-  alpha = 0.05 / 36 = **0.001389**, so the gate uses the **0.139th percentile** of the bootstrap distribution (about the
-  69th smallest of 50,000), roughly z = 2.99 instead of 1.96. Why 36: the selection among the 12 sets inside a family
-  is already penalised by G4, whose placebo re-runs the champion pick over all 12 sets, and A is a robustness
-  condition, not a trial; the bound stays valid however the 36 sets are correlated and whichever one was selected.
-  Stated for transparency: the plan's "95% CI lower bound" is a one-sided 2.5% test, and its strict Bonferroni
-  analogue would be 0.025 / 36 (the 0.0694th percentile); the orchestrator registered 0.05 / 36 and that is the rule.
-  The uncorrected 2.5th percentile and the 0.0694th percentile are printed next to it for information only.
-  (Original text, superseded before any run: Bonferroni over 72, the 0.0347th percentile, z about 3.39.)
+- **Gate 2 (Amendment 1):** Bonferroni over the 36 sets at the plan's one-sided 2.5% level (the lower bound of a
+  95% CI, as in every earlier gate): alpha = 0.025 / 36 = **0.000694**, so the gate uses the **0.0694th percentile** of
+  the bootstrap distribution (about the 35th smallest of 50,000), roughly z = 3.20 instead of 1.96. Why 36: the
+  selection among the 12 sets inside a family is already penalised by G4, whose placebo re-runs the champion pick over
+  all 12 sets, and A is a robustness condition, not a trial; the bound stays valid however the 36 sets are correlated
+  and whichever one was selected. The uncorrected 2.5th percentile and the 0.139th percentile (alpha 0.05 / 36) are
+  printed next to it for information only.
+  (Superseded before any run: the original text, Bonferroni over 72 at the 0.0347th percentile, z about 3.39; and an
+  intermediate Amendment-1 draft at alpha 0.05 / 36, the 0.139th percentile, z about 2.99, which did not match the
+  plan's one-sided 2.5% level.)
 - **Gate 4:** within a family, the selection-aware max statistic of §6.3 already accounts for picking the best of 12
   (it is the placebo distribution of "the best of 12 chosen the same way"); across the three families, Bonferroni
   m = 3: per-family alpha = 0.05 / 3 = 0.0167. With the add-one permutation p-value
@@ -474,7 +478,7 @@ are reported in full. The selection is replicated inside every placebo draw (§6
 - **Information only:** the Deflated Sharpe Ratio of each champion with N = 36 trials (playbook §6 item 8), and the
   share of the 12 sets with positive B avg R per family.
 - What this does to power, stated now: with per-trade sigma about 1.8R and a design effect about 2, a champion needs
-  avg R of about **0.44R at 300 trades, 0.24R at 1,000, 0.17R at 2,000** to clear gate 2 at z = 2.99 (Amendment 1;
+  avg R of about **0.47R at 300 trades, 0.26R at 1,000, 0.18R at 2,000** to clear gate 2 at z = 3.20 (Amendment 1;
   it was 0.50 / 0.27 / 0.19 at m = 72). The daily strategy's 11-year result (+0.49R on 552 trades) would clear it;
   its 2-year result (+0.17R on 137) would not.
 
@@ -483,7 +487,7 @@ are reported in full. The selection is replicated inside every placebo draw (§6
 | gate | plan text | pass rule registered here |
 |---|---|---|
 | **G1** | >= 300 trades | >= 300 closed trades on B's full window **and** >= 100 distinct bootstrap blocks containing an entry |
-| **G2** | bootstrap avg-R 95% CI lower bound > 0, day-block | the **0.139th percentile** (alpha 0.05 / 36, Amendment 1) of the §6.4 block bootstrap of avg R is > 0 |
+| **G2** | bootstrap avg-R 95% CI lower bound > 0, day-block | the **0.0694th percentile** (alpha 0.025 / 36, Amendment 1) of the §6.4 block bootstrap of avg R is > 0 |
 | **G3** | later-30% OOS avg R > 0; walk-forward by year: at most one losing year | OOS (entries >= 2025-04-14) has >= 60 trades and avg R > 0, **and** at least 3 of the 5 folds are scored, **and** at most 1 scored fold has avg R < 0 |
 | **G4** | 200-sim time-shift placebo >= 95th percentile | the real champion strictly beats >= 198 of the 200 selection-aware draw-champions on full-window avg R **and** on total return (§6.5) |
 | **G5** | net return > 0 and Sharpe above buy-and-hold at taker, still > 0 at +25% costs | net total return > 0 **and** Sharpe > the benchmark's Sharpe, both at `kraken_T3_taker`; **and** net total return > 0 at +25% costs. Sharpe for both = mean / std of **daily** (UTC close) equity returns x sqrt(365), whatever the decision timeframe. Benchmark = equal-weight buy-and-hold of the run's universe from the window start (each coin from its first eligible day), no rebalancing, no costs; 15m runs exclude masked windows (§1.2) |
@@ -602,8 +606,8 @@ All six were decided by the orchestrator before any run; the decisions are writt
   before any paper instance is configured (§1.4, §8.8).
 - **Q2 (resolved).** Each instance is a separate paper portfolio with its own starting cash; a combined-exposure cap
   across instances is a P4 decision; live trading with two instances is out of scope until issue #99 is done (§8.1).
-- **Q3 (resolved: m = 36).** G2's Bonferroni budget is 36 (3 families x 12 sets), alpha 0.05 / 36, the 0.139th
-  percentile, z about 2.99 (§6.5, §6.6). 72 evaluations are still run. Frozen; no change after results.
+- **Q3 (resolved: m = 36).** G2's Bonferroni budget is 36 (3 families x 12 sets), alpha 0.025 / 36, the 0.0694th
+  percentile, z about 3.20 (§6.5, §6.6); the 0.139th percentile (0.05 / 36) is printed for information only. 72 evaluations are still run. Frozen; no change after results.
 - **Q4 (resolved: accepted).** The cut at 2025-04-14 inside the 2025-01-01..04-30 mask shortens the IS window of the
   15m sets for masked coins; the report states it with the usable IS days per coin (§7 item 12).
 - **Q5 (resolved).** Fee tier = Kraken T3 taker. Coinbase prints are research evidence only; the P4 paper trial on
