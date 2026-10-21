@@ -85,18 +85,22 @@ def fixture_15m(dest: Path, coins=("BTC", "ETH", "SOL"), days: int = 150, seed: 
         df.to_csv(dest / f"{c}_USD_15m.csv", index=False)
 
 
-def run_1h(checkout: Path, out_dir: Path) -> Path:
+def run_1h(checkout: Path, out_dir: Path, fixture_root: Path) -> Path:
     """Derive 1h/1d from the synthetic 15m fixture with the checkout's resample_ohlcv and run the
-    1h live-bot report on it. Returns the directory holding the derived files and the report."""
+    1h live-bot report on it. The fixture lives at the SAME path for the pre and the post run (the
+    report prints its --data-dir); the derived files and the report are copied into out_dir."""
     spr = checkout / "strategy_pack_run"
-    fx = out_dir / "fixture"
-    fixture_15m(fx / "raw")
+    if fixture_root.exists():
+        shutil.rmtree(fixture_root)
+    fixture_15m(fixture_root / "raw")
     code = ("import sys; sys.path.insert(0, '.'); from resample_ohlcv import derive_all_timeframes; "
-            f"derive_all_timeframes(r'{fx / 'raw'}', r'{fx / 'derived'}', out_format='csv')")
+            f"derive_all_timeframes(r'{fixture_root / 'raw'}', r'{fixture_root / 'derived'}', out_format='csv')")
     subprocess.run([sys.executable, "-c", code], cwd=spr, check=True, capture_output=True)
-    rc = _run(spr, ["run_live_bot_report.py", "--data-dir", str(fx / "derived"), "--timeframe", "1h", "--sims", "20"],
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rc = _run(spr, ["run_live_bot_report.py", "--data-dir", str(fixture_root / "derived"), "--timeframe", "1h", "--sims", "20"],
               out_dir / "report_1h_fixture.md")
     assert rc == 0
+    shutil.copytree(fixture_root / "derived", out_dir / "derived")
     return out_dir
 
 
@@ -114,14 +118,19 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--pre-commit", default="afb73fb8", help="the commit before the intraday harness work")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--skip-daily", action="store_true", help="only the 1h fixture comparison")
     a = ap.parse_args(argv)
     out = Path(a.out)
     if out.exists():
         shutil.rmtree(out)
     pre = export_commit(a.pre_commit, out / "pre_checkout")
-    res = {"pre": run_daily(pre, out / "pre_daily"), "post": run_daily(_REPO_ROOT, out / "post_daily")}
-    run_1h(pre, out / "pre_1h")
-    run_1h(_REPO_ROOT, out / "post_1h")
+    res = {"pre": {}, "post": {}} if a.skip_daily else {"pre": run_daily(pre, out / "pre_daily"),
+                                                       "post": run_daily(_REPO_ROOT, out / "post_daily")}
+    run_1h(pre, out / "pre_1h", out / "fixture")
+    run_1h(_REPO_ROOT, out / "post_1h", out / "fixture")
+    if a.skip_daily:
+        (out / "pre_daily").mkdir()
+        (out / "post_daily").mkdir()
     res["daily_pre_vs_post_diffs"] = compare_trees(out / "pre_daily", out / "post_daily")
     res["h1_pre_vs_post_diffs"] = compare_trees(out / "pre_1h", out / "post_1h")
     print(res)

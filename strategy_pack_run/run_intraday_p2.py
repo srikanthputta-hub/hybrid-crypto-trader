@@ -301,7 +301,13 @@ def evaluate_family(family: int, provider, workers: int = 1, logs_dir: Path | No
                share_positive_B=sum(1 for s in specs if (grid["B"][s.set_id]["avgR"] or 0) > 0) / len(specs))
     if ch is None:
         out["verdict"] = st.verdict(None, integrity_ok=not integrity)
-        out["note"] = "no set with >= 150 purged IS trades: gate 1 fails, family FAIL; placebo not needed for the verdict"
+        out["note"] = ("no set with >= 150 purged IS trades: gate 1 fails, family FAIL (prereg §6.2); the placebo "
+                       "is still run and stored (prereg §7) but cannot change the verdict")
+        shifts = st.placebo_days(st.PLACEBO_SEED, st.N_PLACEBO)[:n_placebo]
+        out["placebo_shifts_days"] = shifts
+        pl = run_placebo([market("B", s.base_tf) for s in specs], [sds[("B", s.set_no)] for s in specs],
+                         taker, risk_cfg, cut, shifts, workers)
+        out["placebo"] = dict(per_draw=pl, draw_champions=draw_champions(pl, specs))
         _write_logs(out, logs, rej_logs, logs_dir, family)
         return out
     cspec = next(s for s in specs if s.set_no == ch["set_no"])
