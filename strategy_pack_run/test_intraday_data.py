@@ -119,6 +119,35 @@ def test_at4_appending_rows_after_the_prefix_passes(tmp_path):
 
 
 @needs_real
+def test_m5_loader_reads_only_the_hashed_prefix_so_an_appended_duplicate_cannot_replace_a_bar(tmp_path):
+    rels = _copy_two(tmp_path)
+    before = idata.load_native("LTC", "1h", tmp_path)
+    p = tmp_path / rels[0]
+    lines = p.read_bytes().splitlines(keepends=True)
+    n = idata.snapshot_rows("LTC", "1h")
+    assert len(lines) == n + 1
+    ts, o, h, lo, c, v = lines[-1000].decode().strip().split(",")
+    with open(p, "ab") as f:  # duplicate timestamp of a verified bar, with a different close, appended
+        f.write(f"{ts},{o},{h},{lo},{float(c) * 3},{v}\n".encode())
+        f.write(b"1999999999999,1.0,1.0,1.0,1.0,1.0\n")
+    assert len(idata.verify_snapshot(tmp_path, files=rels)) == 2   # appends are allowed by the prefix rule
+    after = idata.load_native("LTC", "1h", tmp_path, end=None)
+    pd.testing.assert_frame_equal(before, idata.load_native("LTC", "1h", tmp_path))
+    assert len(after) == n and after.index.max() < pd.Timestamp("2030-01-01", tz="UTC")
+    t = pd.Timestamp(int(ts), unit="ms", tz="UTC") + pd.Timedelta(hours=1)
+    assert after.loc[t, "close"] == float(c)
+
+
+@needs_real
+def test_m5_a_file_shorter_than_its_snapshot_is_refused(tmp_path):
+    rels = _copy_two(tmp_path)
+    p = tmp_path / rels[0]
+    p.write_bytes(b"".join(p.read_bytes().splitlines(keepends=True)[:-3]))
+    with pytest.raises(idata.SnapshotMismatch):
+        idata.load_native("LTC", "1h", tmp_path)
+
+
+@needs_real
 def test_at4_truncated_file_fails(tmp_path):
     rels = _copy_two(tmp_path)
     p = tmp_path / rels[0]

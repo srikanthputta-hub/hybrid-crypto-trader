@@ -152,6 +152,11 @@ def verify_snapshot(
     return out
 
 
+def snapshot_rows(base: str, tf: str, coverage_json: str | os.PathLike = COVERAGE_JSON) -> int:
+    """Number of data rows of the frozen snapshot for (BASE, tf), from coverage_summary.json."""
+    return int(json.loads(Path(coverage_json).read_text())["coins"][base][tf]["bars"])
+
+
 def files_for(universe: tuple[str, ...], tf: str) -> list[str]:
     """Relative paths of the files a run on `universe` at base tf `tf` reads. A 15m run also reads
     the native 1h files (daily inputs are aggregated from native 1h, prereg §1.1)."""
@@ -193,7 +198,13 @@ def load_native(base: str, tf: str, root: str | os.PathLike | None = None, end: 
     if base in EXCLUDED_COINS:
         raise ValueError(f"{base} is excluded from every intraday run (prereg §1.2)")
     path = data_root(root) / tf / f"{base}_USD_{tf}.csv"
-    raw = pd.read_csv(path)
+    # Read ONLY the hashed snapshot prefix (review fix m5): the first `bars` data rows, exactly the
+    # rows verify_snapshot hashed. Rows appended after the snapshot (top-ups) are never read, so an
+    # appended duplicate timestamp can never replace a verified bar.
+    n_rows = snapshot_rows(base, tf)
+    raw = pd.read_csv(path, nrows=n_rows)
+    if len(raw) != n_rows:
+        raise SnapshotMismatch(f"{path}: {len(raw)} data rows, snapshot has {n_rows}")
     open_time = pd.to_datetime(raw["timestamp"].astype("int64"), unit="ms", utc=True)
     raw = raw.set_index(open_time)
     return frame_from_open_indexed(raw, tf, base, end)

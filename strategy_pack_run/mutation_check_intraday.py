@@ -88,6 +88,9 @@ MUTATIONS = [
     ("M27", "review m1: tier volume = daily close x day volume instead of sum(1h close x 1h volume)", "intraday_runner.py",
      "    qv = idata.daily_quote_volume_from_1h(df_1h)\n",
      "    _d = idata.daily_from_1h(df_1h)\n    qv = (_d['close'] * _d['volume']).astype(float)\n"),
+    ("M28", "review m5: loader reads the whole file (appended rows / duplicates) instead of the hashed prefix", "intraday_data.py",
+     "    raw = pd.read_csv(path, nrows=n_rows)\n    if len(raw) != n_rows:",
+     "    raw = pd.read_csv(path)\n    if len(raw) < n_rows:"),
 ]
 
 TEST_FILES = [
