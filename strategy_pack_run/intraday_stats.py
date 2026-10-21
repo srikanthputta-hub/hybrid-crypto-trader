@@ -278,6 +278,7 @@ def evaluate_gates(g: GateInputs) -> dict:
         "R2": sum(1 for x in nb if x > 0) >= need,
     }
     res["G3_count_only"] = bool(g3_count_fail and not g3_subst_fail)
+    res["G2_lower"] = float(g.g2_lower)
     res["R2_detail"] = dict(neighbours=len(nb), positive=sum(1 for x in nb if x > 0), needed=need)
     res["G3_detail"] = dict(scored=len(scored), losing=len(losing), oos_n=g.oos_n, oos_avgR=g.oos_avgR)
     return res

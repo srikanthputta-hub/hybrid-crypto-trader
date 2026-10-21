@@ -155,6 +155,29 @@ def test_at11_committed_notional_never_exceeds_40_percent_and_matches_reference(
     assert any(x[5].startswith("no room left") for x in la)  # the 40% cap binds on this fixture
 
 
+def test_at11_p6_same_bar_approvals_commit_room_immediately_and_match_reference():
+    """Correlated breakouts: several approvals on ONE decision bar while the 40% cap binds. Each
+    later check on that bar sees the earlier approved gross quotes in open_positions_value and out of
+    cash_available (P6), so the bar's commitments never exceed 40% of equity."""
+    la, res = _compare(fx.correlated_1h(), fx.WIN_START, 30, "F1-01")
+    by_t = {}
+    for x in la:
+        by_t.setdefault(x[0], []).append(x)
+    multi = 0
+    for t, rows in by_t.items():
+        approved = [x for x in rows if x[2]]
+        if len(approved) >= 2:
+            multi += 1
+        base_open = rows[0][6]
+        acc = 0.0
+        for x in rows:
+            assert x[6] == pytest.approx(base_open + acc, rel=1e-12, abs=1e-9)   # earlier same-bar quotes counted
+            if x[2]:
+                acc += x[3]
+                assert x[6] + x[3] <= 0.40 * x[7] + 1e-9
+    assert multi >= 2 and any(x[5].startswith("no room left") for x in la)
+
+
 def test_at11_rate_cap_fires_and_matches_reference():
     rc = fx.risk(max_total_exposure_pct=1.0, max_position_pct=0.05)
     la, res = _compare(fx.correlated_1h(), fx.WIN_START, 20, "F1-01", risk_cfg=rc)

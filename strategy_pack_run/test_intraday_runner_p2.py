@@ -60,7 +60,8 @@ def test_gates_are_wired_to_the_registered_statistics(family):
     sel = st.champion(r["selection"])
     assert f"F{family}-{sel['set_no']:02d}" == ch
     g, b = r["gates"], r["bootstrap"]
-    assert g["G2"] == (b["gate"][st.G2_PERCENTILE] > 0)
+    assert g["G2_lower"] == b["gate"][st.G2_PERCENTILE] and g["G2"] == (g["G2_lower"] > 0)
+    assert b["gate"][st.G2_PERCENTILE] < b["gate"][2.5]  # the gate is the corrected (lower) bound
     cB = r["grid"]["B"][ch]
     assert g["G1"] == (cB["trades"] >= 300 and b["blocks"] >= 100)
     assert g["G4"] == (r["g4"]["ge_avgR"] <= 2 and r["g4"]["ge_return"] <= 2)
