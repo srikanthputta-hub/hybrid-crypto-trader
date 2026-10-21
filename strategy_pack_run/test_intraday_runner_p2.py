@@ -79,12 +79,12 @@ def test_report_has_every_registered_section():
     assert "## 13." in txt and "Survivorship" in txt and "Coinbase, not Kraken" in txt
 
 
-def test_universe_override_is_refused_on_real_data():
+def test_universe_override_is_refused_on_real_data(tmp_path):
     class Fake(p2.RealProvider):
         coins = {"B": {"1h": COINS}}
 
         def verify(self, family):
             return {}
 
-    with pytest.raises(ValueError):
-        p2.evaluate_family(1, Fake(), workers=1, n_placebo=1, verbose=False)
+    with pytest.raises(ValueError):  # review n5: never touches the real data root
+        p2.evaluate_family(1, Fake(tmp_path), workers=1, n_placebo=1, verbose=False)

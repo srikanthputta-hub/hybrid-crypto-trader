@@ -180,8 +180,10 @@ def _sha(path: Path) -> str:
 def code_commit() -> str:
     try:
         sha = subprocess.run(["git", "-C", str(_REPO_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        dirty = subprocess.run(["git", "-C", str(_REPO_ROOT), "status", "--porcelain", "--", "strategy_pack_run", "src", "config"],
+        dirty = subprocess.run(["git", "-C", str(_REPO_ROOT), "status", "--porcelain", "--", "strategy_pack_run", "src", "config", "docs"],
                                capture_output=True, text=True).stdout.strip()
+        if not sha:
+            return "unknown"
         return sha + ("+dirty" if dirty else "")
     except Exception:  # pragma: no cover
         return "unknown"
@@ -275,21 +277,25 @@ def evaluate_family(family: int, provider, workers: int = 1, logs_dir: Path | No
     grid: dict = {"B": {}, "A": {}}
     logs: list[pd.DataFrame] = []
     rej_logs: list[pd.DataFrame] = []
+    base_record = dict(family=family, harness_version=ir.HARNESS_VERSION, provider=provider.kind,
+                       code_commit=code_commit(), data_hashes=hashes)
     for u in ("B", "A"):
         for spec in specs:
             m = market(u, spec.base_tf)
             sd = ir.SetData(m, spec)
             sds[(u, spec.set_no)] = sd
             res = ir.simulate(m, sd, taker, risk_cfg, log_rejections=True)
-            if abs((res.final_equity - res.start_equity) - sum(t[ir.TRADE_FIELDS.index("net_pnl")] for t in res.trades)) > 1e-9 * res.start_equity:
-                integrity.append(f"P/L reconciliation failed: {spec.set_id} {u}")
-            mv = mask_violations(res, m) if spec.base_tf == "15m" else 0
-            if mv:
-                integrity.append(f"mask violation: {spec.set_id} {u}: {mv} trades")
+            integrity += integrity_problems(res, m, sd, u, taker, risk_cfg)
+            if integrity:
+                # review fix M1(ii): stop right after the base runs, keep ONLY the integrity record
+                say(f"F{family}: VOID (integrity failure); no result is computed or printed")
+                return void_record(base_record, integrity)
             summ = run_summary(res, m, sd, cut)
             summ["mask_blocked_flat_signals"] = sum(1 for r in res.rejections if r[2] == "blocked" and r[3])
+            summ["budget_overshoot"] = budget_overshoot(res, sd, risk_cfg)
+            summ["max_concurrent_positions"] = max_concurrent(res, m)
             grid[u][spec.set_id] = summ
-            say(f"F{family} {u} {spec.set_id}: done ({summ['trades']} trades)")
+            say(f"F{family} {u} {spec.set_id}: done")
             logs.append(_annot(ir.trades_frame(res, m, sd, u), m, cut))
             rej_logs.append(ir.rejections_frame(res, m, sd, u))
     rows = [dict(set_no=s.set_no, is_n=grid["B"][s.set_id]["is_n"], is_avgR=grid["B"][s.set_id]["is_avgR"]) for s in specs]
@@ -383,13 +389,74 @@ def evaluate_family(family: int, provider, workers: int = 1, logs_dir: Path | No
         dsr_info=dsr, per_year=per_year(cres, mB, sds[("B", cspec.set_no)]),
         concentration=concentration(cres, mB), drawdown=drawdown_detail(cres, mB),
     )
-    if not integrity and abs(cres.final_equity - (cB["final_equity"])) > 1e-9 * cres.start_equity:
+    if abs(cres.final_equity - (cB["final_equity"])) > 1e-9 * cres.start_equity:
         integrity.append("champion rerun not deterministic")
+    if integrity:
+        say(f"F{family}: VOID (integrity failure); no result is kept")
+        return void_record(base_record, integrity)
     if family == 2:
         out["f2_15m"] = f2_mask_report(market, sds, specs, taker, risk_cfg, cut, grid)
     out["verdict"] = st.verdict(gates, integrity_ok=not integrity)
     _write_logs(out, logs, rej_logs, logs_dir, family)
     return out
+
+
+def void_record(base_record: dict, integrity: list[str]) -> dict:
+    """The ONLY thing kept for a VOID family (review fix M1(ii)): identification and the integrity
+    failures. No grid, no gate input, no performance number."""
+    return dict(base_record, verdict="VOID", integrity=list(integrity))
+
+
+def integrity_problems(res: ir.RunResult, m: ir.Market, sd: ir.SetData, universe: str, costs, risk_cfg) -> list[str]:
+    """Integrity checks of one base run (prereg §6.7 VOID conditions + Risk Officer rows):
+    P/L reconciliation, 15m mask violations, approved trades with stop >= entry or non-finite R,
+    and determinism (a second, light run of the same set must give the same final equity)."""
+    out = []
+    fi = ir.TRADE_FIELDS.index
+    sid = f"{sd.spec.set_id} {universe}"
+    net = sum(t[fi("net_pnl")] for t in res.trades)
+    if abs((res.final_equity - res.start_equity) - net) > 1e-9 * res.start_equity:
+        out.append(f"P/L reconciliation failed: {sid}")
+    if sd.spec.base_tf == "15m":
+        mv = mask_violations(res, m)
+        if mv:
+            out.append(f"mask violation: {sid}: {mv} trades")
+    bad = sum(1 for t in res.trades if not (t[fi("initial_stop")] < t[fi("entry_ref")]) or not math.isfinite(t[fi("R")]))
+    if bad:
+        out.append(f"approved trades with stop >= entry or non-finite R: {sid}: {bad}")
+    again = ir.simulate(m, sd, costs, risk_cfg, collect=False)
+    if again.final_equity != res.final_equity or len(again.light) != len(res.trades):
+        out.append(f"non-deterministic rerun: {sid}")
+    return out
+
+
+def budget_overshoot(res: ir.RunResult, sd: ir.SetData, risk_cfg: dict) -> dict:
+    """Information only (Risk Officer): trades whose realised loss exceeded the engine's
+    volatility-scaled per-trade risk budget at the signal (equity x max_loss_per_trade_pct x
+    volatility scale(atr_pct)) -- gap through the stop, close-trigger overshoot, costs -- and the
+    worst multiple of the budget."""
+    eng = ir.make_risk_engine(risk_cfg, ["X"])
+    fi = ir.TRADE_FIELDS.index
+    n, worst = 0, 0.0
+    for t in res.trades:
+        atr_pct = float(sd.atr_pct[t[fi("s")], t[fi("d_signal")]])
+        budget = t[fi("equity_signal")] * eng.max_loss_per_trade_pct * eng._volatility_scale(atr_pct)
+        loss = -t[fi("net_pnl")]
+        if budget > 0 and loss > budget:
+            n += 1
+            worst = max(worst, loss / budget)
+    return dict(trades=n, worst_multiple=worst)
+
+
+def max_concurrent(res: ir.RunResult, m: ir.Market) -> int:
+    """Maximum number of positions held at one base close (Amendment 2 (b): family 3 can hold up to
+    K + b)."""
+    fi = ir.TRADE_FIELDS.index
+    cnt = np.zeros(m.Tb + 1, dtype=int)
+    for t in res.trades:
+        cnt[t[fi("fill_k")]] += 1
+        cnt[t[fi("exit_k")]] -= 1
+    return int(np.cumsum(cnt).max()) if res.trades else 0
 
 
 def _annot(df: pd.DataFrame, m: ir.Market, cut) -> pd.DataFrame:
@@ -455,6 +522,14 @@ def benchmark(m: ir.Market, sd: ir.SetData | None, btc_only: bool = False) -> di
                     for a, b in idata.mask_intervals_ns():
                         masked[s] |= (days >= a) & (days < b)
         eq = st.buy_hold_daily(closes, first_ok, masked)
+        # Amendment 2 (c): the actual first eligible decision and benchmark join date of every coin
+        joins = {}
+        for s, c in enumerate(m.coins):
+            ok = np.flatnonzero(sd.elig[s])
+            joins[c] = dict(first_eligible=str(pd.Timestamp(int(sd.dec_ns[ok[0]]), tz="UTC")) if len(ok) else None,
+                            benchmark_join=str((m.start + pd.Timedelta(days=int(first_ok[s]))).date()) if first_ok[s] >= 0 else None)
+        return dict(total_return=float(eq[-1] / eq[0] - 1), max_drawdown=st.max_drawdown(eq)[0],
+                    sharpe=st.daily_sharpe(eq), joins=joins)
     return dict(total_return=float(eq[-1] / eq[0] - 1), max_drawdown=st.max_drawdown(eq)[0], sharpe=st.daily_sharpe(eq))
 
 
@@ -581,8 +656,16 @@ def render_report(r: dict) -> str:
         mask=("15m sets: every coin except BTC/ETH is masked on 2023-03-04, 2024-08-13..09-03 and "
               "2025-01-01..04-30; masked windows are excluded from the 15m benchmark. " if f == 2 else ""))
     lines += [surv, ""]
-    if r.get("integrity"):
-        lines += ["**Integrity failures (VOID):** " + "; ".join(r["integrity"]), ""]
+    if r.get("run_kind") == "PARTIAL":
+        lines.insert(0, "> **PARTIAL run (`--family`), NOT the registered P2 result.** Official outputs are written only "
+                        "by `run_intraday_prereg.py`.\n")
+    if r.get("verdict") == "VOID" or r.get("integrity"):
+        # review fix M1(ii): a VOID run shows its integrity failures and nothing else
+        lines += ["**Integrity failures (VOID):** " + "; ".join(r.get("integrity", [])),
+                  "", "No number from a VOID run is reported (prereg §6.7); the fix follows rule 0.2.", ""]
+        return "\n".join(lines) + "\n"
+    lines += ["Integrity: P/L reconciliation, 15m mask violations, approved trades with stop >= entry or non-finite R "
+              "(count 0), deterministic reruns: all clean.", ""]
     ch = r.get("champion")
     lines += ["## 1. Grid table (kraken_T3_taker)", ""]
     hdr = ["set", "U", "trades", "blocks", "win%", "avg R", "avg R gross", "drag R", "CI 2.5%", "CI 0.0694%", "PF",
@@ -614,7 +697,9 @@ def render_report(r: dict) -> str:
         ["G2", f"0.0694th pct of block bootstrap avg R = {_p(bs['gate'][st.G2_PERCENTILE], nd=4)} (L_b = {bs['block_days']} d); "
                f"info: 0.139th {_p(bs['gate'][0.139], nd=4)}, 2.5th {_p(bs['gate'][2.5], nd=4)}", g["G2"]],
         ["G3", f"OOS n {g['G3_detail']['oos_n']} avg R {_p(g['G3_detail']['oos_avgR'])}; folds scored {g['G3_detail']['scored']}, losing {g['G3_detail']['losing']}", g["G3"]],
-        ["G4", f"draw-champions >= real: avg R {r['g4']['ge_avgR']}, return {r['g4']['ge_return']} (max 2); draws without a champion {r['g4']['no_champion']} (counted as not beaten)", g["G4"]],
+        ["G4", f"draw-champions >= real: avg R {r['g4']['ge_avgR']}, return {r['g4']['ge_return']} (max 2); draws without a champion "
+               f"{r['g4']['no_champion']} (counted as NOT beaten, Amendment 2 (a))"
+               + (" -- **DECISIVE: G4 would pass if they counted as beaten**" if r['g4'].get('no_champion_decisive') else ""), g["G4"]],
         ["G5", f"return {_p(cB['total_return'], True)}, Sharpe {_p(cB['sharpe_daily'])} vs bench {_p(r['benchmark_B']['sharpe'])}; +25% return {_p(r['views']['B']['kraken_T3_taker_+25%']['total_return'], True)}", g["G5"]],
         ["R1", f"A avg R {_p(r['grid']['A'][r['champion_set']]['avgR'])}, return {_p(r['grid']['A'][r['champion_set']]['total_return'], True)}", g["R1"]],
         ["R2", f"neighbours {r['neighbours']}: {g['R2_detail']['positive']} of {g['R2_detail']['neighbours']} positive (need {g['R2_detail']['needed']})", g["R2"]],
@@ -653,7 +738,17 @@ def render_report(r: dict) -> str:
               _table(["coin", "trades", "avg R"], [[c, v["n"], _p(v["avgR"])] for c, v in sorted(cc.get("per_coin", {}).items())]), ""]
     lines += ["## 9. Correlation", "", f"Design effect {_p(bs['DE'])}, n_eff {_p(bs['n_eff'], nd=1)}; 1-day-block CI lower 2.5% "
               f"{_p(bs['block1'][2.5], nd=4)} vs 7-day {_p(bs['block7'][2.5], nd=4)}; positions opened per block max {bs['per_block_max']}, median {_p(bs['per_block_median'], nd=1)}.", ""]
-    lines += ["## 10. Risk-engine mix", "", f"Checks {cB['checks']}, approvals {cB['approvals']}, rejections by reason {cB['reject_reasons']}; dust (< $50) share {_p(cB.get('dust_share'), True)}.", ""]
+    bo = cB.get("budget_overshoot", {})
+    lines += ["## 10. Risk-engine mix", "", f"Checks {cB['checks']}, approvals {cB['approvals']}, rejections by reason {cB['reject_reasons']}; dust (< $50) share {_p(cB.get('dust_share'), True)}.",
+              "", f"Integrity row: approved trades with stop >= entry or non-finite R = 0 (a non-zero count makes the run VOID).",
+              f"Information only: trades whose realised loss exceeded the engine's volatility-scaled risk budget = {bo.get('trades')}, "
+              f"worst multiple of the budget {_p(bo.get('worst_multiple'))} (gap through the stop, close-trigger overshoot, costs).",
+              f"Maximum concurrent positions (B, champion): {cB.get('max_concurrent_positions')}"
+              + (" (family 3 may hold up to K + b, Amendment 2 (b))." if f == 3 else "."), "",
+              "Eligibility / benchmark join dates (Amendment 2 (c); 114 complete daily bars of warm-up): "
+              + "; ".join(f"{u}: " + ", ".join(f"{c} {v['first_eligible'][:10] if v['first_eligible'] else 'never'}"
+                                               for c, v in sorted(r[f'benchmark_{u}'].get('joins', {}).items()))
+                          for u in ("B", "A")), ""]
     dch = r["placebo"]["draw_champions"]
     vals_R = [x["avgR"] for x in dch if x]
     vals_ret = [x["total_return"] for x in dch if x]
@@ -693,32 +788,81 @@ def dumps(results) -> str:
     return json.dumps(_jsonable(results), sort_keys=True, indent=1)
 
 
-def main(argv=None):
+PARTIAL_DIR = DEFAULT_LOGS / "PARTIAL"
+
+
+def write_atomic(path: Path, text: str) -> None:
+    """Write via a temp file in the same directory + os.replace, so a crash never leaves a torn file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
+def run(families: list[int], official: bool, workers: int, data_root=None, out_json: Path = DEFAULT_JSON,
+        docs_dir: Path = DEFAULT_DOCS, logs_dir: Path = DEFAULT_LOGS, provider=None, n_placebo: int = st.N_PLACEBO,
+        evaluate=None) -> dict:
+    """Review fix M1:
+    (i)  refuses to start unless the code label is clean (no uncommitted change under
+         strategy_pack_run/, src/, config/ or docs/);
+    (ii) a VOID family keeps only its integrity record (evaluate_family);
+    (iii) the results JSON is written atomically after EACH family, `complete` false until the last;
+    (iv) only an official run (`run_intraday_prereg.py`: all three families, real snapshot, 200 draws)
+         writes the official outputs; anything else is labelled PARTIAL and written under
+         strategy_pack_run/intraday_p2_logs/PARTIAL/ only."""
+    label = code_commit()
+    print(f"Harness version: {ir.HARNESS_VERSION}")
+    print(f"Code commit: {label}")
+    if label.endswith("+dirty") or label == "unknown":
+        raise SystemExit("refusing to start: uncommitted changes under strategy_pack_run/, src/, config/ or docs/ "
+                         f"(code label {label!r}); commit first, the run must record a clean hash")
+    provider = provider or RealProvider(data_root)
+    if official:
+        if sorted(families) != [1, 2, 3] or provider.kind != "real" or n_placebo != st.N_PLACEBO:
+            raise SystemExit("an official run is all three families on the real snapshot with the registered placebo")
+        run_kind = "OFFICIAL"
+    else:
+        run_kind = "PARTIAL"
+        out_json = PARTIAL_DIR / "PARTIAL_intraday_p2_results.json"
+        docs_dir = PARTIAL_DIR
+        logs_dir = PARTIAL_DIR / "logs"
+    evaluate = evaluate or evaluate_family
+    results: dict = {}
+    record = dict(harness_version=ir.HARNESS_VERSION, run_kind=run_kind, code_commit=label, complete=False, results=results)
+    for f in families:
+        try:
+            print("Data hashes:", provider.verify(f))
+        except idata.SnapshotMismatch as exc:
+            print(f"VOID: {exc}")
+            r = dict(family=f, verdict="VOID", integrity=[f"snapshot: {exc}"])
+        else:
+            r = evaluate(f, provider, workers, Path(logs_dir), n_placebo=n_placebo)
+        r["run_kind"] = run_kind
+        results[f"family{f}"] = r
+        name = f"intraday_p2_family{f}.md" if official else f"PARTIAL_intraday_p2_family{f}.md"
+        write_atomic(Path(docs_dir) / name, render_report(r))
+        record["complete"] = f == families[-1]
+        write_atomic(Path(out_json), dumps(record))
+        print(f"family {f}: {r['verdict']}")
+    return record
+
+
+def main(argv=None, official: bool = False):
+    """`run_intraday_p2.py --family N|all` is always a PARTIAL run (scratch outputs, labelled);
+    `run_intraday_prereg.py` calls this with official=True and all three families."""
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--family", choices=["1", "2", "3", "all"], required=True)
+    ap.add_argument("--family", choices=["1", "2", "3", "all"], required=not official)
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--data-root", default=None, help=f"default ${idata.DATA_ROOT_ENV} or {idata.DATA_ROOT_DEFAULT}")
     ap.add_argument("--out-json", default=str(DEFAULT_JSON))
     ap.add_argument("--docs-dir", default=str(DEFAULT_DOCS))
     ap.add_argument("--logs-dir", default=str(DEFAULT_LOGS))
     a = ap.parse_args(argv)
-    print(f"Harness version: {ir.HARNESS_VERSION}")
-    print(f"Code commit: {code_commit()}")
-    prov = RealProvider(a.data_root)
-    fams = [1, 2, 3] if a.family == "all" else [int(a.family)]
-    results = {}
-    for f in fams:
-        try:
-            print("Data hashes:", prov.verify(f))
-        except idata.SnapshotMismatch as exc:
-            print(f"VOID: {exc}")
-            results[f"family{f}"] = dict(family=f, verdict="VOID", integrity=[str(exc)])
-            continue
-        r = evaluate_family(f, prov, a.workers, Path(a.logs_dir))
-        results[f"family{f}"] = r
-        Path(a.docs_dir, f"intraday_p2_family{f}.md").write_text(render_report(r))
-        print(f"family {f}: {r['verdict']}")
-    Path(a.out_json).write_text(dumps(dict(harness_version=ir.HARNESS_VERSION, results=results)))
+    if official and a.family not in (None, "all"):
+        raise SystemExit("run_intraday_prereg.py runs all three families; use run_intraday_p2.py for a PARTIAL run")
+    fams = [1, 2, 3] if official or a.family == "all" else [int(a.family)]
+    return run(fams, official, a.workers, a.data_root, Path(a.out_json), Path(a.docs_dir), Path(a.logs_dir))
 
 
 if __name__ == "__main__":

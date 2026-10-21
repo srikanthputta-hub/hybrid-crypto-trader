@@ -94,11 +94,29 @@ MUTATIONS = [
     ("M29", "review n1: a series that ends early frees its room at its last bar instead of the window end", "intraday_runner.py",
      'return dict(exit_k=self.m.Tb - 1, px=float(self.m.C[s, kl]), reason="end"',
      'return dict(exit_k=kl, px=float(self.m.C[s, kl]), reason="end"'),
+    ("M30", "review M1(i): a dirty code label does not stop the run", "run_intraday_p2.py",
+     '    if label.endswith("+dirty") or label == "unknown":\n', "    if False:\n"),
+    ("M31", "review M1(ii): an integrity failure does not stop the run (numbers still computed)", "run_intraday_p2.py",
+     "            if integrity:\n                # review fix M1(ii)", "            if False:\n                # review fix M1(ii)"),
+    ("M32", "review m4: mask-violation check always returns 0", "run_intraday_p2.py",
+     "        if any(a < e and b > s for s, e in iv):\n            n += 1\n",
+     "        if any(a < e and b > s for s, e in iv):\n            pass\n"),
+    ("M33", "review M1(iv): a --family run writes the official outputs", "run_intraday_p2.py",
+     '        out_json = PARTIAL_DIR / "PARTIAL_intraday_p2_results.json"\n        docs_dir = PARTIAL_DIR\n',
+     "        pass\n"),
+    ("M34", "review M1(iii): results JSON written only at the end, not after each family", "run_intraday_p2.py",
+     '        record["complete"] = f == families[-1]\n        write_atomic(Path(out_json), dumps(record))\n',
+     '        record["complete"] = f == families[-1]\n        if record["complete"]:\n            write_atomic(Path(out_json), dumps(record))\n'),
+    ("M35", "Risk Officer: approved trades with stop >= entry not flagged", "run_intraday_p2.py",
+     '    if bad:\n        out.append(f"approved trades with stop', '    if False:\n        out.append(f"approved trades with stop'),
+    ("M36", "Risk Officer: a non-default volatility_scale_floor is forwarded silently", "intraday_runner.py",
+     '    if "volatility_scale_floor" in kw and kw["volatility_scale_floor"] != default_floor:',
+     '    if False:'),
 ]
 
 TEST_FILES = [
     "test_intraday_constants.py", "test_intraday_data.py", "test_intraday_stats.py", "test_intraday_execution.py",
-    "test_intraday_runner_p2.py", "test_intraday_reference.py", "test_intraday_families.py",
+    "test_intraday_review_fixes.py", "test_intraday_runner_p2.py", "test_intraday_reference.py", "test_intraday_families.py",
 ]
 COPY_DIRS = ("data_intraday", "data_long", "data")
 

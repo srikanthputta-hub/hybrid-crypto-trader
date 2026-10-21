@@ -222,8 +222,12 @@ def g4_counts(real_avgR: float, real_ret: float, draws: list[dict | None]) -> di
     ge_R = sum(1 for x in draws if x is None or not (real_avgR > x["avgR"]))
     ge_ret = sum(1 for x in draws if x is None or not (real_ret > x["total_return"]))
     none = sum(1 for x in draws if x is None)
+    passes = ge_R <= G4_MAX_DRAWS_GE and ge_ret <= G4_MAX_DRAWS_GE
+    passes_if_beaten = (ge_R - none) <= G4_MAX_DRAWS_GE and (ge_ret - none) <= G4_MAX_DRAWS_GE
     return dict(ge_avgR=ge_R, ge_return=ge_ret, no_champion=none,
-                p_avgR=(1 + ge_R) / (len(draws) + 1), p_return=(1 + ge_ret) / (len(draws) + 1))
+                p_avgR=(1 + ge_R) / (len(draws) + 1), p_return=(1 + ge_ret) / (len(draws) + 1),
+                # Amendment 2 (a): flag when the no-champion convention alone decides G4
+                no_champion_decisive=bool(none > 0 and passes_if_beaten and not passes))
 
 
 def deflated_sharpe(sr: float, n_trials: int, T: int, skew: float, kurt: float, var_sr: float) -> float:

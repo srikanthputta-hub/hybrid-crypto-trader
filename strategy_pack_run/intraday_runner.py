@@ -25,6 +25,7 @@ independent bar-by-bar loop written from the prereg text (AT11/AT18), trade for 
 """
 from __future__ import annotations
 
+import inspect
 import math
 import sys
 from dataclasses import dataclass, field
@@ -80,6 +81,12 @@ def make_risk_engine(risk_cfg: dict, symbols) -> RiskEngine:
         raise RuntimeError(f"{_NO_KILL_SWITCH} must never exist")
     kw = {k: risk_cfg[k] for k in RISK_KEYS_REQUIRED}
     kw.update({k: risk_cfg[k] for k in RISK_KEYS_OPTIONAL if k in risk_cfg})
+    # Risk Officer: src/bot.py does not forward volatility_scale_floor (the engine default is what
+    # runs live), so the harness may only forward it if it equals that default -- otherwise the
+    # harness and the live engine would silently size differently.
+    default_floor = inspect.signature(RiskEngine.__init__).parameters["volatility_scale_floor"].default
+    if "volatility_scale_floor" in kw and kw["volatility_scale_floor"] != default_floor:
+        raise ValueError(f"volatility_scale_floor {kw['volatility_scale_floor']!r} != RiskEngine default {default_floor!r}")
     return RiskEngine(kill_switch_path=_NO_KILL_SWITCH, symbol_whitelist=list(symbols), **kw)
 
 
@@ -627,7 +634,10 @@ class Simulator:
                 else:
                     stop0 = close_t - fam.F3_STOP_ATR_D_MULT * float(sd.atr_d[s, d])
                     target, rr = float("nan"), None
+                # Risk Officer: never None (None would skip the engine's volatility checks); a missing
+                # daily ATR stays NaN, which the engine rejects as an invalid input (fail closed).
                 atr_pct = float(sd.atr_pct[s, d])
+                assert atr_pct is not None
                 res.checks += 1
                 dec = risk.check_new_trade(
                     m.coins[s], "buy", portfolio_equity=equity, cash_available=cash - committed,
