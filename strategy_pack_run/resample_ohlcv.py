@@ -54,20 +54,27 @@ TARGET_MINUTES = {"1h": 60, "4h": 240, "1d": 1440}
 _AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 
 
-def resample_ohlcv(df_15m: pd.DataFrame, target_tf: str) -> pd.DataFrame:
+def resample_ohlcv(df_15m: pd.DataFrame, target_tf: str, source_minutes: int = SOURCE_MINUTES) -> pd.DataFrame:
     """df_15m: DataFrame indexed by bar OPEN time (UTC, tz-aware DatetimeIndex), columns
     open/high/low/close/volume, one row per CLOSED 15m bar (the same contract
     fetch_coinbase_long.py's CSV output uses before backtest_live_bot.load_csv's +tf_seconds
     close-time shift) -- sorted ascending, no duplicate index values.
 
     Returns a DataFrame in the SAME convention (indexed by the derived bar's OWN open time),
-    containing only bins where every expected 15m row was present (see module docstring).
+    containing only bins where every expected source row was present (see module docstring).
+
+    `source_minutes` (intraday P1, docs/intraday_harness_changes.md H2; default 15 keeps every
+    existing caller byte-identical): the bar length of the SOURCE frame. With
+    `source_minutes=60` (a native 1h source) a 4h bin needs exactly 4 rows and a 1d bin 24.
+    The bin anchor is unchanged (`origin="start_day"`, 00/04/.../20 UTC).
     """
     if target_tf not in PANDAS_RULE:
         raise ValueError(f"unsupported target_tf {target_tf!r}; expected one of {sorted(PANDAS_RULE)}")
+    if source_minutes <= 0 or TARGET_MINUTES[target_tf] % source_minutes != 0 or source_minutes > TARGET_MINUTES[target_tf]:
+        raise ValueError(f"source_minutes={source_minutes!r} does not evenly divide target_tf {target_tf!r}")
     if df_15m.empty:
         return df_15m.copy()
-    expected_rows = TARGET_MINUTES[target_tf] // SOURCE_MINUTES
+    expected_rows = TARGET_MINUTES[target_tf] // source_minutes
     grouped = df_15m.resample(PANDAS_RULE[target_tf], label="left", closed="left")
     counts = grouped["close"].count()
     agg = grouped.agg(_AGG)
