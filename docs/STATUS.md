@@ -11,6 +11,8 @@ waiting on whom. The detail lives in the linked docs; the PR/issue numbers are G
 > Weekly routine, reports and rollback: `deploy/PAPER_TRIAL_RUNBOOK.md` sections 6-9. Paper only; live stays blocked
 > (issue #99).
 
+> **Intraday program (2026-10-21):** data (#112), pre-registration (#113), harness (#114) and the one-shot registered run (#115) are done. **All three families FAIL** (see [intraday_p2_verdict.md](intraday_p2_verdict.md)); family 3 is a near-miss. Nothing intraday ships; the daily trial is the only running strategy.
+
 **Paper daily-bar trial (PR #106, merged 2026-10-19; running):** the shipped config
 switches the **paper** bot to daily bars with bar parity on and the 16 coins on their `*/USD` pairs (the evidence's
 bars), with no strategy or risk parameter change and `mode: paper`. Operator steps: [../deploy/PAPER_TRIAL_RUNBOOK.md](../deploy/PAPER_TRIAL_RUNBOOK.md);
