@@ -616,3 +616,65 @@ All six were decided by the orchestrator before any run; the decisions are writt
   number is consumed inside a draw, so results cannot depend on the number of workers (§6.3, harness doc AT15). The
   compute (200 x 36 = 7,200 runs on B plus 72 base runs and the cost views) is still to be estimated on one set before
   launch; a partial placebo is not a gate result.
+
+## 10. Amendment 2 (pre-run, 2026-10-21): clarifications accepted at the P1 review
+
+Made after two independent reviews of the P1 harness (Risk Officer: ready for P2; Architect: ready after fixes),
+**before any family has been run on evaluation data and before any result has been seen** (only synthetic data and
+pre-2021-03-01 trade-list reconciliation have been run, §0 rule 3). These are clarifications of points the text
+above left open or stated inconsistently; no parameter, gate threshold, window, universe, cost or seed changes.
+
+- **(a) Placebo draw without a champion.** A placebo draw in which no set has >= 150 purged IS trades has no
+  draw-champion; for G4 it counts as a draw the real champion does **NOT** beat (conservative: it can only turn a
+  PASS into a FAIL, never the reverse). The report prints the number of such draws and flags it when it is
+  decisive (G4 would pass if they counted as beaten). Note: the family-2 placebo resets the target at the landing
+  bar (target = SMA_n there, §6.3), so the 1.5 R:R floor vetoes most shifted entries (about 15-45% of the real
+  run's trades are kept on synthetic data); this reading can therefore decide family 2's G4.
+- **(b) Family 3 holdings.** Family 3 may hold up to K + b coins, as the explicit rules of §4 imply (entries are the
+  target coins not held; a held coin survives until rank K + b). §1.4's "at most K coins by construction" is a
+  description that is false for b = 2; §4 governs. The 10% / 40% caps are unchanged. The report prints the maximum
+  number of concurrent holdings.
+- **(c) Warm-up.** The §1.2 warm-up rule (EMA/Wilder series need >= 100 + their length bars) applies to ATR_D and
+  ADX_D, which every family uses, so a coin needs >= 114 complete daily bars (not "about 60 days" as §1.2 says for
+  AVAX and SHIB). Knock-on: AVAX and SHIB join B about 114 days after their first complete day, XRP joins A around
+  2023-11-05 (first complete day 2023-07-14 + 114 days), and the benchmark join dates of AVAX, SHIB and XRP shift
+  accordingly. The report states the actual first-eligible and benchmark join dates of every coin.
+- **(d) Stop boundary (review fix m2).** The close-trigger stop fires on a base close **at or below** the stop
+  (`close <= stop`), exactly as `src/monitor.py` does; "a close below the stop" in §1.1 and AT10 reads as "at or
+  below".
+- **(e) A coin whose series ends before the window end (review fix n1).** An open position is not released early:
+  it stays open, marked at the coin's last close, until the window's last base close, where it is closed at that
+  last close (reason `end`, costs of the coin's last bar). This is the conservative reading (no exposure room or
+  cash freed before the window ends); harness and reference implementation agree.
+
+Also recorded (implementation, not interpretation): the tiered-slippage daily quote volume is the sum over the
+day's native 1h bars of (1h close x 1h volume) per complete UTC day (§5.2, H5); the loader reads only the hashed
+snapshot prefix (§1.3); and the official outputs are written only by `run_intraday_prereg.py` on a clean committed
+tree whose HEAD is `origin/main`'s tip, with the code commit and the SHA-256 of every harness source file recorded
+(procedure: `docs/intraday_p2_protocol.md`).
+
+- **(f) VOID triggers, stated explicitly (stricter than before).** §6.7's "any integrity check fails" is the
+  following list, each checked on every base run; any one makes the family VOID, the family stops right after its
+  base runs, and only its integrity record is kept (no grid, no gate input, no performance number is computed,
+  printed or reported): (1) **snapshot mismatch** (prefix hash, §1.3); (2) **P/L reconciliation** (sum of net P/L
+  != final - start equity, 1e-9 relative); (3) **15m mask violation** (a masked coin's position overlapping a
+  masked day); (4) **an approved trade with stop >= entry or a non-finite R** -- previously such a trade would have
+  been silently dropped from the statistics, now it voids the run; (5) **a non-deterministic rerun** (a second run
+  of the same set, or of the champion, giving a different result).
+
+### P4 prerequisites (Risk Officer; not part of P2, recorded so they are not lost)
+
+1. The intraday paper instance must pass `now` = the decision-bar close to `check_new_trade` and `record_trade`
+   (live passes the wall clock, so exact-boundary cooldown / entry-window cases differ: in the Risk Officer's
+   differential fuzz on **SYNTHETIC series only**, 3.5% of F2-15m approvals flipped; this is not an
+   evaluation-data result and says nothing about any family's performance), with a parity test.
+2. The risk engine must reject buys with `stop_loss` None or >= `entry_price` when `risk_reward` is None (test first,
+   a separate Risk Officer PR).
+3. `risk_reward=None` only when the plan type has no target, never as a fallback, asserted at the call site, and every
+   decision where the R:R check was skipped is audit-logged.
+4. Daily ATR% = ATR_D(14) / the close of the same completed day; missing = NaN (never None); up-to-24h staleness
+   acknowledged; parity test on recorded bars.
+5. One shared kill-switch file for both instances; per-instance caps accepted; a combined-exposure cap before any
+   shared real-money account (issue #99); paper starting cash >= $2,500.
+6. The daily-loss baseline (equity at the first buy check of the UTC day) is weaker at intraday cadence: owner
+   decision; any change must be mirrored in the harness, with a re-run.
