@@ -55,9 +55,30 @@ def noise_1h(seed: int = 6, sigma: float = 0.01):
 
 
 @functools.lru_cache(maxsize=None)
-def many_1h(seed: int = 9, n: int = 7):
+def many_1h(seed: int = 9, n: int = 7, sigma: float = 0.006):
+    """Many coins, daily ATR% under the 8% volatility cap, so the exposure / rate / cooldown /
+    daily-loss limits are what binds."""
     names = ["ETH", "SOL", "ADA", "DOGE", "AVAX", "LINK", "LTC", "DOT"][:n]
-    return syn.universe_1h(names, DATA_START, 24 * 360, seed=seed, kind="random_walk", sigma=0.012)
+    return syn.universe_1h(names, DATA_START, 24 * 360, seed=seed, kind="random_walk", sigma=sigma)
+
+
+@functools.lru_cache(maxsize=None)
+def correlated_1h(seed: int = 12, n: int = 8):
+    """Coins = one common trending factor + small idiosyncratic noise: breakouts arrive together,
+    so the global new-entry cap and per-coin cooldowns bind."""
+    rng = np.random.default_rng(seed)
+    N = 24 * 360
+    idx = pd.date_range(DATA_START, periods=N, freq="1h", tz="UTC")
+    common = syn.regime_switch_logpath(N, rng, 0.004, 0.0006, 24 * 3, 24 * 8)
+    raw = {"BTC": syn.ohlcv_from_logpath(idx, syn.random_walk_logpath(N, rng, 0.002, 0.00005), rng)}
+    for c in ["ETH", "SOL", "ADA", "DOGE", "AVAX", "LINK", "LTC", "DOT"][:n]:
+        raw[c] = syn.ohlcv_from_logpath(idx, common + syn.random_walk_logpath(N, rng, 0.0008), rng)
+    return syn.make_data(raw, "1h")
+
+
+@functools.lru_cache(maxsize=None)
+def calm_noise_15m(seed: int = 8):
+    return syn.universe_15m(["ETH", "SOL", "ADA"], "2022-05-01", 96 * 320, seed=seed, sigma=0.0025)
 
 
 @functools.lru_cache(maxsize=None)
