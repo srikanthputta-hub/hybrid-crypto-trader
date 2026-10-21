@@ -136,6 +136,17 @@ def test_placebo_shifts_are_the_registered_draws():
     assert d[:5] == [1439, 1124, 938, 582, 638]
 
 
+def test_amendment_2_records_the_readings_the_harness_implements():
+    a2 = PREREG.split("## 10. Amendment 2 (pre-run, 2026-10-21)")
+    assert len(a2) == 2
+    text = a2[1]
+    for phrase in ("counts as a draw the real champion does **NOT** beat", "up to K + b coins", ">= 114 complete daily bars",
+                   "(`close <= stop`)", "marked at the coin's last close, until the window's last base close",
+                   "P4 prerequisites"):
+        assert phrase in text, phrase
+    assert idata.WARMUP_EXTRA + idata.WILDER_LEN == 114
+
+
 def test_no_cli_flag_can_change_a_registered_value():
     import run_intraday_p2 as p2
 
