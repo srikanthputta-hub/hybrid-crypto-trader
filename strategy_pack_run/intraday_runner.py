@@ -275,10 +275,12 @@ class CostModel:
         return cls(costs.name, float(costs.fee), float(costs.slippage))
 
 
-def daily_tier_volume(daily: pd.DataFrame) -> pd.Series:
-    """Trailing 30-day median of DAILY quote volume (sum of native-1h close*volume per complete UTC
-    day), divided by 3, indexed by the day's CLOSE time (value known at that close)."""
-    qv = (daily["close"] * daily["volume"]).astype(float)
+def daily_tier_volume(df_1h: pd.DataFrame) -> pd.Series:
+    """Trailing 30-day median of DAILY quote volume, divided by 3, indexed by the day's CLOSE time
+    (value known at that close). Daily quote volume is the registered definition (prereg §5.2, H5):
+    the sum over the day's native 1h bars of (1h close x 1h volume), complete UTC days only
+    (intraday_data.daily_quote_volume_from_1h) -- not the daily close times the day's volume."""
+    qv = idata.daily_quote_volume_from_1h(df_1h)
     return qv.rolling(TIER_MEDIAN_DAYS, min_periods=1).median() / TIER_VOLUME_DIVISOR
 
 
@@ -292,7 +294,7 @@ def tiered_cost_model(market: Market, base: Costs = COST_PRESETS[GATING_COST]) -
     slip = np.empty((market.S, market.Tb))
     vols = {}
     for c in market.coins:
-        med = daily_tier_volume(market.data["daily"][c])
+        med = daily_tier_volume(market.data["native_1h"][c])
         through_day = med.copy()
         through_day.index = med.index - pd.Timedelta(days=1)  # close at D+1 00:00 -> 'through day D'
         vols[c] = through_day.reindex(days, method="ffill").to_numpy(float)

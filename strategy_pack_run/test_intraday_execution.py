@@ -346,6 +346,28 @@ def test_at13_switch_day_keeps_the_old_tier_until_the_next_day():
     assert first_change_day >= pd.Timestamp("2021-03-22", tz="UTC")
 
 
+def test_m1_daily_quote_volume_is_the_sum_of_hourly_close_times_hourly_volume():
+    """Review fix m1: every UTC day trades its volume at 100 for 23 hours and closes at 200 in the
+    last hour (negligible volume). Registered definition: sum(1h close x 1h volume) = 23*100*v;
+    the wrong one (daily close x day volume) would be 2x that. v is chosen so the two land in
+    different tiers: 2300 v / 3 = 6M -> 20bp (registered) vs 12M -> 5bp (wrong)."""
+    v = 6e6 * 3 / 2300
+    idx = pd.date_range("2021-01-01", periods=24 * 60, freq="1h", tz="UTC")
+    last = idx.hour == 23
+    px = np.where(last, 200.0, 100.0)
+    raw = {c: pd.DataFrame({"open": px, "high": px, "low": px, "close": px, "volume": np.where(last, 1e-9, v)}, index=idx)
+           for c in ("BTC", "ETH")}
+    d = syn.make_data(raw, "1h")
+    qv = idata.daily_quote_volume_from_1h(d["native_1h"]["ETH"])
+    assert qv.iloc[0] == pytest.approx(2300 * v + 200 * 1e-9)
+    assert (d["daily"]["ETH"]["close"] * d["daily"]["ETH"]["volume"]).iloc[0] == pytest.approx(2 * qv.iloc[0])
+    m = ir.Market(d, pd.Timestamp("2021-02-15", tz="UTC"), 10)
+    cm = ir.tiered_cost_model(m)
+    assert (cm._slip[m.coins.index("ETH"), 1:] == 0.0020).all()
+    with pytest.raises(idata.MixedSourceError):
+        idata.daily_quote_volume_from_1h(d["daily"]["ETH"])  # never from daily (or 15m) bars
+
+
 # --------------------------------------------------------------------------- #
 # AT14 maker model
 # --------------------------------------------------------------------------- #

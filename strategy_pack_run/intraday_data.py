@@ -279,7 +279,23 @@ def daily_inputs(daily: pd.DataFrame) -> pd.DataFrame:
     out["adx_d"] = _adx(daily, WILDER_LEN)
     out["atr_pct"] = out["atr_d"] / out["close_d"]
     out["n_daily"] = np.arange(1, len(daily) + 1, dtype=float)
-    out["quote_vol_d"] = (daily["close"] * daily["volume"]).astype(float)
+    return out
+
+
+def daily_quote_volume_from_1h(df_1h: pd.DataFrame) -> pd.Series:
+    """Registered daily quote volume (prereg §5.2, harness H5): per COMPLETE UTC day (24 of 24
+    native 1h bars), the sum over that day's hourly bars of (1h close x 1h volume) -- NOT the daily
+    close times the day's total volume. Indexed by the day's close time (00:00 UTC of the next day),
+    i.e. on the same index as daily_from_1h."""
+    if df_1h.attrs.get("source") != "native_1h":
+        raise MixedSourceError(f"daily quote volume is built from native 1h only, got {df_1h.attrs.get('source')!r}")
+    opens = df_1h.index - _tf_delta("1h")
+    qv = (df_1h["close"] * df_1h["volume"]).astype(float)
+    day = opens.floor("1D")
+    g = qv.groupby(day)
+    out = g.sum()[g.size() == 24]
+    out.index = pd.DatetimeIndex(out.index) + pd.Timedelta(days=1)
+    out.index.name = "close_time"
     return out
 
 

@@ -85,6 +85,9 @@ MUTATIONS = [
      "(C[k0:k1 + 1] <= stop_eff)", "(C[k0:k1 + 1] < stop_eff)"),
     ("M26", "review m2: close-trigger stop fires on `<` instead of `<=` (family 2)", "intraday_runner.py",
      "            st = C[seg] <= stop\n", "            st = C[seg] < stop\n"),
+    ("M27", "review m1: tier volume = daily close x day volume instead of sum(1h close x 1h volume)", "intraday_runner.py",
+     "    qv = idata.daily_quote_volume_from_1h(df_1h)\n",
+     "    _d = idata.daily_from_1h(df_1h)\n    qv = (_d['close'] * _d['volume']).astype(float)\n"),
 ]
 
 TEST_FILES = [
