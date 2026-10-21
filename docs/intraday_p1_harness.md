@@ -94,6 +94,16 @@ Risk Officer: ready for P2. Architect: ready after fixes. Applied on this branch
 | n5 | the real-provider override test uses a temp root |
 | Risk Officer | VOID on approved trades with stop >= entry or non-finite R; information row on losses beyond the volatility-scaled risk budget (count, worst multiple); `volatility_scale_floor` forwarded only if it equals the engine default; `atr_pct` never None (missing = NaN, rejected by the engine); max concurrent holdings, join dates and the no-champion "decisive" flag in the report |
 
+Re-verification fixes (Architect, on 7095cb35):
+
+| item | fix |
+|---|---|
+| R1 | the code label is computed once in `run()` before any output exists and stamped on every family (tested in a real temporary git repo with a bare origin) |
+| R2 | incomplete-UTC-day test for the tiered daily quote volume |
+| R3 | SHA-256 of every harness source file in the JSON and report headers; the official run refuses unless HEAD is `origin/main`'s tip after a fetch; `docs/intraday_p2_protocol.md` (the one-shot procedure) |
+| R4 | the 3.5% wall-clock flip figure in the P4 prerequisites is marked synthetic-data-only |
+| R5 | Amendment 2 (f) names the VOID triggers |
+
 ## What remains
 
 P1 review (Architect on harness semantics, Risk Officer on the risk-engine wiring, H4), then P2: one run of
