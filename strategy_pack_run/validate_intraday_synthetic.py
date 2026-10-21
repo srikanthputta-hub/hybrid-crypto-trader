@@ -102,9 +102,10 @@ def main(argv=None):
     ap.add_argument("mode", choices=["planted", "noise"])
     ap.add_argument("--n", type=int, default=100)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--mu", type=float, default=0.0008, help="planted: drift per hour of the trend segments")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
-    res = planted(a.workers) if a.mode == "planted" else noise(a.n, a.workers)
+    res = planted(a.workers, mu=a.mu) if a.mode == "planted" else noise(a.n, a.workers)
     Path(a.out).write_text(p2.dumps(res))
     print(json.dumps({k: v for k, v in res.items() if k != "runs"}, indent=1, default=str))
 
