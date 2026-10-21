@@ -568,22 +568,32 @@ def drawdown_detail(res: ir.RunResult, m: ir.Market) -> dict:
 
 
 def maker_detail(r_mk: ir.RunResult, m: ir.Market, sd: ir.SetData, views_taker_res: ir.RunResult) -> dict:
+    """Maker-fill sensitivity report (prereg §5.3; review fix m3). Adverse selection: the mean 1h and
+    4h post-fill return of the FILLED maker orders, versus the same for the taker run's MATCHING
+    trades of the MISSED maker orders (same coin, same signal bar), plus those trades' taker R.
+    Post-fill return at horizon h = close of the base bar that ends h hours after the fill bar
+    opens / fill price - 1 (last available close if that bar is missing). Report only."""
     fi = ir.TRADE_FIELDS.index
     filled = len(r_mk.trades)
     missed = len(r_mk.missed)
-    taker_by_sig = {(t[fi("s")], t[fi("d_signal")]): t[fi("R")] for t in views_taker_res.trades}
-    missed_R = [taker_by_sig[(s, d)] for s, d, _ in r_mk.missed if (s, d) in taker_by_sig]
-    post = {1: [], 4: []}
-    for t in r_mk.trades:
-        s, k, px = t[fi("s")], t[fi("fill_k")], t[fi("entry_px")]
-        for h in (1, 4):
-            kk = k + h * int(3600 // (m.step / 1e9))
+    taker_by_sig = {(t[fi("s")], t[fi("d_signal")]): t for t in views_taker_res.trades}
+    matched = [taker_by_sig[(s, d)] for s, d, _ in r_mk.missed if (s, d) in taker_by_sig]
+    bph = int(3600 * 10**9 // m.step)
+
+    def post(trades, h):
+        vals = []
+        for t in trades:
+            s, k, px = t[fi("s")], t[fi("fill_k")], t[fi("entry_px")]
+            kk = k + h * bph - 1
             if kk < m.Tb and np.isfinite(m.Cff[s, kk]):
-                post[h].append(m.Cff[s, kk] / px - 1)
+                vals.append(m.Cff[s, kk] / px - 1)
+        return float(np.mean(vals)) if vals else float("nan")
+
     return dict(orders=filled + missed, filled=filled, fill_rate=filled / (filled + missed) if filled + missed else float("nan"),
-                missed=missed, missed_taker_avgR=float(np.mean(missed_R)) if missed_R else float("nan"),
-                post_fill_ret_1h=float(np.mean(post[1])) if post[1] else float("nan"),
-                post_fill_ret_4h=float(np.mean(post[4])) if post[4] else float("nan"))
+                missed=missed, missed_matched_taker_trades=len(matched),
+                missed_taker_avgR=float(np.mean([t[fi("R")] for t in matched])) if matched else float("nan"),
+                post_fill_ret_1h=post(r_mk.trades, 1), post_fill_ret_4h=post(r_mk.trades, 4),
+                missed_taker_post_ret_1h=post(matched, 1), missed_taker_post_ret_4h=post(matched, 4))
 
 
 def per_year(res: ir.RunResult, m: ir.Market, sd: ir.SetData) -> list[dict]:
@@ -720,9 +730,13 @@ def render_report(r: dict) -> str:
             vr.append([u, name, v["trades"], _p(v.get("avgR")), f"[{_p(b.get('2.5'))}, {_p(b.get('97.5'))}]", _p(v["total_return"], True), _p(v["sharpe_daily"])])
     lines += [_table(["U", "view", "trades", "avg R", "CI 2.5-97.5", "return", "Sharpe"], vr), ""]
     mk = r["views"]["B"]["maker_fill"]
-    lines += [f"Maker model (B): orders {mk.get('orders')}, fill rate {_p(mk.get('fill_rate'), True)}, missed {mk.get('missed')}, "
-              f"missed trades' taker avg R {_p(mk.get('missed_taker_avgR'))}, mean post-fill return 1h {_p(mk.get('post_fill_ret_1h'), True)} / "
-              f"4h {_p(mk.get('post_fill_ret_4h'), True)}. A maker result can never turn a FAIL into a PASS.", ""]
+    lines += [f"Maker model (B, prereg §5.3): orders {mk.get('orders')}, fill rate {_p(mk.get('fill_rate'), True)}, missed {mk.get('missed')} "
+              f"({mk.get('missed_matched_taker_trades')} matched to taker-run trades, their taker avg R {_p(mk.get('missed_taker_avgR'))}).", "",
+              _table(["adverse selection", "n", "mean post-fill return 1h", "4h"], [
+                  ["filled maker orders", mk.get("filled"), _p(mk.get("post_fill_ret_1h"), True, 3), _p(mk.get("post_fill_ret_4h"), True, 3)],
+                  ["taker trades matching missed orders", mk.get("missed_matched_taker_trades"),
+                   _p(mk.get("missed_taker_post_ret_1h"), True, 3), _p(mk.get("missed_taker_post_ret_4h"), True, 3)]]),
+              "", "A maker result can never turn a FAIL into a PASS.", ""]
     lines += ["## 5. Cost geometry", "", _table(["U", "median stop % price", "cost drag R", "gross % / trade", "gross % / day held"],
               [[u, _p(r["grid"][u][r["champion_set"]].get("median_stop_pct"), True), _p(r["grid"][u][r["champion_set"]].get("cost_drag_R")),
                 _p(r["grid"][u][r["champion_set"]].get("gross_pct_per_trade"), True), _p(r["grid"][u][r["champion_set"]].get("gross_pct_per_day"), True)] for u in ("B", "A")]), ""]

@@ -264,6 +264,28 @@ def test_atr_pct_is_never_none_and_a_missing_daily_atr_reaches_the_engine_as_nan
     assert len(res.trades) == 0 and res.reject_reasons == {"invalid_input": len(seen)}
 
 
+def test_m3_maker_report_compares_filled_orders_with_taker_trades_of_missed_orders():
+    m = ir.Market(fx.trend_1h(), fx.WIN_START, fx.WIN_DAYS)
+    sd = ir.SetData(m, SPEC["F1-07"])  # 4h decisions: four 1h bars per maker timeout
+    mk = ir.simulate(m, sd, fx.TAKER, fx.risk_cfg(), fill_model="maker")
+    tk = ir.simulate(m, sd, fx.TAKER, fx.risk_cfg())
+    rep = p2.maker_detail(mk, m, sd, tk)
+    fi = ir.TRADE_FIELDS.index
+    tk_by = {(t[fi("s")], t[fi("d_signal")]): t for t in tk.trades}
+    matched = [tk_by[(s, d)] for s, d, _ in mk.missed if (s, d) in tk_by]
+    assert rep["filled"] == len(mk.trades) and rep["missed"] == len(mk.missed) > 0 and rep["missed_matched_taker_trades"] == len(matched) > 0
+
+    def mean_post(trades, h):  # close of the 1h bar ending h hours after the fill bar opens
+        v = [m.C[t[fi("s")], t[fi("fill_k")] + h - 1] / t[fi("entry_px")] - 1 for t in trades]
+        return float(np.mean(v))
+
+    assert rep["post_fill_ret_1h"] == pytest.approx(mean_post(mk.trades, 1))
+    assert rep["post_fill_ret_4h"] == pytest.approx(mean_post(mk.trades, 4))
+    assert rep["missed_taker_post_ret_1h"] == pytest.approx(mean_post(matched, 1))
+    assert rep["missed_taker_post_ret_4h"] == pytest.approx(mean_post(matched, 4))
+    assert rep["missed_taker_avgR"] == pytest.approx(np.mean([t[fi("R")] for t in matched]))
+
+
 def test_g4_flags_when_the_no_champion_convention_is_decisive():
     draws = [dict(avgR=0.0, total_return=0.0)] * 196 + [None] * 4
     g = st.g4_counts(0.3, 0.2, draws)
