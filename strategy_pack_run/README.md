@@ -30,3 +30,11 @@ in epoch ms, `open, high, low, close, volume`) named `<BASE>_<QUOTE>_<timeframe>
 * Long-only, no leverage. A new entry never exceeds the per-position or total exposure caps.
 
 All parameters are a-priori playbook values, not tuned ones. Do not tune them on the data you judge them on.
+
+## Intraday P1 harness (docs/intraday_harness_changes.md, docs/intraday_p1_harness.md)
+
+`intraday_data.py`, `intraday_families.py`, `intraday_runner.py`, `intraday_stats.py` and `run_intraday_p2.py` /
+`run_intraday_prereg.py` implement the pre-registered intraday evaluation of `docs/intraday_prereg.md` (frozen
+constants, no CLI parameters). `test_intraday_*.py` are its acceptance tests; `intraday_reference.py` is the
+independent reference loop they compare against. The registered evaluation is run exactly once, in P2:
+`python run_intraday_prereg.py --workers 4`.
