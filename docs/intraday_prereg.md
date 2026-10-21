@@ -649,14 +649,25 @@ above left open or stated inconsistently; no parameter, gate threshold, window, 
 
 Also recorded (implementation, not interpretation): the tiered-slippage daily quote volume is the sum over the
 day's native 1h bars of (1h close x 1h volume) per complete UTC day (§5.2, H5); the loader reads only the hashed
-snapshot prefix (§1.3); an integrity failure makes the family VOID with only its integrity record kept (§6.7); and
-the official outputs are written only by `run_intraday_prereg.py` on a clean committed tree.
+snapshot prefix (§1.3); and the official outputs are written only by `run_intraday_prereg.py` on a clean committed
+tree whose HEAD is `origin/main`'s tip, with the code commit and the SHA-256 of every harness source file recorded
+(procedure: `docs/intraday_p2_protocol.md`).
+
+- **(f) VOID triggers, stated explicitly (stricter than before).** §6.7's "any integrity check fails" is the
+  following list, each checked on every base run; any one makes the family VOID, the family stops right after its
+  base runs, and only its integrity record is kept (no grid, no gate input, no performance number is computed,
+  printed or reported): (1) **snapshot mismatch** (prefix hash, §1.3); (2) **P/L reconciliation** (sum of net P/L
+  != final - start equity, 1e-9 relative); (3) **15m mask violation** (a masked coin's position overlapping a
+  masked day); (4) **an approved trade with stop >= entry or a non-finite R** -- previously such a trade would have
+  been silently dropped from the statistics, now it voids the run; (5) **a non-deterministic rerun** (a second run
+  of the same set, or of the champion, giving a different result).
 
 ### P4 prerequisites (Risk Officer; not part of P2, recorded so they are not lost)
 
 1. The intraday paper instance must pass `now` = the decision-bar close to `check_new_trade` and `record_trade`
-   (live passes the wall clock, so exact-boundary cooldown / entry-window cases differ: measured 3.5% of F2-15m
-   approvals flip), with a parity test.
+   (live passes the wall clock, so exact-boundary cooldown / entry-window cases differ: in the Risk Officer's
+   differential fuzz on **SYNTHETIC series only**, 3.5% of F2-15m approvals flipped; this is not an
+   evaluation-data result and says nothing about any family's performance), with a parity test.
 2. The risk engine must reject buys with `stop_loss` None or >= `entry_price` when `risk_reward` is None (test first,
    a separate Risk Officer PR).
 3. `risk_reward=None` only when the plan type has no target, never as a fallback, asserted at the call site, and every

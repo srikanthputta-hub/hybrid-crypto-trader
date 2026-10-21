@@ -142,7 +142,9 @@ def test_amendment_2_records_the_readings_the_harness_implements():
     text = a2[1]
     for phrase in ("counts as a draw the real champion does **NOT** beat", "up to K + b coins", ">= 114 complete daily bars",
                    "(`close <= stop`)", "marked at the coin's last close, until the window's last base close",
-                   "P4 prerequisites"):
+                   "P4 prerequisites", "**SYNTHETIC series only**", "(f) VOID triggers", "**snapshot mismatch**",
+                   "**P/L reconciliation**", "**15m mask violation**", "stop >= entry or a non-finite R",
+                   "**a non-deterministic rerun**", "docs/intraday_p2_protocol.md"):
         assert phrase in text, phrase
     assert idata.WARMUP_EXTRA + idata.WILDER_LEN == 114
 
