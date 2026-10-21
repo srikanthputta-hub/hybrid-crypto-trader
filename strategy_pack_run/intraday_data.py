@@ -308,7 +308,8 @@ def bar_masked_15m(coin: str, close_times: pd.DatetimeIndex) -> np.ndarray:
     """True for a 15m bar of a masked coin whose span [close - 15m, close) lies in a masked day."""
     if not is_masked_coin(coin):
         return np.zeros(len(close_times), dtype=bool)
-    opens = (close_times - _tf_delta("15m")).asi8
+    # as_unit("ns"): pandas >= 2 indexes may be in us/ms resolution, and .asi8 returns that unit
+    opens = (pd.DatetimeIndex(close_times) - _tf_delta("15m")).as_unit("ns").asi8
     out = np.zeros(len(opens), dtype=bool)
     for s, e in mask_intervals_ns():
         out |= (opens >= s) & (opens < e)
