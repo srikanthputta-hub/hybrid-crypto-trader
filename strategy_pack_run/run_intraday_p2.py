@@ -177,16 +177,47 @@ def _sha(path: Path) -> str:
     return h.hexdigest()
 
 
-def code_commit() -> str:
+def code_commit(root: Path | None = None) -> str:
+    """HEAD of the repo at `root`, suffixed `+dirty` if anything under strategy_pack_run/, src/,
+    config/ or docs/ is uncommitted (tracked or untracked, gitignored files excepted). Evaluated
+    ONCE per run, in run(), before any output exists (review fix R1)."""
+    root = Path(root or _REPO_ROOT)
     try:
-        sha = subprocess.run(["git", "-C", str(_REPO_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        dirty = subprocess.run(["git", "-C", str(_REPO_ROOT), "status", "--porcelain", "--", "strategy_pack_run", "src", "config", "docs"],
+        sha = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--", "strategy_pack_run", "src", "config", "docs"],
                                capture_output=True, text=True).stdout.strip()
         if not sha:
             return "unknown"
         return sha + ("+dirty" if dirty else "")
     except Exception:  # pragma: no cover
         return "unknown"
+
+
+HARNESS_SOURCE_GLOBS = ("strategy_pack_run/intraday_*.py", "strategy_pack_run/run_intraday_*.py",
+                        "strategy_pack_run/resample_ohlcv.py", "src/risk_engine.py", "src/monitor.py")
+
+
+def source_hashes(root: Path | None = None) -> dict[str, str]:
+    """SHA-256 of every harness source file (review fix R3a), so a run made with a file that git
+    reports clean but differs on disk (e.g. `git update-index --assume-unchanged`) is visible
+    afterwards."""
+    root = Path(root or _REPO_ROOT)
+    out = {}
+    for pattern in HARNESS_SOURCE_GLOBS:
+        for p in sorted(root.glob(pattern)):
+            out[p.relative_to(root).as_posix()] = _sha(p)
+    return dict(sorted(out.items()))
+
+
+def head_vs_origin_main(root: Path | None = None) -> tuple[str, str]:
+    """(HEAD, origin/main tip) after `git fetch origin main` (review fix R3b). A failed fetch gives
+    an empty tip, which never matches."""
+    root = Path(root or _REPO_ROOT)
+    subprocess.run(["git", "-C", str(root), "fetch", "-q", "origin", "main"], capture_output=True, text=True)
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    tip = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "-q", "origin/main"],
+                         capture_output=True, text=True).stdout.strip()
+    return head, tip
 
 
 # --------------------------------------------------------------------------- #
@@ -245,12 +276,16 @@ def draw_champions(placebo: list[list[dict]], specs: list) -> list[dict | None]:
 # Evaluation of one family
 # --------------------------------------------------------------------------- #
 def evaluate_family(family: int, provider, workers: int = 1, logs_dir: Path | None = None,
-                    risk_cfg: dict | None = None, n_placebo: int = st.N_PLACEBO, verbose: bool = True) -> dict:
+                    risk_cfg: dict | None = None, n_placebo: int = st.N_PLACEBO, verbose: bool = True,
+                    code_label: str | None = None) -> dict:
     """The registered sequence for one family (H9): snapshot check -> 12 sets x {B, A} at
     kraken_T3_taker -> champion on B (purged IS) -> champion cost / exit / fill views on B and A ->
     placebo (200 draws x 12 sets on B) -> bootstrap -> gates -> verdict. `n_placebo` exists only so
     tests can run a cheap smoke; the registered value is st.N_PLACEBO and the CLI cannot change it."""
     say = print if verbose else (lambda *a, **k: None)
+    # review fix R1: the code label is computed ONCE by run(), before any output of this run exists;
+    # it is never re-evaluated here (family 1's own outputs would make families 2/3 look dirty).
+    label = code_label if code_label is not None else code_commit()
     risk_cfg = risk_cfg or ir.load_risk_cfg()
     integrity: list[str] = []
     try:
@@ -278,7 +313,7 @@ def evaluate_family(family: int, provider, workers: int = 1, logs_dir: Path | No
     logs: list[pd.DataFrame] = []
     rej_logs: list[pd.DataFrame] = []
     base_record = dict(family=family, harness_version=ir.HARNESS_VERSION, provider=provider.kind,
-                       code_commit=code_commit(), data_hashes=hashes)
+                       code_commit=label, data_hashes=hashes)
     for u in ("B", "A"):
         for spec in specs:
             m = market(u, spec.base_tf)
@@ -300,7 +335,7 @@ def evaluate_family(family: int, provider, workers: int = 1, logs_dir: Path | No
             rej_logs.append(ir.rejections_frame(res, m, sd, u))
     rows = [dict(set_no=s.set_no, is_n=grid["B"][s.set_id]["is_n"], is_avgR=grid["B"][s.set_id]["is_avgR"]) for s in specs]
     ch = st.champion(rows)
-    out = dict(family=family, harness_version=ir.HARNESS_VERSION, provider=provider.kind, code_commit=code_commit(),
+    out = dict(family=family, harness_version=ir.HARNESS_VERSION, provider=provider.kind, code_commit=label,
                data_hashes=hashes, seeds=dict(placebo=st.PLACEBO_SEED, bootstrap=st.BOOT_SEED),
                constants=dict(cut=str(cut), g2_percentile=st.G2_PERCENTILE, n_boot=st.N_BOOT, n_placebo=n_placebo),
                grid=grid, selection=rows, champion=ch, integrity=integrity,
@@ -666,6 +701,9 @@ def render_report(r: dict) -> str:
         mask=("15m sets: every coin except BTC/ETH is masked on 2023-03-04, 2024-08-13..09-03 and "
               "2025-01-01..04-30; masked windows are excluded from the 15m benchmark. " if f == 2 else ""))
     lines += [surv, ""]
+    if r.get("source_sha256"):
+        lines += ["Harness source SHA-256 (review fix R3a; compare with the reviewed commit):", ""]
+        lines += [f"- `{k}` {v}" for k, v in r["source_sha256"].items()] + [""]
     if r.get("run_kind") == "PARTIAL":
         lines.insert(0, "> **PARTIAL run (`--family`), NOT the registered P2 result.** Official outputs are written only "
                         "by `run_intraday_prereg.py`.\n")
@@ -816,16 +854,19 @@ def write_atomic(path: Path, text: str) -> None:
 
 def run(families: list[int], official: bool, workers: int, data_root=None, out_json: Path = DEFAULT_JSON,
         docs_dir: Path = DEFAULT_DOCS, logs_dir: Path = DEFAULT_LOGS, provider=None, n_placebo: int = st.N_PLACEBO,
-        evaluate=None) -> dict:
-    """Review fix M1:
+        evaluate=None, repo_root: Path | None = None) -> dict:
+    """Review fixes M1 and R1/R3:
     (i)  refuses to start unless the code label is clean (no uncommitted change under
-         strategy_pack_run/, src/, config/ or docs/);
+         strategy_pack_run/, src/, config/ or docs/); the label is computed ONCE, here, before any
+         output of this run exists, and the same label is stamped on every family (R1);
     (ii) a VOID family keeps only its integrity record (evaluate_family);
     (iii) the results JSON is written atomically after EACH family, `complete` false until the last;
-    (iv) only an official run (`run_intraday_prereg.py`: all three families, real snapshot, 200 draws)
-         writes the official outputs; anything else is labelled PARTIAL and written under
-         strategy_pack_run/intraday_p2_logs/PARTIAL/ only."""
-    label = code_commit()
+    (iv) only an official run (`run_intraday_prereg.py`: all three families, real snapshot, 200 draws,
+         HEAD == origin/main's tip after a fetch (R3b)) writes the official outputs; anything else is
+         labelled PARTIAL and written under strategy_pack_run/intraday_p2_logs/PARTIAL/ only;
+    (v)  the SHA-256 of every harness source file is recorded in the JSON and every report (R3a)."""
+    repo_root = Path(repo_root or _REPO_ROOT)
+    label = code_commit(repo_root)
     print(f"Harness version: {ir.HARNESS_VERSION}")
     print(f"Code commit: {label}")
     if label.endswith("+dirty") or label == "unknown":
@@ -835,6 +876,10 @@ def run(families: list[int], official: bool, workers: int, data_root=None, out_j
     if official:
         if sorted(families) != [1, 2, 3] or provider.kind != "real" or n_placebo != st.N_PLACEBO:
             raise SystemExit("an official run is all three families on the real snapshot with the registered placebo")
+        head, tip = head_vs_origin_main(repo_root)
+        if not tip or head != tip:
+            raise SystemExit(f"refusing to start an official run: HEAD {head or '?'} is not origin/main's tip "
+                             f"{tip or '(origin/main unavailable after git fetch)'}; check out the reviewed, merged commit")
         run_kind = "OFFICIAL"
     else:
         run_kind = "PARTIAL"
@@ -842,8 +887,10 @@ def run(families: list[int], official: bool, workers: int, data_root=None, out_j
         docs_dir = PARTIAL_DIR
         logs_dir = PARTIAL_DIR / "logs"
     evaluate = evaluate or evaluate_family
+    sources = source_hashes(repo_root)
     results: dict = {}
-    record = dict(harness_version=ir.HARNESS_VERSION, run_kind=run_kind, code_commit=label, complete=False, results=results)
+    record = dict(harness_version=ir.HARNESS_VERSION, run_kind=run_kind, code_commit=label, source_sha256=sources,
+                  complete=False, results=results)
     for f in families:
         try:
             print("Data hashes:", provider.verify(f))
@@ -851,8 +898,10 @@ def run(families: list[int], official: bool, workers: int, data_root=None, out_j
             print(f"VOID: {exc}")
             r = dict(family=f, verdict="VOID", integrity=[f"snapshot: {exc}"])
         else:
-            r = evaluate(f, provider, workers, Path(logs_dir), n_placebo=n_placebo)
-        r["run_kind"] = run_kind
+            r = evaluate(f, provider, workers, Path(logs_dir), n_placebo=n_placebo, code_label=label)
+        if r.get("code_commit", label) != label:
+            raise RuntimeError(f"family {f} carries code label {r.get('code_commit')!r}, run label is {label!r}")
+        r.update(run_kind=run_kind, code_commit=label, source_sha256=sources)
         results[f"family{f}"] = r
         name = f"intraday_p2_family{f}.md" if official else f"PARTIAL_intraday_p2_family{f}.md"
         write_atomic(Path(docs_dir) / name, render_report(r))

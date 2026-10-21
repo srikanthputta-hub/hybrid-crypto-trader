@@ -112,11 +112,17 @@ MUTATIONS = [
     ("M36", "Risk Officer: a non-default volatility_scale_floor is forwarded silently", "intraday_runner.py",
      '    if "volatility_scale_floor" in kw and kw["volatility_scale_floor"] != default_floor:',
      '    if False:'),
+    ("M37", "review R1: evaluate_family re-evaluates the code label (families 2/3 become +dirty)", "run_intraday_p2.py",
+     "    label = code_label if code_label is not None else code_commit()\n", "    label = code_commit()\n"),
+    ("M38", "review R3b: official run does not check HEAD against origin/main", "run_intraday_p2.py",
+     "        if not tip or head != tip:\n", "        if False:\n"),
+    ("M39", "review R3a: harness source hashes not recorded", "run_intraday_p2.py",
+     "    sources = source_hashes(repo_root)\n", "    sources = {}\n"),
 ]
 
 TEST_FILES = [
     "test_intraday_constants.py", "test_intraday_data.py", "test_intraday_stats.py", "test_intraday_execution.py",
-    "test_intraday_review_fixes.py", "test_intraday_runner_p2.py", "test_intraday_reference.py", "test_intraday_families.py",
+    "test_intraday_review_fixes.py", "test_intraday_official_run.py", "test_intraday_runner_p2.py", "test_intraday_reference.py", "test_intraday_families.py",
 ]
 COPY_DIRS = ("data_intraday", "data_long", "data")
 

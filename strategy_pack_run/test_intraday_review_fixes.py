@@ -37,14 +37,14 @@ def _provider():
     return p2.SyntheticProvider(lambda u, tf: data, coins={u: {"1h": COINS, "15m": COINS} for u in ("B", "A")})
 
 
-def _stub(family, provider, workers, logs_dir, n_placebo=st.N_PLACEBO):
+def _stub(family, provider, workers, logs_dir, n_placebo=st.N_PLACEBO, code_label=None):
     return dict(family=family, verdict="FAIL", grid={"B": {}, "A": {}}, champion=None, integrity=[],
-                harness_version=ir.HARNESS_VERSION, code_commit="abc", provider=provider.kind)
+                harness_version=ir.HARNESS_VERSION, code_commit=code_label, provider=provider.kind)
 
 
 @pytest.fixture
 def clean(monkeypatch, tmp_path):
-    monkeypatch.setattr(p2, "code_commit", lambda: "0123abc")
+    monkeypatch.setattr(p2, "code_commit", lambda *a, **k: "0123abc")
     monkeypatch.setattr(p2, "PARTIAL_DIR", tmp_path / "PARTIAL")
     return tmp_path
 
@@ -54,7 +54,7 @@ def clean(monkeypatch, tmp_path):
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("label", ["0123abc+dirty", "unknown"])
 def test_m1_refuses_to_start_on_a_dirty_or_unknown_code_label(monkeypatch, tmp_path, label):
-    monkeypatch.setattr(p2, "code_commit", lambda: label)
+    monkeypatch.setattr(p2, "code_commit", lambda *a, **k: label)
 
     def never(*a, **k):
         raise AssertionError("evaluation must not start")
