@@ -41,3 +41,7 @@ strategy_pack_run/data_intraday/15m/
 strategy_pack_run/data_intraday/1h/
 strategy_pack_run/data_intraday/_state/
 strategy_pack_run/data_intraday/_kraken/
+
+# Intraday P2 per-trade / rejected-signal logs (docs/intraday_prereg.md §7 item 13): gitignored, SHA-256 in
+# strategy_pack_run/intraday_p2_results.json.
+strategy_pack_run/intraday_p2_logs/
