@@ -91,6 +91,9 @@ MUTATIONS = [
     ("M28", "review m5: loader reads the whole file (appended rows / duplicates) instead of the hashed prefix", "intraday_data.py",
      "    raw = pd.read_csv(path, nrows=n_rows)\n    if len(raw) != n_rows:",
      "    raw = pd.read_csv(path)\n    if len(raw) < n_rows:"),
+    ("M29", "review n1: a series that ends early frees its room at its last bar instead of the window end", "intraday_runner.py",
+     'return dict(exit_k=self.m.Tb - 1, px=float(self.m.C[s, kl]), reason="end"',
+     'return dict(exit_k=kl, px=float(self.m.C[s, kl]), reason="end"'),
 ]
 
 TEST_FILES = [

@@ -125,6 +125,54 @@ def test_at18_reference_reproduces_runner_on_shifted_placebo_signals(spec_id, sh
     _compare(data, fx.WIN_START, 30, spec_id, shift=shift)
 
 
+def _early_end(seed: int):
+    """Random universe in which ETH's series ends 9 days and SOL's 3 days before the window end
+    (Coinbase-style delisting / outage at the end), so positions can be open when a series stops."""
+    import intraday_synthetic as syn
+
+    d = syn.universe_1h(["ETH", "SOL", "ADA"], fx.DATA_START, 24 * 360, seed=seed, kind="regime_switch",
+                        sigma=0.006, mu=0.0008)
+    end = fx.WIN_START + pd.Timedelta(days=30)
+    for c, days_before in (("ETH", 9), ("SOL", 3)):
+        f = d["native_1h"][c]
+        g = f[f.index <= end - pd.Timedelta(days=days_before)]
+        g.attrs = f.attrs
+        d["native_1h"][c] = d["base"][c] = g
+        d["daily"][c] = idata.daily_from_1h(g)
+    return d
+
+
+@pytest.mark.parametrize("seed,spec_id", [(832, "F1-01"), (832, "F3-09"), (833, "F1-01"), (833, "F3-03"), (833, "F1-07"),
+                                          (834, "F2-09"), (835, "F3-01")])
+def test_n1_series_ending_early_keeps_the_position_until_window_end_runner_equals_reference(seed, spec_id):
+    data = _early_end(seed)
+    la, res = _compare(data, fx.WIN_START, 30, spec_id)
+    m = ir.Market(data, fx.WIN_START, 30)
+    tf = ir.trades_frame(ir.simulate(m, ir.SetData(m, SPEC[spec_id]), ir.CostModel("t", FEE, SLIP), fx.risk_cfg()),
+                         m, ir.SetData(m, SPEC[spec_id]), "syn")
+    ends = tf[tf["exit_reason"] == "end"]
+    for r in ends.itertuples():
+        assert r.exit_time == fx.WIN_START + pd.Timedelta(days=30)        # held (and marked) to the window end
+        last_close = data["native_1h"][r.symbol]["close"].loc[:r.exit_time].iloc[-1]
+        assert r.exit_px_raw == last_close                                   # ... at the coin's last close
+
+
+def test_n1_early_end_does_not_free_room_before_the_window_end():
+    data = _early_end(833)
+    m = ir.Market(data, fx.WIN_START, 30)
+    sd = ir.SetData(m, SPEC["F1-01"])
+    res = ir.simulate(m, sd, ir.CostModel("t", FEE, SLIP), fx.risk_cfg())
+    tf = ir.trades_frame(res, m, sd, "syn")
+    eth_end = tf[(tf["symbol"] == "ETH") & (tf["exit_reason"] == "end")]
+    assert len(eth_end) == 1, "fixture must leave an ETH position open when its series stops"
+    k_last = int(m.last_bar[m.coins.index("ETH")])
+    # the ETH position is still in the exposure after its last bar: equity - cash includes it
+    qty = eth_end["qty"].iloc[0]
+    eth_val = qty * m.C[m.coins.index("ETH"), k_last]
+    for k in (k_last + 1, k_last + 24, m.Tb - 2):  # still counted after its last bar, to the window end
+        assert res.exposure[k] * res.equity[k] >= eth_val - 1e-9
+
+
 REAL = idata.data_root()
 HAVE_REAL = (REAL / "1h" / "BTC_USD_1h.csv").exists()
 

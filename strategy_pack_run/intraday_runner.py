@@ -407,12 +407,18 @@ class Simulator:
 
     # ---------------------------------------------------------------- exits -------------- #
     def _exec_after(self, s: int, k: int):
-        """Close-trigger at base close k -> (exec index, raw price, is_end)."""
+        """Close-trigger at base close k -> (exec index, raw price, is_end).
+
+        End of series (review fix n1, the conservative reading): when the coin has no base bar after
+        k inside the window, the position is NOT released early. It stays open, marked at the
+        coin's last close, until the window's last base close, where it is closed at that last
+        close (reason `end`). The booking index is the window's last bar (Tb - 1), so no exposure
+        room or cash is freed before the window ends; costs are those of the coin's last bar."""
         m = self.m
         e = int(m.next_bar[s, k]) if k < m.Tb else m.Tb
         if e >= m.Tb:
             kl = int(m.last_bar[s])
-            return kl, float(m.C[s, kl]), True
+            return m.Tb - 1, float(m.C[s, kl]), True
         return e, float(m.O[s, e]), False
 
     def _exit_f13(self, s: int, j: int, stop0: float, trail_m: float | None, flag: np.ndarray):
@@ -485,8 +491,10 @@ class Simulator:
                     kind="close" if not end else "end", trigger_k=k)
 
     def _end(self, s, stop_level):
+        """No trigger before the window end: closed at the window's last base close, at the coin's
+        last available close (booked at Tb - 1, see _exec_after)."""
         kl = int(self.m.last_bar[s])
-        return dict(exit_k=kl, px=float(self.m.C[s, kl]), reason="end", final_stop=stop_level, kind="end")
+        return dict(exit_k=self.m.Tb - 1, px=float(self.m.C[s, kl]), reason="end", final_stop=stop_level, kind="end")
 
     def _exit_f2(self, s: int, j: int, stop: float, target: float, maker_target: bool):
         m, touch = self.m, self.touch
@@ -675,7 +683,8 @@ class Simulator:
                 if ex["kind"] == "maker_target":
                     x_slip, x_fee = 0.0, fee_maker
                 else:
-                    x_slip, x_fee = self.costs.slip(s, k_x), self.costs.fee(s, k_x)
+                    ck = int(m.last_bar[s]) if ex["kind"] == "end" else k_x  # end: the coin's last bar's costs
+                    x_slip, x_fee = self.costs.slip(s, ck), self.costs.fee(s, ck)
                 x_px = ex["px"] * (1.0 - x_slip)
                 x_notional = qty * x_px
                 fee_x = x_notional * x_fee
