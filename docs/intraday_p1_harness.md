@@ -74,6 +74,26 @@ else `/home/user/hct-data`). It verifies the snapshot first and writes VOID on a
     cannot silently empty a run.
 15. **Maker model**: family 2's resting target cannot fill on the maker entry-fill bar (intrabar order unknown).
 
+Readings 3, 4 and 5 above, the stop boundary and the end-of-series rule are now written into the prereg as
+**Amendment 2 (pre-run, 2026-10-21)**, `docs/intraday_prereg.md` §10, together with the Risk Officer's P4
+prerequisites (not part of P2).
+
+## Review fixes (2026-10-21, before any run)
+
+Risk Officer: ready for P2. Architect: ready after fixes. Applied on this branch, each with tests and a mutation:
+
+| item | fix |
+|---|---|
+| M1 | `run()` refuses a dirty tree (strategy_pack_run/, src/, config/, docs/); an integrity failure stops right after the base runs and keeps only the integrity record (VOID, no number printed or rendered); the results JSON is written atomically after each family (`complete` false until the last); official outputs only from `run_intraday_prereg.py` (all families, real snapshot, 200 draws), `run_intraday_p2.py --family` writes a labelled PARTIAL record under `intraday_p2_logs/PARTIAL/` |
+| m1 | tiered-slippage daily quote volume = sum over the day's 1h bars of (1h close x 1h volume), complete UTC days |
+| m2 | close-trigger stop on `close <= stop` (as `src/monitor.py`), runner and reference |
+| m3 | maker report: 1h / 4h post-fill returns of filled orders vs the taker run's matching trades of missed orders |
+| m4 | tests for the mask-violation integrity check and its wiring |
+| m5 | the loader reads only the hashed snapshot prefix (an appended duplicate cannot replace a verified bar) |
+| n1 | a series ending before the window end stays open (marked at its last close) until the window end; runner == reference on seeded fuzz cases |
+| n5 | the real-provider override test uses a temp root |
+| Risk Officer | VOID on approved trades with stop >= entry or non-finite R; information row on losses beyond the volatility-scaled risk budget (count, worst multiple); `volatility_scale_floor` forwarded only if it equals the engine default; `atr_pct` never None (missing = NaN, rejected by the engine); max concurrent holdings, join dates and the no-champion "decisive" flag in the report |
+
 ## What remains
 
 P1 review (Architect on harness semantics, Risk Officer on the risk-engine wiring, H4), then P2: one run of
