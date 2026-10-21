@@ -368,6 +368,34 @@ def test_m1_daily_quote_volume_is_the_sum_of_hourly_close_times_hourly_volume():
         idata.daily_quote_volume_from_1h(d["daily"]["ETH"])  # never from daily (or 15m) bars
 
 
+def test_r2_an_incomplete_utc_day_has_no_daily_quote_volume_and_never_sets_a_tier():
+    """Review fix R2: only complete UTC days (24 of 24 hourly bars) count. Day 2021-01-20 loses one
+    hour; it must be absent from the daily series (not a 23-hour sum), and the tier of the next day
+    must come from the last COMPLETE day's 30-day median."""
+    idx = pd.date_range("2021-01-01", periods=24 * 60, freq="1h", tz="UTC")
+    raw = {}
+    for c in ("BTC", "ETH"):
+        df = pd.DataFrame({"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0, "volume": 1.0}, index=idx)
+        raw[c] = df
+    gap = pd.Timestamp("2021-01-20 05:00", tz="UTC")
+    raw["ETH"] = raw["ETH"].drop(gap)
+    d = syn.make_data(raw, "1h")
+    qv = idata.daily_quote_volume_from_1h(d["native_1h"]["ETH"])
+    day_close = pd.Timestamp("2021-01-21", tz="UTC")              # close time of the 2021-01-20 day
+    assert day_close not in qv.index
+    assert qv.loc[pd.Timestamp("2021-01-20", tz="UTC")] == pytest.approx(24 * 100.0)
+    assert qv.loc[pd.Timestamp("2021-01-22", tz="UTC")] == pytest.approx(24 * 100.0)
+    assert list(qv.index) == list(d["daily"]["ETH"].index)        # same complete-day index as daily_from_1h
+    # a day-long volume spike on the INCOMPLETE day must not move any tier
+    spiky = raw["ETH"].copy()
+    spiky.loc[spiky.index.floor("1D") == pd.Timestamp("2021-01-20", tz="UTC"), "volume"] = 1e9
+    d2 = syn.make_data({"BTC": raw["BTC"], "ETH": spiky}, "1h")
+    m1 = ir.Market(d, pd.Timestamp("2021-02-15", tz="UTC"), 10)
+    m2 = ir.Market(d2, pd.Timestamp("2021-02-15", tz="UTC"), 10)
+    assert np.array_equal(ir.tiered_cost_model(m1)._slip, ir.tiered_cost_model(m2)._slip)
+    assert idata.daily_quote_volume_from_1h(d2["native_1h"]["ETH"]).max() == pytest.approx(2400.0)
+
+
 # --------------------------------------------------------------------------- #
 # AT14 maker model
 # --------------------------------------------------------------------------- #

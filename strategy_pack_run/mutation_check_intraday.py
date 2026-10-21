@@ -118,6 +118,8 @@ MUTATIONS = [
      "        if not tip or head != tip:\n", "        if False:\n"),
     ("M39", "review R3a: harness source hashes not recorded", "run_intraday_p2.py",
      "    sources = source_hashes(repo_root)\n", "    sources = {}\n"),
+    ("M40", "review R2: tiered daily quote volume accepts incomplete UTC days", "intraday_data.py",
+     "    out = g.sum()[g.size() == 24]\n", "    out = g.sum()[g.size() >= 1]\n"),
 ]
 
 TEST_FILES = [
