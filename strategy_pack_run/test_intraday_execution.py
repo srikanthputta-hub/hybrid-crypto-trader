@@ -90,6 +90,31 @@ def test_at10_close_trigger_exits_at_next_open_and_a_gap_fills_at_that_open():
     assert (ex["exit_k"], ex["px"], ex["reason"], ex.get("trigger_k")) == (j + 3, 90.0, "stop", j + 2)
 
 
+@pytest.mark.parametrize("offset", [0, 1, 5])
+def test_m2_a_close_exactly_at_the_stop_triggers_the_close_model_exit(offset):
+    """src/monitor.py fires on `current_price <= stop_loss`; the harness must too (review fix m2),
+    both before the first decision close (stop0 segment) and on later trailing segments."""
+    m, sd, sim = _setup("F3-01")
+    s, j = m.coins.index("ADA"), 41
+    _clean_coin(m, sd, s, j)
+    rows = [(100, 101, 99, 100)] * offset + [(100, 100, 95, 95.0), (96, 97, 95, 96)]
+    _write_path(m, sd, s, j, rows)
+    ex = sim._exit_f13(s, j, 95.0, None, np.zeros(sd.Td, dtype=bool))
+    assert (ex["trigger_k"], ex["exit_k"], ex["reason"]) == (j + offset, j + offset + 1, "stop")
+    _write_path(m, sd, s, j + offset, [(100, 100, 95, 95.0 + 1e-9)])
+    ex = sim._exit_f13(s, j, 95.0, None, np.zeros(sd.Td, dtype=bool))
+    assert ex.get("trigger_k") != j + offset  # strictly above the stop: no exit
+
+
+def test_m2_family2_close_exactly_at_the_stop_triggers():
+    m, sd, sim = _setup("F2-07", data=fx.noise_1h())
+    s, j = m.coins.index("ADA"), 41
+    _clean_coin(m, sd, s, j)
+    _write_path(m, sd, s, j, [(100, 100.5, 99.5, 100), (100, 100, 95, 95.0)])
+    ex = sim._exit_f2(s, j, 95.0, 500.0, maker_target=False)
+    assert (ex["trigger_k"], ex["reason"]) == (j + 1, "stop")
+
+
 def test_at10_touch_model_fills_at_stop_or_at_a_gapped_open():
     m, sd, sim = _setup("F3-01", exit_model="touch")
     s, j = m.coins.index("ADA"), 41

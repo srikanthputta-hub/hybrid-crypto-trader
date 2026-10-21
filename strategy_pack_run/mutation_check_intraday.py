@@ -81,6 +81,10 @@ MUTATIONS = [
     ("M24", "touch model: target checked before the stop in the same bar", "intraday_runner.py",
      "                if st[off]:\n                    px = o if o <= stop else stop",
      "                if st[off] and not tg[off]:\n                    px = o if o <= stop else stop"),
+    ("M25", "review m2: close-trigger stop fires on `<` instead of `<=` (families 1/3, trailing segments)", "intraday_runner.py",
+     "(C[k0:k1 + 1] <= stop_eff)", "(C[k0:k1 + 1] < stop_eff)"),
+    ("M26", "review m2: close-trigger stop fires on `<` instead of `<=` (family 2)", "intraday_runner.py",
+     "            st = C[seg] <= stop\n", "            st = C[seg] < stop\n"),
 ]
 
 TEST_FILES = [

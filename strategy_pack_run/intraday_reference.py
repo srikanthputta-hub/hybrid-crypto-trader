@@ -209,7 +209,7 @@ class Ref:
                 cl = float(self.base[c].at[tau, "close"])
                 p["bars_held"] += 1
                 reason = None
-                if not self.touch and cl < p["stop"]:
+                if not self.touch and cl <= p["stop"]:
                     reason = "trail" if p["stop"] > p["stop0"] * (1 + 1e-12) else "stop"
                 elif fam == 2 and not self.touch and cl >= p["target"]:
                     reason = "target"

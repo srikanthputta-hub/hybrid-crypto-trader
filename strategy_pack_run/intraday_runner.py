@@ -424,7 +424,7 @@ class Simulator:
         d_first = -(-j // r)
         # segment before the first decision close at/after the fill: stop0 governs
         k_end = min(d_first * r, Tb - 1)
-        seg = L[j:k_end + 1] <= stop0 if touch else C[j:k_end + 1] < stop0
+        seg = L[j:k_end + 1] <= stop0 if touch else C[j:k_end + 1] <= stop0
         if seg.any():
             return self._stop_hit(s, j + int(np.argmax(seg)), stop0, stop0)
         cur, hc = stop0, -np.inf
@@ -445,7 +445,7 @@ class Simulator:
             ks = None
             if k0 <= k1:
                 stop_eff = np.repeat(Sd, r)[: k1 - k0 + 1]
-                hit = (L[k0:k1 + 1] <= stop_eff) if touch else (C[k0:k1 + 1] < stop_eff)
+                hit = (L[k0:k1 + 1] <= stop_eff) if touch else (C[k0:k1 + 1] <= stop_eff)
                 if hit.any():
                     off = int(np.argmax(hit))
                     ks, ks_stop = k0 + off, float(stop_eff[off])
@@ -509,7 +509,7 @@ class Simulator:
                                 final_stop=stop, kind="touch", time_k=k_time)
                 return dict(exit_k=k, px=max(o, target), reason="target", final_stop=stop, kind="touch", time_k=k_time)
         else:
-            st = C[seg] < stop
+            st = C[seg] <= stop
             if maker_target:
                 tg = H[seg] >= target * (1 + MAKER_TRADE_THROUGH)
                 tg[0] = False  # never on the maker entry-fill bar (intrabar order unknown)
