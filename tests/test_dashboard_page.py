@@ -46,6 +46,9 @@ def page_run(tmp_path_factory):
                risk={"sample_size": 0, "min_trades_for_stats": 5, "var_cvar": {}, "drawdown": {"max_drawdown_pct": None, "current_drawdown_pct": None, "peak_equity": None, "trough_equity": None}, "significance": {}},
                display={"timeframe": "1d", "label": "PAPER TRIAL", "price_as_of": "2026-10-20T00:00:00+00:00", "pnl_default_period": "daily"})
     (work / "real.json").write_text(json.dumps(old))
+    pushed = fx.build("busy")  # the VM now publishes on a heartbeat and says so in ops.health.push_interval_minutes
+    pushed["ops"]["health"]["push_interval_minutes"] = 60.0
+    (work / "pushed.json").write_text(json.dumps(pushed))
     out = subprocess.run([NODE, str(REPO / "tests" / "dashboard_page_check.cjs"), str(REPO / "web"), str(work)], capture_output=True, text=True, timeout=300)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
@@ -96,6 +99,15 @@ def test_freshness_chip_amber_after_15_minutes_and_red_after_60(page_run):
     assert amber["fresh"] == {"text": "updated 40 min ago", "cls": "chip warn"} and amber["alert"]["cls"] == "alert warn"
     assert stale["fresh"] == {"text": "STALE · updated 1 h 35 min ago", "cls": "chip bad"}
     assert stale["alert"]["hidden"] is False and stale["alert"]["cls"] == "alert bad" and "STALE DATA" in stale["alert"]["text"] and stale["mainStale"] is True
+
+
+def test_freshness_thresholds_follow_the_push_interval_in_the_file(page_run):
+    ok, amber, stale = page_run["pushedOk"], page_run["pushedAmber"], page_run["pushedStale"]
+    # the same 40-minute-old file that is amber without the key (test above) is fine with an hourly heartbeat
+    assert ok["fresh"] == {"text": "updated 40 min ago", "cls": "chip ok"} and ok["alert"]["hidden"] is True
+    assert amber["fresh"] == {"text": "updated 1 h 38 min ago", "cls": "chip warn"} and amber["alert"]["cls"] == "alert warn"
+    assert "at least every 60 min" in amber["alert"]["text"]
+    assert stale["fresh"]["cls"] == "chip bad" and stale["fresh"]["text"].startswith("STALE") and "STALE DATA" in stale["alert"]["text"]
 
 
 def test_a_wrong_viewer_clock_does_not_make_fresh_data_look_stale(page_run):

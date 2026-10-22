@@ -117,10 +117,33 @@
   const signClass = (n) => (!isNum(n) || n === 0 ? "" : n > 0 ? "pos" : "neg");
 
   // ----------------------------------------------------------------------------------------------------------
-  // Freshness: "updated N min ago", amber after 15 min, red (stale warning) after 60
+  // Freshness: "updated N min ago". Defaults: amber after 15 min, red (stale warning) after 60. The VM pushes this
+  // file on a heartbeat (default every 60 min, plus on every content change) and writes that interval into
+  // ops.health.push_interval_minutes; with it the thresholds follow the cadence: amber at 1.5x the interval (never
+  // below 15 min), red at 3x (never below 60 min, so a short interval keeps a real amber band). Missing/invalid key
+  // -> the defaults above.
   // ----------------------------------------------------------------------------------------------------------
   const FRESH_WARN_MIN = 15;
   const FRESH_STALE_MIN = 60;
+  const FRESH_WARN_FACTOR = 1.5;
+  const FRESH_STALE_FACTOR = 3;
+
+  function pushIntervalMinutes(data) {
+    const h = data && data.ops && data.ops.health;
+    const v = h ? h.push_interval_minutes : null;
+    return isNum(v) && v > 0 ? v : null;
+  }
+
+  // {warn, stale, interval} in minutes for a data.json (interval is null when the file does not carry one).
+  function freshThresholds(data) {
+    const interval = pushIntervalMinutes(data);
+    if (interval === null) return { warn: FRESH_WARN_MIN, stale: FRESH_STALE_MIN, interval: null };
+    return {
+      warn: Math.max(FRESH_WARN_MIN, interval * FRESH_WARN_FACTOR),
+      stale: Math.max(FRESH_STALE_MIN, interval * FRESH_STALE_FACTOR),
+      interval,
+    };
+  }
 
   function ageMinutes(iso, nowMs) {
     const t = Date.parse(iso);
@@ -128,12 +151,21 @@
     return Math.max(0, (nowMs - t) / 60000);
   }
 
-  // ok <= 15 min < warn <= 60 min < stale. Unknown (no/invalid timestamp) is its own level, never "ok".
-  function freshness(minutes) {
+  // ok <= amber threshold < warn <= red threshold < stale. Unknown (no/invalid timestamp) is its own level, never "ok".
+  // `th` is freshThresholds(data); omitted -> the 15/60 defaults.
+  function freshness(minutes, th) {
     if (!isNum(minutes)) return { level: "unknown", minutes: null };
-    if (minutes > FRESH_STALE_MIN) return { level: "stale", minutes };
-    if (minutes > FRESH_WARN_MIN) return { level: "warn", minutes };
+    const warn = th && isNum(th.warn) ? th.warn : FRESH_WARN_MIN;
+    const stale = th && isNum(th.stale) ? th.stale : FRESH_STALE_MIN;
+    if (minutes > stale) return { level: "stale", minutes };
+    if (minutes > warn) return { level: "warn", minutes };
     return { level: "ok", minutes };
+  }
+
+  // "60 min" / "2 h" / "1.5 h" for the push interval shown in notes.
+  function fmtInterval(minutes) {
+    if (minutes < 120) return `${Math.round(minutes * 10) / 10} min`;
+    return `${Math.round((minutes / 60) * 10) / 10} h`;
   }
 
   function ageText(minutes) {
@@ -389,7 +421,7 @@
     const ops = opsOf(data);
     const inst = (ops && ops.instance) || {};
     const display = displayOf(data) || {};
-    const fresh = freshness(ageMinutes(data && data.generated_at, nowMs));
+    const fresh = freshness(ageMinutes(data && data.generated_at, nowMs), freshThresholds(data));
     const timeframe = inst.timeframe || display.timeframe || null;
     const lastBar = ops && ops.health ? ops.health.last_bar_close : null;
     return {
@@ -409,15 +441,17 @@
     const ops = opsOf(data);
     const rows = [];
     const lvl = (f) => (f.level === "ok" ? "ok" : f.level === "warn" ? "warn" : f.level === "stale" ? "bad" : "none");
-    const gen = freshness(ageMinutes(data && data.generated_at, nowMs));
+    const th = freshThresholds(data);
+    const gen = freshness(ageMinutes(data && data.generated_at, nowMs), th);
     rows.push({ key: "export", label: "Dashboard data", value: gen.level === "unknown" ? "unknown" : ageText(gen.minutes), level: lvl(gen),
-      note: "when the VM last regenerated this file (every ~5 min)" });
+      note: th.interval === null ? "when the VM last regenerated this file (every ~5 min)"
+        : `when the VM last published this file: at least every ${fmtInterval(th.interval)}, sooner when a figure changes` });
     if (!ops) {
       rows.push({ key: "ops", label: "Bot health", value: "no data", level: "none", note: "this data.json has no `ops` block (older exporter)" });
       return rows;
     }
     const h = ops.health || {};
-    const beat = freshness(ageMinutes(h.last_event_at, nowMs));
+    const beat = freshness(ageMinutes(h.last_event_at, nowMs), th);
     rows.push({ key: "heartbeat", label: "Last bot cycle (heartbeat)", value: h.last_event_at ? ageText(beat.minutes) : "no data", level: h.last_event_at ? lvl(beat) : "none",
       note: h.last_event_at ? `newest audit line ${fmtUtc(h.last_event_at)}` : "no audit line yet" });
     const timeframe = ops.instance && ops.instance.timeframe;
@@ -463,12 +497,13 @@
   // level "bad" (red) or "warn" (amber); null when nothing is wrong. `fetchError` is the last failed load, if any.
   function alertModel(data, nowMs, fetchError) {
     if (!data) return fetchError ? { level: "bad", text: `Could not load the dashboard data (${fetchError}).` } : null;
-    const gen = freshness(ageMinutes(data.generated_at, nowMs));
+    const th = freshThresholds(data);
+    const gen = freshness(ageMinutes(data.generated_at, nowMs), th);
     if (gen.level === "stale") {
       return { level: "bad", text: `STALE DATA: this file was last regenerated ${ageText(gen.minutes)}. The VM, the bot or its uploader may be down. Treat every figure below as out of date.` };
     }
     const ops = opsOf(data);
-    const beat = freshness(ageMinutes(ops && ops.health ? ops.health.last_event_at : null, nowMs));
+    const beat = freshness(ageMinutes(ops && ops.health ? ops.health.last_event_at : null, nowMs), th);
     if (beat.level === "stale") {
       return { level: "bad", text: `The bot has not written an audit line for ${ageText(beat.minutes).replace(" ago", "")}, although the dashboard file is being regenerated. The bot process may be down.` };
     }
@@ -476,7 +511,10 @@
       return { level: "warn", text: "The kill-switch file is present: the bot is blocked from opening new positions (exits still run)." };
     }
     if (fetchError) return { level: "warn", text: `Showing the last data loaded; refreshing failed (${fetchError}).` };
-    if (gen.level === "warn") return { level: "warn", text: `The data is ${Math.floor(gen.minutes)} min old; it normally refreshes about every 5 minutes.` };
+    if (gen.level === "warn") {
+      const every = th.interval === null ? "about every 5 minutes" : `at least every ${fmtInterval(th.interval)}`;
+      return { level: "warn", text: `The data is ${Math.floor(gen.minutes)} min old; it normally refreshes ${every}.` };
+    }
     return null;
   }
 
@@ -713,7 +751,7 @@
     // formatting
     fmtMoney, fmtPct, fmtR, fmtPrice, signClass, isNum,
     // freshness
-    FRESH_WARN_MIN, FRESH_STALE_MIN, ageMinutes, freshness, ageText, clockSkewMs, timeframeMinutes, barStatus,
+    FRESH_WARN_MIN, FRESH_STALE_MIN, freshThresholds, fmtInterval, ageMinutes, freshness, ageText, clockSkewMs, timeframeMinutes, barStatus,
     // derivations
     openPnl, drawdownSeries, killRuleStatus, decisionCounts, DECISION_STATES, DECISION_LABEL,
     buildKpis, statusModel, systemHealth, alertModel,

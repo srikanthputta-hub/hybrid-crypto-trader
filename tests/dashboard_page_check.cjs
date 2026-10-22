@@ -174,6 +174,12 @@ async function snapshot(v) {
     out.amber = await snapshot(v);
     await v.done();
   }
+  // 5b. the VM publishes hourly (ops.health.push_interval_minutes = 60): amber from 90 min, red from 180 min
+  for (const [key, clock] of [["pushedOk", "2026-11-21T21:47:00Z"], ["pushedAmber", "2026-11-21T22:45:00Z"], ["pushedStale", "2026-11-22T00:17:00Z"]]) {
+    const v = await visit(browser, stage({ "data.json": "pushed.json" }), { clock, server: { dateHeader: clock } });
+    out[key] = await snapshot(v);
+    await v.done();
+  }
   // 6. a viewer whose clock is 3 hours wrong still sees correct freshness (the server's Date header wins)
   {
     const v = await visit(browser, stage({ "data.json": "busy.json" }), { clock: "2026-11-22T00:10:00Z", server: { dateHeader: NOW } });

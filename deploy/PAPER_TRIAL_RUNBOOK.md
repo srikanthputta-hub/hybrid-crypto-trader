@@ -2,8 +2,10 @@
 
 > **DO NOT MERGE the trial change (or its rollback) into `main` until the 1h bot on the VM is stopped and
 > disabled (section 3, step 1).** The VM pulls `main` by itself: `scripts/run_live.py` pushes `web/data.json`
-> after every cycle and, when the push is rejected because `main` moved, runs `git pull --no-rebase --no-edit`.
-> Within ~5 minutes of a merge the new `config/config.yaml` is on the VM's disk. The running process keeps its
+> whenever its content changed or the heartbeat is due (every 60 minutes by default, `deploy/README.md` "Dashboard
+> push throttle") and, when the push is rejected because `main` moved, runs `git pull --no-rebase --no-edit`.
+> Within about an hour of a merge (sooner if the dashboard content changes first) the new `config/config.yaml` is
+> on the VM's disk. The running process keeps its
 > old config in memory, but the next restart of any kind (crash, OOM kill, reboot, `Restart=always`) would start
 > a 1d / bar-parity bot on top of the 1h state: 1h OPEN plans sized on 1h ATR then monitored close-only, 1h cash
 > and positions, the first bar skipped as stale, a pruned audit log, and a parity check that refuses to run.
