@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import sys
 from collections import deque
 from datetime import datetime, timedelta, timezone
@@ -42,6 +43,7 @@ from src.pnl import build_pnl_report
 from src.risk_analytics import build_risk_report
 from src.portfolio import reconstruct_cash
 from src.trade_plan_store import TradePlanStore
+from scripts.dashboard_push import PUSH_MINUTES_ENV, parse_push_minutes
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUT_PATH = PROJECT_ROOT / "web" / "data.json"
@@ -1280,6 +1282,10 @@ def _build_ops(
         poll_interval_seconds=cfg.loop.get("poll_interval_seconds"),
         max_entry_delay_minutes=cfg.loop.get("max_entry_delay_minutes"),
     )
+    if os.environ.get(PUSH_MINUTES_ENV) is not None:
+        # Additive: how often the VM pushes this file (scripts/run_live.py sets the variable for its export). The page
+        # scales its "updated N min ago" amber/red thresholds from it; absent -> the page's 15/60 minute defaults.
+        health["push_interval_minutes"] = parse_push_minutes(os.environ.get(PUSH_MINUTES_ENV))
     return {
         "schema": OPS_SCHEMA,
         "instance": {

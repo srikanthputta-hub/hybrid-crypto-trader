@@ -85,6 +85,39 @@ def test_freshness_thresholds_amber_after_15_red_after_60():
 
 
 @needs_node
+def test_freshness_thresholds_follow_the_push_interval():
+    got = display_js(r'''
+      const withInterval = (v) => ({ops: {health: {push_interval_minutes: v}}});
+      const th = (data) => { const t = d.freshThresholds(data); return [t.warn, t.stale, t.interval]; };
+      const lv = (min, data) => d.freshness(min, d.freshThresholds(data)).level;
+      const iso = (minAgo) => new Date(NOW - minAgo * 60000).toISOString();
+      const base = (v, minAgo) => ({generated_at: iso(minAgo), ops: {health: {push_interval_minutes: v, last_event_at: iso(1)},
+        kill_switch: {present: false}, instance: {timeframe: "1d"}}});
+      return {
+        thresholds: [th(withInterval(60)), th(withInterval(5)), th(withInterval(20)), th(withInterval(240)), th({}), th(null), th(withInterval(0)),
+                     th(withInterval("60")), th(withInterval(-5)), th(withInterval(NaN)), th({ops: {}})],
+        hourly: [0, 89, 90, 91, 179, 180, 181].map((m) => lv(m, withInterval(60))),
+        legacy: [14, 16, 59, 61].map((m) => lv(m, {})),
+        shortInterval: [14, 16, 59, 61].map((m) => lv(m, withInterval(5))),
+        chip: [d.statusModel(base(60, 40), null, NOW).fresh.level, d.statusModel(base(60, 100), null, NOW).fresh.level, d.statusModel(base(60, 200), null, NOW).fresh.level],
+        chipLegacy: d.statusModel(base(undefined, 40), null, NOW).fresh.level,
+        alerts: [d.alertModel(base(60, 40), NOW, null), d.alertModel(base(60, 100), NOW, null).text, d.alertModel(base(60, 200), NOW, null).text.slice(0, 11)],
+        row: d.systemHealth(base(60, 40), NOW)[0],
+        rowLegacy: d.systemHealth(base(undefined, 40), NOW)[0].note,
+        interval: [d.fmtInterval(60), d.fmtInterval(90), d.fmtInterval(120), d.fmtInterval(180)],
+      };
+    ''')
+    assert got["thresholds"] == [[90, 180, 60], [15, 60, 5], [30, 60, 20], [360, 720, 240], [15, 60, None], [15, 60, None], [15, 60, None],
+                                 [15, 60, None], [15, 60, None], [15, 60, None], [15, 60, None]]
+    assert got["hourly"] == ["ok", "ok", "ok", "warn", "warn", "warn", "stale"]  # amber above 1.5x, red above 3x
+    assert got["legacy"] == ["ok", "warn", "warn", "stale"] and got["shortInterval"] == ["ok", "warn", "warn", "stale"]
+    assert got["chip"] == ["ok", "warn", "stale"] and got["chipLegacy"] == "warn"
+    assert got["alerts"][0] is None and got["alerts"][1] == "The data is 100 min old; it normally refreshes at least every 60 min." and got["alerts"][2] == "STALE DATA:"
+    assert got["row"]["level"] == "ok" and "at least every 60 min" in got["row"]["note"] and "every ~5 min" in got["rowLegacy"]
+    assert got["interval"] == ["60 min", "90 min", "2 h", "3 h"]
+
+
+@needs_node
 def test_bar_status_waiting_late_missed():
     got = display_js(r'''
       const at = (iso) => Date.parse(iso);
