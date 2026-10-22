@@ -5,7 +5,9 @@ vendored `vendor/lightweight-charts` (only for the per-symbol candle chart), and
 
 ## Data flow
 
-- `scripts/export_dashboard_data.py` (run by `scripts/run_live.py` after every cycle) writes `web/data.json`. Every
+- `scripts/export_dashboard_data.py` (run by `scripts/run_live.py` after every cycle) writes `web/data.json`; the
+  VM commits+pushes it only on a content change or an hourly heartbeat (`scripts/dashboard_push.py`, `deploy/README.md`
+  "Dashboard push throttle"), and `ops.health.push_interval_minutes` tells the page how stale is stale. Every
   pre-existing key is unchanged. The additive `ops` key carries what the page needs beyond that: instance identity,
   the per-symbol decision for the latest bar, per-trade R (as booked and re-costed at Kraken T3 taker, the trial's
   judging tier), equity samples, health counters, the kill-switch file and the newest `logs/parity_*.json`.

@@ -15,7 +15,7 @@
     $(id).innerHTML = markup.__raw;
   };
 
-  const REFRESH_MS = 60 * 1000; // data.json changes about every 5 minutes; a minute keeps "updated N min ago" honest
+  const REFRESH_MS = 60 * 1000; // the VM publishes on content change + a heartbeat (ops.health.push_interval_minutes); a minute keeps "updated N min ago" honest
   const TICK_MS = 15 * 1000; // re-evaluate ages (no refetch)
   const FETCH_TIMEOUT_MS = 15 * 1000;
 

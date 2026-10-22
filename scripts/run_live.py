@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Continuous live loop for a real always-on host (a VPS, not CI): runs a bot
-cycle, regenerates the dashboard's web/data.json, commits+pushes it to git,
+cycle, regenerates the dashboard's web/data.json, commits+pushes it to git
+(throttled: only on a content change or a heartbeat, scripts/dashboard_push.py),
 prunes old log rows once a day (config.yaml logging.retention_days), and
 pings an optional external heartbeat monitor (HEALTHCHECK_PING_URL),
 forever, on config.yaml's loop.poll_interval_seconds.
@@ -26,6 +27,7 @@ Refuses to run if config.yaml has mode: live, same guard as run_paper.py.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -38,6 +40,7 @@ from src.bot import build_components, build_market_data, run_cycle
 from src.config import load_config
 from src.heartbeat import send_heartbeat_ping
 from src.log_retention import run_log_retention
+from scripts import dashboard_push
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("run_live")
@@ -61,18 +64,48 @@ def _push_with_pull_retry() -> None:
     subprocess.run(["git", "push"], check=True, cwd=PROJECT_ROOT)
 
 
-def _export_and_push() -> None:
+def _run_export() -> None:
+    """Regenerate web/data.json (local, cheap). The active heartbeat is passed down so the exporter can write it into
+    data.json (ops.health.push_interval_minutes) and the page can scale its freshness thresholds to it."""
+    env = {**os.environ, dashboard_push.PUSH_MINUTES_ENV: f"{dashboard_push.PUSH_MIN_INTERVAL_MINUTES:g}"}
     subprocess.run(
         [sys.executable, str(PROJECT_ROOT / "scripts" / "export_dashboard_data.py")],
         check=True,
         cwd=PROJECT_ROOT,
+        env=env,
     )
-    subprocess.run(["git", "add", "web/data.json"], check=True, cwd=PROJECT_ROOT)
-    unchanged = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=PROJECT_ROOT).returncode == 0
-    if unchanged:
+
+
+def _export_and_push() -> None:
+    """Export every cycle, but commit+push only when the dashboard-relevant content changed or the heartbeat
+    (PUSH_MIN_INTERVAL_MINUTES) is due -- every push is one Cloudflare build (see scripts/dashboard_push.py).
+
+    The pushed-state (fingerprint + time, logs/dashboard_push_state.json) is advanced only AFTER a successful push, so
+    a failed commit/push (this raises, the loop logs it) is retried on the next cycle. A skipped cycle leaves
+    web/data.json modified in the working tree; that is harmless to the later `git pull --no-rebase`, which only
+    ever runs right after we committed that file (so it is clean then) -- the next export regenerates it anyway.
+    """
+    _run_export()
+    data_path = PROJECT_ROOT / "web" / "data.json"
+    fingerprint = dashboard_push.fingerprint_file(data_path)
+    state_file = dashboard_push.state_path(PROJECT_ROOT)
+    due, reason = dashboard_push.push_decision(
+        fingerprint,
+        dashboard_push.load_state(state_file),
+        dashboard_push.now_epoch(),
+        dashboard_push.PUSH_MIN_INTERVAL_MINUTES,
+    )
+    if not due:
+        logger.debug("dashboard push skipped: %s", reason)
         return
-    subprocess.run(["git", "commit", "-m", "chore: refresh dashboard data"], check=True, cwd=PROJECT_ROOT)
+    logger.info("dashboard push: %s", reason)
+    subprocess.run(["git", "add", "web/data.json"], check=True, cwd=PROJECT_ROOT)
+    nothing_staged = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=PROJECT_ROOT).returncode == 0
+    if not nothing_staged:  # never an empty commit
+        subprocess.run(["git", "commit", "-m", "chore: refresh dashboard data"], check=True, cwd=PROJECT_ROOT)
+    # Pushed even when nothing was staged: a commit left unpushed by an earlier failed attempt must still go out.
     _push_with_pull_retry()
+    dashboard_push.save_state(state_file, fingerprint, dashboard_push.now_epoch())
 
 
 def main() -> None:
@@ -83,6 +116,8 @@ def main() -> None:
             "Set mode: paper in config/config.yaml for this always-on loop."
         )
     logger.info("starting live loop: mode=%s exchange=%s symbols=%s", cfg.mode, cfg.exchange_id, cfg.symbols)
+    # load_config() has just loaded .env, so HCT_DASHBOARD_PUSH_MINUTES set there is visible only now.
+    logger.info("dashboard push heartbeat: %g min", dashboard_push.refresh_interval_from_env())
 
     exchange, risk_engine, portfolio, broker, store, audit = build_components(cfg)
     market_data = build_market_data(cfg, exchange)

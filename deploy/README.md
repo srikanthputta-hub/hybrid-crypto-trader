@@ -3,7 +3,7 @@
 This makes the bot actually run 24/7 with no gaps, instead of depending on a
 scheduler to wake it up periodically. `scripts/run_live.py` runs bot cycles
 forever on `config.yaml`'s `loop.poll_interval_seconds`, regenerating and
-pushing `web/data.json` after every cycle so the dashboard stays live too,
+regenerating `web/data.json` after every cycle and pushing it when it matters (see "Dashboard push throttle" below),
 and Telegram alerts (if `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` are set)
 fire the moment a signal is found, not on the next scheduled tick.
 
@@ -11,7 +11,7 @@ fire the moment a signal is found, not on the next scheduled tick.
 00:01-00:45 UTC start window, weekly parity check, kill rule, rollback) is in
 [PAPER_TRIAL_RUNBOOK.md](PAPER_TRIAL_RUNBOOK.md). **The VM auto-pulls `main`** (`scripts/run_live.py` runs
 `git pull --no-rebase --no-edit` whenever its `web/data.json` push is rejected), so a config change merged to
-`main` lands on the VM's disk within ~5 minutes and takes effect at the next restart of any kind. Stop and
+`main` lands on the VM's disk within about an hour (at its next dashboard push) and takes effect at the next restart of any kind. Stop and
 disable the service *before* merging the trial change (or its rollback): runbook section 3, step 1.
 
 ## Provisioning the VM (Oracle Cloud "Always Free" tier)
@@ -66,7 +66,7 @@ nano .env   # fill in EXCHANGE_API_KEY / EXCHANGE_API_SECRET, TELEGRAM_BOT_TOKEN
 
 ### Git push access
 
-`run_live.py` commits and pushes `web/data.json` after every cycle, so this
+`run_live.py` commits and pushes `web/data.json` (throttled, below), so this
 VM needs its own push credentials. Create a fine-grained GitHub personal
 access token scoped to *only this repo*, with **Contents: Read and write**
 permission (GitHub -> Settings -> Developer settings -> Personal access
@@ -87,6 +87,34 @@ sudo systemctl enable --now hybrid-crypto-trader
 sudo systemctl status hybrid-crypto-trader   # should show "active (running)"
 journalctl -u hybrid-crypto-trader -f        # tail live logs
 ```
+
+## Dashboard push throttle (why the VM no longer pushes every 5 minutes)
+
+Every push to `main` triggers a Cloudflare Workers Build. The loop used to push `web/data.json` every 5-minute cycle
+(about 288 builds a day), which used up the monthly build-minute allowance and froze the live dashboard on an old
+deployment. Now the export still runs every cycle (it only writes `web/data.json` locally), but the loop commits and
+pushes only when
+
+- the dashboard-relevant content changed (portfolio, positions, pending plans, trade stats, closed trades, the
+  per-symbol decisions, kill switch, latest-bar health, parity report, the newest equity values), or
+- the **heartbeat** is due: at least `HCT_DASHBOARD_PUSH_MINUTES` minutes since the last successful push.
+
+Timestamps and ages (`generated_at`, hourly P/L labels, last audit line, the equity curve's end time) are ignored when
+deciding "changed". Expected load: about 24 heartbeat pushes a day plus a few content changes (the daily bar close,
+entries and exits), roughly 30 builds a day instead of 288.
+
+- **Env var:** `HCT_DASHBOARD_PUSH_MINUTES`, default `60`. A non-number is ignored (60 is used); anything below `5` is
+  raised to `5`. Set it in the systemd unit (`Environment=HCT_DASHBOARD_PUSH_MINUTES=60`) or the VM's `.env`.
+- **Apply a change / this code:** the running process loads `run_live.py` once, so restart it:
+  `sudo systemctl restart hybrid-crypto-trader`.
+- **State:** `logs/dashboard_push_state.json` (last pushed fingerprint and time; gitignored, survives restarts). A
+  missing or corrupt file just means "push now". It advances only after a successful push, so a failed push is retried
+  on the next cycle.
+- **What the dashboard's freshness means now:** "updated N min ago" is the time since the last *publish*, not the last
+  bot cycle, so it normally counts up to about the heartbeat (60 min) and resets. The exporter writes the interval into
+  `data.json` (`ops.health.push_interval_minutes`) and the page turns amber at 1.5x it (90 min) and red / STALE at
+  3x it (180 min); without that key it keeps the old 15 / 60 minute thresholds. A skipped cycle leaves `web/data.json`
+  modified in the VM's working tree; that is expected and harmless (the next export rewrites it).
 
 ## Heartbeat monitor (dead-man's-switch for the VM/process itself)
 

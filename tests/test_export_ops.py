@@ -531,3 +531,23 @@ def test_the_realistic_bot_loop_log_exports_cleanly(tmp_path, monkeypatch):
     stats = ops["trade_stats"]
     assert stats["n"] == data["pnl"]["summary"]["total_trades"] and stats["r_missing"] == 0
     assert len(ops["r_recosted_series"]) == stats["n"]
+
+
+# --------------------------------------------------------------------------- #
+# ops.health.push_interval_minutes: the VM's push heartbeat, so the page can scale its freshness thresholds
+# --------------------------------------------------------------------------- #
+def test_push_interval_is_exported_only_when_the_vm_passes_it(tmp_path, monkeypatch):
+    raw = build_instance(tmp_path)
+    monkeypatch.delenv("HCT_DASHBOARD_PUSH_MINUTES", raising=False)
+    health = json.loads(run_main(new, tmp_path, raw, monkeypatch))["ops"]["health"]
+    assert "push_interval_minutes" not in health  # a manual / CI export keeps the page's 15/60 minute defaults
+    monkeypatch.setenv("HCT_DASHBOARD_PUSH_MINUTES", "60")
+    health = json.loads(run_main(new, tmp_path, raw, monkeypatch))["ops"]["health"]
+    assert health["push_interval_minutes"] == 60.0 and health["poll_interval_seconds"] == 300  # existing keys untouched
+
+
+@pytest.mark.parametrize("raw_value, expected", [("garbage", 60.0), ("2", 5.0), ("90", 90.0)])
+def test_push_interval_is_validated_the_same_way_as_the_vm_does(tmp_path, monkeypatch, raw_value, expected):
+    raw = build_instance(tmp_path)
+    monkeypatch.setenv("HCT_DASHBOARD_PUSH_MINUTES", raw_value)
+    assert json.loads(run_main(new, tmp_path, raw, monkeypatch))["ops"]["health"]["push_interval_minutes"] == expected
