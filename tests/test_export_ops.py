@@ -546,6 +546,27 @@ def test_push_interval_is_exported_only_when_the_vm_passes_it(tmp_path, monkeypa
     assert health["push_interval_minutes"] == 60.0 and health["poll_interval_seconds"] == 300  # existing keys untouched
 
 
+def test_deploy_interval_is_exported_only_when_direct_deploy_is_enabled(tmp_path, monkeypatch):
+    raw = build_instance(tmp_path)
+    for name in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "HCT_DASHBOARD_DEPLOY_MINUTES"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HCT_DASHBOARD_PUSH_MINUTES", "60")
+    health = json.loads(run_main(new, tmp_path, raw, monkeypatch))["ops"]["health"]
+    assert "deploy_interval_minutes" not in health and health["push_interval_minutes"] == 60.0
+    monkeypatch.setenv("HCT_DASHBOARD_DEPLOY_MINUTES", "30")  # the minutes alone do not enable it...
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "t" * 20)  # ...and neither does a token without the account id
+    assert "deploy_interval_minutes" not in json.loads(run_main(new, tmp_path, raw, monkeypatch))["ops"]["health"]
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "a" * 32)
+    health = json.loads(run_main(new, tmp_path, raw, monkeypatch))["ops"]["health"]
+    assert health["deploy_interval_minutes"] == 30.0 and health["push_interval_minutes"] == 60.0  # additive; existing keys untouched
+    assert health["poll_interval_seconds"] == 300
+    assert "t" * 20 not in json.dumps(health) and "a" * 32 not in json.dumps(health)  # the credentials never reach data.json
+    monkeypatch.delenv("HCT_DASHBOARD_DEPLOY_MINUTES")
+    assert json.loads(run_main(new, tmp_path, raw, monkeypatch))["ops"]["health"]["deploy_interval_minutes"] == 15.0
+    monkeypatch.setenv("HCT_DASHBOARD_DEPLOY_MINUTES", "1")
+    assert json.loads(run_main(new, tmp_path, raw, monkeypatch))["ops"]["health"]["deploy_interval_minutes"] == 5.0
+
+
 @pytest.mark.parametrize("raw_value, expected", [("garbage", 60.0), ("2", 5.0), ("90", 90.0)])
 def test_push_interval_is_validated_the_same_way_as_the_vm_does(tmp_path, monkeypatch, raw_value, expected):
     raw = build_instance(tmp_path)

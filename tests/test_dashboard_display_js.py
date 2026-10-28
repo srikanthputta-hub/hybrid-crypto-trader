@@ -118,6 +118,31 @@ def test_freshness_thresholds_follow_the_push_interval():
 
 
 @needs_node
+def test_freshness_thresholds_prefer_the_deploy_interval_over_the_push_interval():
+    got = display_js(r'''
+      const h = (o) => ({ops: {health: o}});
+      const th = (data) => { const t = d.freshThresholds(data); return [t.warn, t.stale, t.interval]; };
+      return {
+        both: th(h({deploy_interval_minutes: 15, push_interval_minutes: 60})),
+        deployOnly: th(h({deploy_interval_minutes: 40})),
+        pushOnly: th(h({push_interval_minutes: 60})),
+        floors: th(h({deploy_interval_minutes: 5, push_interval_minutes: 60})),
+        long: th(h({deploy_interval_minutes: 120})),
+        invalidDeployFallsBack: [th(h({deploy_interval_minutes: 0, push_interval_minutes: 60})), th(h({deploy_interval_minutes: "15", push_interval_minutes: 60})),
+                                 th(h({deploy_interval_minutes: null, push_interval_minutes: 60})), th(h({deploy_interval_minutes: NaN, push_interval_minutes: 30}))],
+        neither: [th(h({deploy_interval_minutes: -1})), th(h({})), th({}), th(null)],
+        level: [30, 100, 200].map((m) => d.freshness(m, d.freshThresholds(h({deploy_interval_minutes: 40, push_interval_minutes: 60}))).level),
+      };
+    ''')
+    assert got["both"] == [22.5, 60, 15]  # 1.5x amber (floor 15), 3x red (floor 60): the deploy cadence, not 60 -> 90/180
+    assert got["deployOnly"] == [60, 120, 40] and got["pushOnly"] == [90, 180, 60]
+    assert got["floors"] == [15, 60, 5] and got["long"] == [180, 360, 120]
+    assert got["invalidDeployFallsBack"] == [[90, 180, 60], [90, 180, 60], [90, 180, 60], [45, 90, 30]]
+    assert got["neither"] == [[15, 60, None]] * 4
+    assert got["level"] == ["ok", "warn", "stale"]  # amber above 60, red above 120
+
+
+@needs_node
 def test_bar_status_waiting_late_missed():
     got = display_js(r'''
       const at = (iso) => Date.parse(iso);

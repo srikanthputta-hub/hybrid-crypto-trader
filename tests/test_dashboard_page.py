@@ -49,6 +49,9 @@ def page_run(tmp_path_factory):
     pushed = fx.build("busy")  # the VM now publishes on a heartbeat and says so in ops.health.push_interval_minutes
     pushed["ops"]["health"]["push_interval_minutes"] = 60.0
     (work / "pushed.json").write_text(json.dumps(pushed))
+    deployed = fx.build("busy")  # direct deploy (scripts/dashboard_deploy.py): the page's real cadence is the deploy heartbeat
+    deployed["ops"]["health"].update(push_interval_minutes=60.0, deploy_interval_minutes=20.0)
+    (work / "deployed.json").write_text(json.dumps(deployed))
     out = subprocess.run([NODE, str(REPO / "tests" / "dashboard_page_check.cjs"), str(REPO / "web"), str(work)], capture_output=True, text=True, timeout=300)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
@@ -107,6 +110,14 @@ def test_freshness_thresholds_follow_the_push_interval_in_the_file(page_run):
     assert ok["fresh"] == {"text": "updated 40 min ago", "cls": "chip ok"} and ok["alert"]["hidden"] is True
     assert amber["fresh"] == {"text": "updated 1 h 38 min ago", "cls": "chip warn"} and amber["alert"]["cls"] == "alert warn"
     assert "at least every 60 min" in amber["alert"]["text"]
+    assert stale["fresh"]["cls"] == "chip bad" and stale["fresh"]["text"].startswith("STALE") and "STALE DATA" in stale["alert"]["text"]
+
+
+def test_direct_deploy_interval_wins_over_the_push_interval_in_the_file(page_run):
+    amber, stale = page_run["deployedAmber"], page_run["deployedStale"]
+    # 40 min old: fine under push_interval_minutes=60 alone (pushedOk above), but the deploy heartbeat is 20 min
+    assert amber["fresh"] == {"text": "updated 40 min ago", "cls": "chip warn"} and amber["alert"]["cls"] == "alert warn"
+    assert "at least every 20 min" in amber["alert"]["text"]
     assert stale["fresh"]["cls"] == "chip bad" and stale["fresh"]["text"].startswith("STALE") and "STALE DATA" in stale["alert"]["text"]
 
 

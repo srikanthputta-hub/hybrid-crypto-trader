@@ -116,6 +116,105 @@ entries and exits), roughly 30 builds a day instead of 288.
   3x it (180 min); without that key it keeps the old 15 / 60 minute thresholds. A skipped cycle leaves `web/data.json`
   modified in the VM's working tree; that is expected and harmless (the next export rewrites it).
 
+## Direct dashboard deploy (publish without a Cloudflare build)
+
+Even throttled, every git push of `web/data.json` is a Workers Build, and build minutes ran out. With this section's
+setup the VM uploads the static site itself: after each export, `scripts/dashboard_deploy.py` runs `wrangler deploy`
+from the repo root, which uploads `wrangler.jsonc`'s assets directory (`./web`, including the fresh `web/data.json`)
+straight to the `hybrid-crypto-trader` Worker. No build runs, so no build minutes are used.
+
+**It is off until you set both `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.** Without them nothing changes:
+the git push throttle above keeps working as before.
+
+How it behaves:
+
+- **When:** after the cycle's export, when the dashboard content changed (same fingerprint as the push throttle) or the
+  heartbeat is due. Heartbeat: `HCT_DASHBOARD_DEPLOY_MINUTES`, default `15`, minimum `5` (garbage is ignored).
+- **State:** `logs/dashboard_deploy_state.json` (last successful deploy; gitignored). Missing or corrupt means "deploy
+  now". It advances only after a success.
+- **Failure:** logged (`dashboard deploy FAILED ...`) and retried no sooner than 5 minutes later, doubling to a maximum of
+  60 minutes between attempts while it keeps failing, so a Cloudflare outage cannot cost every cycle time or flood the log.
+  The first success resets this.
+- **Safety:** `wrangler` runs with a hard 120 s timeout (the whole process group is killed), never two at once, and
+  nothing in this step can raise into the trading loop. The loop waits for a deploy at most that long; a normal deploy
+  takes a few seconds. wrangler gets only the two Cloudflare variables plus `PATH`/`HOME`/proxy settings in its
+  environment (not your exchange, Telegram or Claude secrets), the credentials are never put on the command line, and
+  anything wrangler prints is scrubbed of them before the short tail is logged.
+- **Freshness chip:** while enabled, the exporter also writes `ops.health.deploy_interval_minutes` and the page's
+  "updated N min ago" turns amber at 1.5x and red at 3x that heartbeat (floors 15 / 60 min); without it the page falls
+  back to `push_interval_minutes`, then to 15 / 60.
+- **Git pushes stay:** the hourly/content-change commit of `web/data.json` is kept as optional history, because the
+  orchestrator reads `web/data.json` from git for monitoring. Once you complete step 5 below, those data-only commits no
+  longer trigger a build.
+
+### One-time VM setup
+
+1. **Node.js LTS and wrangler** (Ubuntu 22.04). The Ubuntu `nodejs` package is too old for current wrangler, so use NodeSource:
+   ```bash
+   curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+   sudo apt-get install -y nodejs
+   node --version   # current wrangler needs a recent LTS (v20+)
+   ```
+   Then install wrangler, pinned to a major you have tried (check `npm view wrangler version` and pick the current one):
+   ```bash
+   # option A, system-wide (found on PATH):
+   sudo npm install -g wrangler@4
+   # option B, project-local (found as node_modules/.bin/wrangler; node_modules/ is gitignored):
+   cd ~/hybrid-crypto-trader && npm install --no-save wrangler@4
+   ```
+   `scripts/dashboard_deploy.py` looks for `HCT_WRANGLER_BIN`, then `./node_modules/.bin/wrangler`, then `wrangler` on
+   `PATH`, then `npx --no-install wrangler`. (It never lets `npx` download anything on its own.)
+2. **Create a narrowly scoped Cloudflare API token.** Cloudflare dashboard -> My Profile -> API Tokens -> Create Token
+   -> start from the **Edit Cloudflare Workers** template, then trim it to exactly:
+   - Permissions: **Account -> Workers Scripts -> Edit** (this is the one that matters for `wrangler deploy` of a
+     static-assets Worker). Remove everything else the template adds (Workers Routes, KV, R2, D1, Zone, User ->
+     User Details ...) unless `wrangler deploy` later says it needs one -- and then add only that one.
+   - Account Resources: **Include -> your single account** (not "All accounts").
+   - Zone Resources: none needed; do not grant any.
+   - Optionally add a client IP filter with the VM's public IP, and a TTL if you want forced rotation.
+   Copy the token once; Cloudflare will not show it again. Your **Account ID** is on the Workers & Pages overview page
+   (right-hand sidebar) or in the dashboard URL.
+3. **Put both values in the VM's `.env`** (gitignored; type them yourself over SSH, never paste them into a chat):
+   ```bash
+   cd ~/hybrid-crypto-trader
+   chmod 600 .env
+   nano .env
+   # CLOUDFLARE_API_TOKEN=...
+   # CLOUDFLARE_ACCOUNT_ID=...
+   # HCT_DASHBOARD_DEPLOY_MINUTES=15     (optional)
+   ```
+   `.env.example` carries commented placeholders only. Never commit `.env`.
+4. **Verify before enabling the service:**
+   ```bash
+   set -a; . ./.env; set +a      # exports the two variables into this shell only
+   wrangler whoami               # (or: npx --no-install wrangler whoami) -- should list your account
+   wrangler deploy               # a manual deploy from the repo root; prints the Worker URL on success
+   ```
+   If `whoami` shows the account and the deploy succeeds, the token has what it needs.
+5. **Cloudflare dashboard -> Workers & Pages -> `hybrid-crypto-trader` -> Settings -> Builds -> Build watch paths:**
+   add **Exclude paths: `web/data.json`**. Pushes that only change that file then no longer start a build, so the git
+   history of data commits costs no build minutes. (Code changes you merge on purpose still build as before.)
+6. **Restart the service** so the loop picks up the new code and `.env`:
+   `sudo systemctl restart hybrid-crypto-trader`, then `journalctl -u hybrid-crypto-trader -f`. The start-up line says
+   `dashboard direct deploy (wrangler): enabled, heartbeat 15 min`, and each deploy logs
+   `dashboard deploy ok in N.Ns (...)`. The values themselves are never logged.
+
+### Disable it
+
+Remove (or comment out) `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in `.env` and restart the service. With
+either one missing the deploy step is a silent no-op and the exporter stops writing `deploy_interval_minutes`.
+
+### Rotate the token
+
+1. Cloudflare dashboard -> My Profile -> API Tokens -> create a new token exactly as in step 2 (or use **Roll** on the
+   existing token, which keeps the permissions and shows a new secret once).
+2. Put the new value in `.env` (`nano .env`), keep `chmod 600 .env`, `sudo systemctl restart hybrid-crypto-trader`.
+3. Confirm the next deploy line says `ok`, then **delete** the old token in the dashboard (skip this if you used Roll;
+   the old secret is already dead).
+4. Rotate immediately if the token may have been exposed: check `journalctl -u hybrid-crypto-trader` and `logs/` for it
+   (the code scrubs it from its own logs, but a manual `wrangler` run in a recorded shell, or a pasted `.env`, is yours
+   to check).
+
 ## Heartbeat monitor (dead-man's-switch for the VM/process itself)
 
 The bot's own Telegram alerts (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`) can only
