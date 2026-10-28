@@ -1,4 +1,6 @@
 .env
+# optional project-local wrangler install for the VM's direct dashboard deploy (deploy/README.md)
+node_modules/
 __pycache__/
 *.pyc
 .pytest_cache/

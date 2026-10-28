@@ -117,11 +117,12 @@
   const signClass = (n) => (!isNum(n) || n === 0 ? "" : n > 0 ? "pos" : "neg");
 
   // ----------------------------------------------------------------------------------------------------------
-  // Freshness: "updated N min ago". Defaults: amber after 15 min, red (stale warning) after 60. The VM pushes this
-  // file on a heartbeat (default every 60 min, plus on every content change) and writes that interval into
-  // ops.health.push_interval_minutes; with it the thresholds follow the cadence: amber at 1.5x the interval (never
-  // below 15 min), red at 3x (never below 60 min, so a short interval keeps a real amber band). Missing/invalid key
-  // -> the defaults above.
+  // Freshness: "updated N min ago". Defaults: amber after 15 min, red (stale warning) after 60. The VM publishes this
+  // file on a heartbeat plus on every content change and writes that interval into ops.health: when it deploys the
+  // site directly (scripts/dashboard_deploy.py) that is deploy_interval_minutes (default 15), otherwise the git push
+  // heartbeat push_interval_minutes (default 60). The page uses deploy_interval_minutes if it is a valid number, else
+  // push_interval_minutes, else the defaults above. Thresholds follow the cadence: amber at 1.5x the interval (never
+  // below 15 min), red at 3x (never below 60 min, so a short interval keeps a real amber band).
   // ----------------------------------------------------------------------------------------------------------
   const FRESH_WARN_MIN = 15;
   const FRESH_STALE_MIN = 60;
@@ -130,8 +131,11 @@
 
   function pushIntervalMinutes(data) {
     const h = data && data.ops && data.ops.health;
-    const v = h ? h.push_interval_minutes : null;
-    return isNum(v) && v > 0 ? v : null;
+    if (!h) return null;
+    for (const v of [h.deploy_interval_minutes, h.push_interval_minutes]) {
+      if (isNum(v) && v > 0) return v;
+    }
+    return null;
   }
 
   // {warn, stale, interval} in minutes for a data.json (interval is null when the file does not carry one).

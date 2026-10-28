@@ -43,6 +43,7 @@ from src.pnl import build_pnl_report
 from src.risk_analytics import build_risk_report
 from src.portfolio import reconstruct_cash
 from src.trade_plan_store import TradePlanStore
+from scripts.dashboard_deploy import exported_interval_minutes as deploy_interval_minutes
 from scripts.dashboard_push import PUSH_MINUTES_ENV, parse_push_minutes
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -1286,6 +1287,11 @@ def _build_ops(
         # Additive: how often the VM pushes this file (scripts/run_live.py sets the variable for its export). The page
         # scales its "updated N min ago" amber/red thresholds from it; absent -> the page's 15/60 minute defaults.
         health["push_interval_minutes"] = parse_push_minutes(os.environ.get(PUSH_MINUTES_ENV))
+    deploy_minutes = deploy_interval_minutes()
+    if deploy_minutes is not None:
+        # Additive: direct deploy (scripts/dashboard_deploy.py) is enabled, so the page's real update cadence is its
+        # heartbeat; the page prefers this over push_interval_minutes for its freshness thresholds.
+        health["deploy_interval_minutes"] = deploy_minutes
     return {
         "schema": OPS_SCHEMA,
         "instance": {
