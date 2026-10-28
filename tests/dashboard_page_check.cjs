@@ -180,6 +180,13 @@ async function snapshot(v) {
     out[key] = await snapshot(v);
     await v.done();
   }
+  // 5c. direct deploy (ops.health.deploy_interval_minutes = 20, push_interval_minutes = 60): the deploy cadence wins, so the same
+  // 40-minute-old file is amber (it would be fine under the 60-minute push cadence), and red from 60 min
+  for (const [key, clock] of [["deployedAmber", "2026-11-21T21:47:00Z"], ["deployedStale", "2026-11-21T22:25:00Z"]]) {
+    const v = await visit(browser, stage({ "data.json": "deployed.json" }), { clock, server: { dateHeader: clock } });
+    out[key] = await snapshot(v);
+    await v.done();
+  }
   // 6. a viewer whose clock is 3 hours wrong still sees correct freshness (the server's Date header wins)
   {
     const v = await visit(browser, stage({ "data.json": "busy.json" }), { clock: "2026-11-22T00:10:00Z", server: { dateHeader: NOW } });

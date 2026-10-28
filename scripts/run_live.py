@@ -2,6 +2,8 @@
 """Continuous live loop for a real always-on host (a VPS, not CI): runs a bot
 cycle, regenerates the dashboard's web/data.json, commits+pushes it to git
 (throttled: only on a content change or a heartbeat, scripts/dashboard_push.py),
+optionally deploys ./web straight to Cloudflare with wrangler (scripts/dashboard_deploy.py, only when
+CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are set -- no Workers Build involved),
 prunes old log rows once a day (config.yaml logging.retention_days), and
 pings an optional external heartbeat monitor (HEALTHCHECK_PING_URL),
 forever, on config.yaml's loop.poll_interval_seconds.
@@ -40,10 +42,14 @@ from src.bot import build_components, build_market_data, run_cycle
 from src.config import load_config
 from src.heartbeat import send_heartbeat_ping
 from src.log_retention import run_log_retention
-from scripts import dashboard_push
+from scripts import dashboard_deploy, dashboard_push
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 logger = logging.getLogger("run_live")
+
+# True once this cycle's export has finished successfully (set by _export_and_push, read by _deploy_dashboard):
+# a failed export must not redeploy a stale web/data.json.
+_export_ok = False
 
 
 def _push_with_pull_retry() -> None:
@@ -85,7 +91,10 @@ def _export_and_push() -> None:
     web/data.json modified in the working tree; that is harmless to the later `git pull --no-rebase`, which only
     ever runs right after we committed that file (so it is clean then) -- the next export regenerates it anyway.
     """
+    global _export_ok
+    _export_ok = False
     _run_export()
+    _export_ok = True
     data_path = PROJECT_ROOT / "web" / "data.json"
     fingerprint = dashboard_push.fingerprint_file(data_path)
     state_file = dashboard_push.state_path(PROJECT_ROOT)
@@ -108,6 +117,15 @@ def _export_and_push() -> None:
     dashboard_push.save_state(state_file, fingerprint, dashboard_push.now_epoch())
 
 
+def _deploy_dashboard() -> None:
+    """Publish ./web straight to Cloudflare (scripts/dashboard_deploy.py), which bypasses Workers Builds entirely.
+    A silent no-op unless CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are set. maybe_deploy() never raises and waits
+    at most its own hard timeout; the caller still wraps this in try/except so nothing can reach the trading loop."""
+    if not _export_ok:
+        return
+    dashboard_deploy.maybe_deploy(PROJECT_ROOT, PROJECT_ROOT / "web" / "data.json")
+
+
 def main() -> None:
     cfg = load_config()
     if cfg.mode != "paper":
@@ -118,6 +136,13 @@ def main() -> None:
     logger.info("starting live loop: mode=%s exchange=%s symbols=%s", cfg.mode, cfg.exchange_id, cfg.symbols)
     # load_config() has just loaded .env, so HCT_DASHBOARD_PUSH_MINUTES set there is visible only now.
     logger.info("dashboard push heartbeat: %g min", dashboard_push.refresh_interval_from_env())
+    try:
+        if dashboard_deploy.is_enabled():  # never log the credential values, only that they are present
+            logger.info("dashboard direct deploy (wrangler): enabled, heartbeat %g min", dashboard_deploy.deploy_interval_minutes())
+        else:
+            logger.info("dashboard direct deploy (wrangler): disabled (CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not both set)")
+    except Exception:  # noqa: BLE001
+        pass
 
     exchange, risk_engine, portfolio, broker, store, audit = build_components(cfg)
     market_data = build_market_data(cfg, exchange)
@@ -134,6 +159,10 @@ def main() -> None:
             _export_and_push()
         except Exception:
             logger.exception("dashboard export/push failed -- will retry next interval")
+        try:
+            _deploy_dashboard()
+        except Exception:  # noqa: BLE001 -- the direct deploy must never be able to disturb the trading loop
+            logger.warning("dashboard direct deploy failed unexpectedly -- will retry next interval")
         send_heartbeat_ping(cfg.healthcheck_ping_url)
 
         today = datetime.now(timezone.utc).date()
