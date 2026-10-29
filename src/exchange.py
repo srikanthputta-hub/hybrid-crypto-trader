@@ -78,11 +78,21 @@ class ExchangeClient:
             raise RuntimeError(f"Could not read a price from ticker for {symbol}: {ticker}")
         return float(price)
 
-    def create_market_order(self, symbol: str, side: str, amount: float) -> dict[str, Any]:
-        """Places a REAL order. Only ever called by broker_live.py, which gates on config+env."""
+    def create_market_order(
+        self, symbol: str, side: str, amount: float, client_order_id: str | None = None
+    ) -> dict[str, Any]:
+        """Places a REAL order. Only ever called by broker_live.py, which gates on config+env.
+
+        `client_order_id` (issue #99) is sent as ccxt's unified `clientOrderId` param (Kraken
+        `cl_ord_id`, Binance `newClientOrderId`) so a reconcile can find the order after a
+        crash. Without it the call is exactly the pre-#99 one."""
         if side not in ("buy", "sell"):
             raise ValueError(f"side must be 'buy' or 'sell', got {side!r}")
-        return self.client.create_order(symbol=symbol, type="market", side=side, amount=amount)
+        if client_order_id is None:
+            return self.client.create_order(symbol=symbol, type="market", side=side, amount=amount)
+        return self.client.create_order(
+            symbol=symbol, type="market", side=side, amount=amount, params={"clientOrderId": client_order_id}
+        )
 
     def load_markets(self) -> dict[str, Any]:
         return self.client.load_markets()

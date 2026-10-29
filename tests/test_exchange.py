@@ -122,3 +122,40 @@ def test_returned_dataframe_has_expected_columns_and_reset_index():
 
     assert list(df.columns) == ["timestamp", "open", "high", "low", "close", "volume"]
     assert df.index.tolist() == list(range(len(df)))
+
+
+# --- issue #99: order placement / reconcile helpers (fake ccxt client, no network) ---
+
+
+class _OrderClient:
+    """Records create_order calls exactly as ccxt receives them."""
+
+    def __init__(self):
+        self.calls = []
+
+    def create_order(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return {"id": "1"}
+
+
+def test_create_market_order_without_client_id_is_the_pre_99_call():
+    client = _make_client(FakeCcxtClient(num_bars=1, now_ms=0))
+    client.client = _OrderClient()
+    client.create_market_order("BTC/USD", "buy", 0.5)
+    assert client.client.calls == [((), {"symbol": "BTC/USD", "type": "market", "side": "buy", "amount": 0.5})]
+
+
+def test_create_market_order_sends_client_order_id_as_unified_param():
+    client = _make_client(FakeCcxtClient(num_bars=1, now_ms=0))
+    client.client = _OrderClient()
+    client.create_market_order("BTC/USD", "sell", 0.5, client_order_id="hct0123456789abcde")
+    assert client.client.calls == [((), {"symbol": "BTC/USD", "type": "market", "side": "sell", "amount": 0.5,
+                                          "params": {"clientOrderId": "hct0123456789abcde"}})]
+
+
+def test_create_market_order_still_rejects_a_bad_side_before_any_call():
+    client = _make_client(FakeCcxtClient(num_bars=1, now_ms=0))
+    client.client = _OrderClient()
+    with pytest.raises(ValueError):
+        client.create_market_order("BTC/USD", "short", 0.5, client_order_id="hct0123456789abcde")
+    assert client.client.calls == []

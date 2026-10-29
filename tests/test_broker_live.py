@@ -55,9 +55,13 @@ class FakeExchange:
         self.response = response
         self.error = error
         self.orders: list[tuple[str, str, float]] = []
+        self.client_ids: list[str | None] = []
 
-    def create_market_order(self, symbol, side, amount):
+    def create_market_order(self, symbol, side, amount, client_order_id=None):
+        # client_order_id: issue #99 (the hardened broker sends one; the frozen legacy one doesn't).
+        # Recorded separately so `orders` stays comparable with the legacy broker's order stream.
         self.orders.append((symbol, side, amount))
+        self.client_ids.append(client_order_id)
         if self.error is not None:
             raise self.error
         r = self.response
@@ -804,7 +808,7 @@ def _live_replay(tmp_path, label, module, poison_order: int | None = None):
     orders: list[tuple] = []
 
     class OrderingFake(wiring.FakeCcxt):
-        def create_order(self, symbol, type, side, amount):  # noqa: A002 -- ccxt's own kwarg name
+        def create_order(self, symbol, type, side, amount, price=None, params=None):  # noqa: A002 -- ccxt's own signature
             orders.append((symbol, side, amount))
             last = [r for r in self.hourly[symbol] if r[0] + 3_600_000 <= self.now_ms][-1][4]
             n = len(orders)

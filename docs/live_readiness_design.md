@@ -68,11 +68,17 @@ Every live order (buy or sell) goes through one lifecycle. Each arrow is one ato
   alert is sent. The file is never overwritten, so the evidence is kept.
 * An `intent`/`placed` entry for any symbol: the broker is **halted**. Every buy is refused. A sell on **that**
   symbol is refused (it could double-sell). Sells on other symbols are allowed (protective exits keep running).
+* An `unusable` entry: a **sell** whose response came back but could not be booked (the existing hardening books
+  nothing and keeps the position). It halts buys like `intent`/`placed` and is reconciled the same way. It does
+  **not** block a same-symbol sell. The order is known to have reached the exchange, a re-sell is capped at the
+  real free balance (item 3), and on spot an already-sold amount is rejected. This keeps the existing contract
+  "selling stays allowed while halted" (tests/test_broker_live.py). In a shared account a re-sell could hit other
+  holdings of that coin: that is one more reason for the dedicated sub-account (item 3).
 * A `booked` entry that this process did not just create (a leftover from before a restart, or one that survived
   a reconcile pass): every order on **that symbol** is refused until reconcile settles it. A `booked` entry this
   process created and has not yet handed to a reconcile pass does **not** block. The caller is still in the middle
   of its own flow, and that is how the existing direct-call tests use the broker.
-* At startup, any `intent`/`placed` entry latches the halt and writes the halt marker (a crash happened mid-order;
+* At startup, any `intent`/`placed`/`unusable` entry latches the halt and writes the halt marker (a crash happened mid-order;
   a human must look). A leftover `booked` entry does not halt: its outcome is known and reconcile repairs the store
   deterministically. It does block its symbol and sends an alert.
 

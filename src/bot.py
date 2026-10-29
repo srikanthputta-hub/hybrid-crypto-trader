@@ -566,6 +566,31 @@ class _Cycle:
     htf_from_scan_frame: bool = False
 
 
+def _plan_ref(record) -> str:
+    """A plan's identity for the live broker's write-ahead order record / clientOrderId
+    (issue #99, docs/live_readiness_design.md §0): created_at is unique per plan."""
+    return f"{record.symbol}|{record.created_at}"
+
+
+def _order_kwargs(broker, record, exit_reason: str | None = None) -> dict:
+    """Extra keyword arguments for broker.buy/sell: only a broker that declares
+    TRACKS_ORDER_REFS (the live broker) gets them, so PaperBroker's calls are unchanged."""
+    if not getattr(broker, "TRACKS_ORDER_REFS", False):
+        return {}
+    kwargs = {"order_ref": _plan_ref(record)}
+    if exit_reason is not None:
+        kwargs["exit_reason"] = exit_reason
+    return kwargs
+
+
+def _settle(broker, symbol: str) -> None:
+    """Tell a live broker the plan store now reflects the order it just booked for `symbol`
+    (clears its write-ahead record). No-op for the paper broker."""
+    settle = getattr(broker, "settle", None)
+    if callable(settle):
+        settle(symbol)
+
+
 def _execute_monitor_action(action, record, broker, store, risk_engine, event) -> None:
     # Deliberate (P1b): this path never consults the risk engine's symbol
     # whitelist. The whitelist only gates ORIGINATING a new plan (the same scope
@@ -579,8 +604,9 @@ def _execute_monitor_action(action, record, broker, store, risk_engine, event) -
     event["monitor_action"] = action.__dict__
     if action.action == "FILL":
         quote_amount = record.plan["approved_quote_amount"]
-        fill = broker.buy(action.symbol, quote_amount, action.price)
+        fill = broker.buy(action.symbol, quote_amount, action.price, **_order_kwargs(broker, record))
         store.mark_open(action.symbol, fill_price=fill.price, fill_amount=fill.base_amount)
+        _settle(broker, action.symbol)  # only AFTER the store moved (write-ahead order record, issue #99)
         # Refreshes the per-symbol cooldown as before. new_entry=False: this plan was
         # already counted toward the global new-entry cap when it was accepted (the
         # record_trade call in run_cycle), so its later fill must not count it twice.
@@ -589,8 +615,9 @@ def _execute_monitor_action(action, record, broker, store, risk_engine, event) -
     elif action.action == "DISCARD":
         store.discard_pending(action.symbol, reason="invalidated", price=action.price)
     elif action.action in ("STOP_LOSS", "TAKE_PROFIT"):
-        fill = broker.sell(action.symbol, action.price)
+        fill = broker.sell(action.symbol, action.price, **_order_kwargs(broker, record, action.action.lower()))
         store.mark_closed(action.symbol, reason=action.action.lower(), price=action.price)
+        _settle(broker, action.symbol)
         event["execution"] = fill.__dict__
 
 
@@ -807,10 +834,11 @@ def _evaluate_new_entry(c: _Cycle, symbol: str, enriched, price: float, event: d
     fresh_record = c.store.get(symbol)
     immediate = monitor.check_pending(fresh_record, price)
     if immediate is not None and immediate.action == "FILL":
-        fill = c.broker.buy(symbol, plan_dict["approved_quote_amount"], price)
+        fill = c.broker.buy(symbol, plan_dict["approved_quote_amount"], price, **_order_kwargs(c.broker, fresh_record))
         if c.parity:
             c.same_bar_fills[symbol] = float(plan_dict["approved_quote_amount"])
         c.store.mark_open(symbol, fill_price=fill.price, fill_amount=fill.base_amount)
+        _settle(c.broker, symbol)
         event["execution"] = fill.__dict__
     return False
 

@@ -52,11 +52,27 @@ can make an order happen that the pre-hardening code wouldn't have placed):
   HALT_MARKER_NAME next to the trade log so it survives a restart. To resume: check
   the exchange, reconcile logs/trades.csv and the plan store by hand, delete the
   marker file, restart the bot.
+
+Write-ahead order record (issue #99 item 1, docs/live_readiness_design.md):
+
+* Every order gets a deterministic clientOrderId (client_order_id(plan_ref, side, attempt))
+  and an entry in ORDER_STATE_NAME (atomic + fsync'd) BEFORE create_market_order:
+  intent -> placed -> booked -> cleared (settle(), called by bot.py AFTER the plan store
+  moved). A sell whose response is unusable becomes `unusable` (position kept, see above).
+  If the intent cannot be persisted, NO order is placed (LiveOrderStateError) -- fail closed.
+* An intent/placed/unusable entry halts new buys (also after a restart: the entry is on
+  disk even if the halt marker could not be written); intent/placed also blocks sells on
+  that symbol (could double-sell). A booked entry left over from before a restart blocks
+  every order on its symbol until it is settled. An unreadable state file blocks EVERY
+  order and is never overwritten.
 """
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -68,6 +84,79 @@ from src.portfolio import Portfolio, Position, _is_finite_number, now_iso
 logger = logging.getLogger(__name__)
 
 HALT_MARKER_NAME = "live_broker_halt.json"
+ORDER_STATE_NAME = "live_order_state.json"
+
+_CLIENT_ID_PREFIX = "hct"
+_ENTRY_STATES = ("intent", "placed", "unusable", "booked")
+# Entries whose outcome is not (fully) booked: they halt new buys.
+_UNRESOLVED_STATES = ("intent", "placed", "unusable")
+# Entries whose outcome is unknown: they also block sells on their symbol (a re-sell could double-sell).
+_SYMBOL_BLOCKING_STATES = ("intent", "placed")
+
+
+def client_order_id(plan_ref: str, side: str, attempt: int) -> str:
+    """Deterministic clientOrderId: a pure function of (plan, side, attempt), so a retry
+    after a definite rejection / a never-placed order re-sends the SAME id and a reconcile
+    can look it up. 18 chars of [a-z0-9]: fits Kraken's free-text cl_ord_id (<= 18) and
+    Binance's newClientOrderId (<= 36)."""
+    digest = hashlib.sha256(f"{plan_ref}|{side}|{int(attempt)}".encode()).hexdigest()
+    return _CLIENT_ID_PREFIX + digest[:15]
+
+
+def _fsync_dir(directory: Path) -> None:
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:  # pragma: no cover - platforms without directory fds
+        return
+    try:
+        os.fsync(fd)
+    except OSError:  # pragma: no cover
+        pass
+    finally:
+        os.close(fd)
+
+
+def _atomic_write_json(path: Path, payload: object) -> None:
+    """tmp file in the same directory + flush + fsync + os.replace + directory fsync: a
+    reader (or a restart after SIGKILL) sees either the old or the new content, never a
+    torn file. Raises on any failure."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    data = json.dumps(payload, indent=2, sort_keys=True, default=repr) + "\n"
+    with open(tmp, "w") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    _fsync_dir(path.parent)
+
+
+def _empty_order_state() -> dict:
+    return {"version": 1, "inflight": {}, "attempts": {}}
+
+
+def _validate_order_state(raw: object) -> dict:
+    """The parsed state file, or ValueError for anything that isn't exactly what this
+    module writes (fail closed: an entry we can't read could be a live order)."""
+    if not isinstance(raw, dict):
+        raise ValueError("not a JSON object")
+    inflight, attempts = raw.get("inflight"), raw.get("attempts")
+    if not isinstance(inflight, dict) or not isinstance(attempts, dict):
+        raise ValueError("missing 'inflight'/'attempts' objects")
+    for coid, entry in inflight.items():
+        if not (
+            isinstance(entry, dict)
+            and entry.get("client_order_id") == coid
+            and entry.get("state") in _ENTRY_STATES
+            and isinstance(entry.get("symbol"), str)
+            and entry.get("side") in ("buy", "sell")
+            and isinstance(entry.get("plan_ref"), str)
+        ):
+            raise ValueError(f"malformed in-flight entry {coid!r}")
+    for key, value in attempts.items():
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"malformed attempt counter {key!r}={value!r}")
+    return {"version": 1, "inflight": inflight, "attempts": attempts}
 
 # A reported filled amount may exceed the amount we asked for by at most this
 # relative float-noise margin; anything larger is a units/parse error, not a fill.
@@ -86,14 +175,21 @@ class LiveOrderUnreconciled(RuntimeError):
     """An order may be live on the exchange but its result could not be booked. New buys are halted."""
 
 
+class LiveOrderStateError(RuntimeError):
+    """The write-ahead order record could not be persisted. NO order was placed; new buys are halted."""
+
+
 class LivePartialFill(RuntimeError):
     """A sell only partially filled; the filled part is booked, the remainder stays open.
 
-    `fill` holds the FillResult for the part that did fill."""
+    `fill` holds the FillResult for the part that did fill; `remaining_amount` is the base
+    amount still held (bot.py persists it to the plan store -- duck-typed, so bot.py never
+    has to import this module)."""
 
-    def __init__(self, message: str, fill: "FillResult") -> None:
+    def __init__(self, message: str, fill: "FillResult", remaining_amount: float | None = None) -> None:
         super().__init__(message)
         self.fill = fill
+        self.remaining_amount = remaining_amount
 
 
 class _UnusableFill(Exception):
@@ -177,6 +273,9 @@ class FillResult:
 
 
 class LiveBroker:
+    # bot.py passes order_ref/exit_reason only to a broker that declares this (never PaperBroker).
+    TRACKS_ORDER_REFS = True
+
     def __init__(
         self,
         exchange: ExchangeClient,
@@ -202,18 +301,43 @@ class LiveBroker:
         self._halt_marker_path: Path | None = (
             Path(trade_log_path).parent / HALT_MARKER_NAME if trade_log_path is not None else None
         )
+        # Write-ahead order record (module docstring). Without a trade_log_path (tests only --
+        # build_components always sets one) it lives in memory, exactly like the halt latch.
+        self._state_path: Path | None = (
+            Path(trade_log_path).parent / ORDER_STATE_NAME if trade_log_path is not None else None
+        )
+        self._state: dict = _empty_order_state()
+        self._state_error: str | None = None
+        self._session_booked: set[str] = set()      # booked by THIS process, not yet seen by a reconcile pass
+        self._awaiting_settle: dict[str, str] = {}  # symbol -> clientOrderId booked, waiting for bot.py's settle()
+        self._load_order_state()
         if self._halt_marker_path is not None and self._halt_marker_path.exists():
             logger.critical(
                 "live broker HALTED at startup: %s exists -- new buys are refused until a human "
                 "reconciles the exchange account and deletes it", self._halt_marker_path,
+            )
+        if self._state_error is not None:
+            self._halt(
+                f"order state file {self._state_path} is unreadable ({self._state_error}); every order is "
+                "refused until a human repairs it",
+            )
+        unresolved = self._unresolved_entries()
+        if unresolved:
+            self._halt(
+                f"startup: {len(unresolved)} in-flight order(s) from before the restart are unresolved "
+                f"({', '.join(sorted(unresolved))}); their outcome is unknown until reconciled",
+                client_order_ids=sorted(unresolved),
             )
 
     # ---------------------------------------------------------------- halt latch
 
     @property
     def halted(self) -> bool:
-        return self._halt_reason is not None or (
-            self._halt_marker_path is not None and self._halt_marker_path.exists()
+        return (
+            self._halt_reason is not None
+            or (self._halt_marker_path is not None and self._halt_marker_path.exists())
+            or self._state_error is not None
+            or bool(self._unresolved_entries())
         )
 
     def _halt(self, reason: str, **details: object) -> None:
@@ -223,24 +347,186 @@ class LiveBroker:
         if self._halt_marker_path is None:
             return
         try:
-            self._halt_marker_path.parent.mkdir(parents=True, exist_ok=True)
             payload = {"halted_at": now_iso(), "reason": reason, **{k: repr(v) for k, v in details.items()}}
-            self._halt_marker_path.write_text(json.dumps(payload, indent=2) + "\n")
+            _atomic_write_json(self._halt_marker_path, payload)
         except Exception:  # noqa: BLE001 -- the in-memory latch above still holds for this process
             logger.exception("could not persist live broker halt marker %s", self._halt_marker_path)
 
-    def _place(self, symbol: str, side: str, amount: float) -> object:
-        """create_market_order; a definite exchange rejection is re-raised unchanged, any
-        other failure leaves the order's fate unknown -> halt + LiveOrderUnreconciled."""
+    # ---------------------------------------------------------------- write-ahead order record
+
+    def _load_order_state(self) -> None:
+        if self._state_path is None or not self._state_path.exists():
+            return
         try:
-            return self.exchange.create_market_order(symbol, side, amount)
+            self._state = _validate_order_state(json.loads(self._state_path.read_text()))
+        except Exception as exc:  # noqa: BLE001 -- unreadable = unknown = refuse everything
+            self._state_error = f"{type(exc).__name__}: {exc}"
+            logger.critical("live order state file %s is unreadable: %s", self._state_path, self._state_error)
+
+    def _unresolved_entries(self) -> dict[str, dict]:
+        return {c: e for c, e in self._state["inflight"].items() if e["state"] in _UNRESOLVED_STATES}
+
+    def _mutate_state(self, change) -> None:
+        """Apply `change` to a copy, persist it, and only then adopt it in memory (memory
+        always mirrors disk). Raises if the file is unreadable or the write fails."""
+        if self._state_error is not None:
+            raise LiveOrderStateError(f"order state file {self._state_path} is unreadable; refusing to overwrite it")
+        new = copy.deepcopy(self._state)
+        change(new)
+        if self._state_path is not None:
+            _atomic_write_json(self._state_path, new)
+        self._state = new
+
+    @staticmethod
+    def _attempt_key(plan_ref: str, side: str) -> str:
+        return f"{plan_ref}|{side}"
+
+    def _check_can_place(self, symbol: str, side: str) -> None:
+        """Refuse (LiveBrokerHalted, no order) whatever the order record says is unsafe."""
+        if self._state_error is not None:
+            raise LiveBrokerHalted(
+                f"refusing to {side} {symbol}: the order state file is unreadable ({self._state_error}); no order placed"
+            )
+        for coid, entry in self._state["inflight"].items():
+            state = entry["state"]
+            if state in _UNRESOLVED_STATES and side == "buy":
+                raise LiveBrokerHalted(
+                    f"refusing to buy {symbol}: live broker is halted (order {coid} {entry['side']} "
+                    f"{entry['symbol']} is unresolved); no order placed"
+                )
+            if entry["symbol"] != symbol:
+                continue
+            if state in _SYMBOL_BLOCKING_STATES:
+                raise LiveBrokerHalted(
+                    f"refusing to {side} {symbol}: order {coid} ({entry['side']}) has an unknown outcome; "
+                    "a second order could duplicate it; no order placed"
+                )
+            if state == "booked" and coid not in self._session_booked:
+                raise LiveBrokerHalted(
+                    f"refusing to {side} {symbol}: booked order {coid} is awaiting reconcile of the plan store; "
+                    "no order placed"
+                )
+
+    def _record_intent(self, symbol: str, side: str, plan_ref: str, **fields: object) -> str:
+        """Write-ahead: persist the order record and return its clientOrderId, or halt and
+        raise LiveOrderStateError -- in which case NO order may be placed."""
+        attempt = int(self._state["attempts"].get(self._attempt_key(plan_ref, side), 0))
+        coid = client_order_id(plan_ref, side, attempt)
+        entry = {
+            "client_order_id": coid, "plan_ref": plan_ref, "symbol": symbol, "side": side, "attempt": attempt,
+            "state": "intent", "created_at": now_iso(), "exchange_order_id": None, "fill": None,
+            "remaining_amount": None, **fields,
+        }
+        try:
+            self._mutate_state(lambda s: s["inflight"].__setitem__(coid, entry))
+        except Exception as exc:
+            self._halt(
+                f"{side} {symbol}: could not persist the write-ahead order record ({type(exc).__name__}); "
+                "NO order was placed",
+                symbol=symbol, side=side, client_order_id=coid,
+            )
+            raise LiveOrderStateError(
+                f"{side} {symbol}: write-ahead order record could not be persisted ({type(exc).__name__}); "
+                "no order placed, new buys halted"
+            ) from exc
+        return coid
+
+    def _drop_entry(self, coid: str) -> None:
+        """A definite rejection: nothing was placed, the id was never used (attempt NOT consumed)."""
+        try:
+            self._mutate_state(lambda s: s["inflight"].pop(coid, None))
+        except Exception:  # noqa: BLE001 -- the intent stays; a reconcile will find nothing and clear it
+            logger.exception("could not clear the order record %s after a definite rejection", coid)
+
+    def _set_entry(self, coid: str, **fields: object) -> bool:
+        """Best-effort update of an existing record (False + logged on failure)."""
+        def change(s: dict) -> None:
+            s["inflight"][coid].update(fields)
+
+        try:
+            self._mutate_state(change)
+            return True
+        except Exception:  # noqa: BLE001
+            logger.exception("could not update the order record %s to %s", coid, fields)
+            return False
+
+    def _mark_placed(self, coid: str, order: object) -> None:
+        exchange_id = order.get("id") if isinstance(order, dict) else None
+        # Best effort: an `intent` record is reconciled through its clientOrderId just the same.
+        self._set_entry(coid, state="placed", exchange_order_id=None if exchange_id is None else str(exchange_id))
+
+    def _mark_booked(self, coid: str, result: "FillResult", remaining_amount: float | None) -> None:
+        """The ledger + trades.csv now hold this fill: record it and consume the attempt (the id
+        is used). On failure, halt -- the trades.csv dedup keeps a reconcile from booking it twice."""
+        entry = self._state["inflight"][coid]
+        key = self._attempt_key(entry["plan_ref"], entry["side"])
+        fill = {
+            "price": result.price, "base_amount": result.base_amount, "quote_amount": result.quote_amount,
+            "timestamp": result.timestamp, "order_id": result.order_id,
+        }
+
+        def change(s: dict) -> None:
+            s["inflight"][coid].update(state="booked", fill=fill, remaining_amount=remaining_amount)
+            s["attempts"][key] = max(int(s["attempts"].get(key, 0)), int(entry["attempt"]) + 1)
+
+        try:
+            self._mutate_state(change)
+        except Exception as exc:  # noqa: BLE001
+            self._halt(
+                f"{entry['side']} {entry['symbol']}: filled and booked, but the order record {coid} could not be "
+                f"marked booked ({type(exc).__name__})",
+                symbol=entry["symbol"], side=entry["side"], client_order_id=coid,
+            )
+            return
+        self._session_booked.add(coid)
+        self._awaiting_settle[entry["symbol"]] = coid
+
+    def settle(self, symbol: str) -> None:
+        """Called by bot.py AFTER the plan store recorded the fill for `symbol`: clears the
+        write-ahead record of the order this broker just booked for it."""
+        coid = self._awaiting_settle.pop(symbol, None)
+        if coid is not None:
+            self.settle_order(coid)
+
+    def settle_order(self, coid: str) -> bool:
+        """Clear a BOOKED order record (the plan store has caught up). Never clears an
+        unresolved one. On failure, halts and keeps the record (the next reconcile retries)."""
+        entry = self._state["inflight"].get(coid)
+        if entry is None:
+            return True
+        if entry["state"] != "booked":
+            logger.error("refusing to settle order record %s in state %s", coid, entry["state"])
+            return False
+        try:
+            self._mutate_state(lambda s: s["inflight"].pop(coid, None))
+        except Exception as exc:  # noqa: BLE001
+            self._halt(
+                f"{entry['side']} {entry['symbol']}: could not clear settled order record {coid} "
+                f"({type(exc).__name__})",
+                symbol=entry["symbol"], side=entry["side"], client_order_id=coid,
+            )
+            return False
+        self._session_booked.discard(coid)
+        for symbol, pending in list(self._awaiting_settle.items()):
+            if pending == coid:
+                del self._awaiting_settle[symbol]
+        return True
+
+    def _place(self, symbol: str, side: str, amount: float, coid: str) -> object:
+        """create_market_order; a definite exchange rejection is re-raised unchanged, any
+        other failure leaves the order's fate unknown -> halt + LiveOrderUnreconciled.
+        A BaseException (SIGKILL stand-in, KeyboardInterrupt) passes through untouched:
+        the intent record stays on disk for the next start's reconcile."""
+        try:
+            return self.exchange.create_market_order(symbol, side, amount, client_order_id=coid)
         except Exception as exc:
             if _is_definite_rejection(exc):
+                self._drop_entry(coid)
                 raise  # the exchange answered and rejected it: nothing was placed
             self._halt(
                 f"{side} {symbol}: create_market_order raised {type(exc).__name__}; "
                 "the order may or may not be live on the exchange",
-                symbol=symbol, side=side, requested_amount=amount, error=exc,
+                symbol=symbol, side=side, requested_amount=amount, error=exc, client_order_id=coid,
             )
             raise LiveOrderUnreconciled(
                 f"{side} {symbol}: order outcome unknown ({type(exc).__name__}: {exc}); nothing booked, new buys halted"
@@ -270,7 +556,7 @@ class LiveBroker:
             return None
         return new_cash, new_amount, new_entry_price
 
-    def buy(self, symbol: str, quote_amount: float, price_hint: float) -> FillResult:
+    def buy(self, symbol: str, quote_amount: float, price_hint: float, order_ref: str | None = None) -> FillResult:
         if self.halted:
             raise LiveBrokerHalted(
                 f"refusing to buy {symbol}: live broker is halted ({self._halt_reason or self._halt_marker_path}); "
@@ -293,10 +579,18 @@ class LiveBroker:
                 f"refusing to buy {symbol}: booking {base_amount_estimate!r} at {price_hint!r} would make "
                 f"the ledger non-finite (cash={self.portfolio.cash!r}); no order placed"
             )
+        self._check_can_place(symbol, "buy")
+        # Write-ahead: no record on disk -> no order (raises LiveOrderStateError).
+        coid = self._record_intent(
+            symbol, "buy", order_ref or f"{symbol}|adhoc",
+            requested_amount=float(base_amount_estimate), price_hint=float(price_hint),
+            quote_amount=float(quote_amount),
+        )
 
-        order = self._place(symbol, "buy", base_amount_estimate)
+        order = self._place(symbol, "buy", base_amount_estimate, coid)
         # ---- an order now exists on the exchange: from here on, never raise without
         # ---- booking it or halting.
+        self._mark_placed(coid, order)
         problem: str | None = None
         try:
             filled_price, filled_amount, _remaining = _parse_fill(order, base_amount_estimate, price_hint)
@@ -313,7 +607,7 @@ class LiveBroker:
             self._halt(
                 f"buy {symbol}: unusable exchange response ({problem}); booked the REQUESTED fill "
                 f"{filled_amount!r} @ {filled_price!r} instead -- verify against the exchange",
-                symbol=symbol, order=_order_summary(order),
+                symbol=symbol, order=_order_summary(order), client_order_id=coid,
             )
             if ledger is None:  # unreachable: the same values passed the pre-order dry run
                 raise LiveOrderUnreconciled(f"buy {symbol}: could not book even the requested fill; nothing booked")
@@ -331,20 +625,30 @@ class LiveBroker:
             now_iso(), str(order.get("id")) if isinstance(order, dict) else None,
         )
         self._log_live_trade(result)
+        self._mark_booked(coid, result, None)
         return result
 
     # ---------------------------------------------------------------- sell
 
-    def sell(self, symbol: str, price_hint: float) -> FillResult:
+    def sell(
+        self, symbol: str, price_hint: float, order_ref: str | None = None, exit_reason: str | None = None,
+    ) -> FillResult:
         pos = self.portfolio.positions[symbol]
         if not (_is_finite_number(pos.amount) and pos.amount > 0):
             raise ValueError(f"refusing to sell {symbol}: held amount {pos.amount!r} is not a finite number > 0; no order placed")
         if not (_is_finite_number(price_hint) and price_hint > 0):
             raise ValueError(f"refusing to sell {symbol}: price_hint {price_hint!r} is not a finite number > 0; no order placed")
         held = pos.amount
+        self._check_can_place(symbol, "sell")
+        coid = self._record_intent(
+            symbol, "sell", order_ref or f"{symbol}|adhoc",
+            requested_amount=float(held), held_at_send=float(held), price_hint=float(price_hint),
+            exit_reason=exit_reason,
+        )
 
-        order = self._place(symbol, "sell", held)
+        order = self._place(symbol, "sell", held, coid)
         # ---- an order now exists on the exchange.
+        self._mark_placed(coid, order)
         problem: str | None = None
         partial = False
         try:
@@ -376,11 +680,14 @@ class LiveBroker:
             problem = str(exc)
         if problem is not None:
             # Conservative: the position stays exactly as it was (plan stays OPEN, the
-            # monitor retries the exit), nothing is credited, new buys halt.
+            # monitor retries the exit), nothing is credited, new buys halt. The order
+            # record becomes `unusable`: still reconciled, still halting buys, but it does
+            # not block the re-sell (see module docstring).
+            self._set_entry(coid, state="unusable")
             self._halt(
                 f"sell {symbol}: unusable exchange response ({problem}); nothing booked, "
                 f"position of {held!r} kept -- verify against the exchange",
-                symbol=symbol, order=_order_summary(order),
+                symbol=symbol, order=_order_summary(order), client_order_id=coid,
             )
             raise LiveOrderUnreconciled(
                 f"sell {symbol}: exchange response unusable ({problem}); nothing booked, position kept, new buys halted"
@@ -395,15 +702,17 @@ class LiveBroker:
             symbol, "sell", filled_price, filled_amount, proceeds, now_iso(), str(order.get("id"))
         )
         self._log_live_trade(result)
+        self._mark_booked(coid, result, left if partial else None)
         if partial:
             self._halt(
                 f"sell {symbol}: PARTIAL fill {filled_amount!r} of {held!r}; remainder {left!r} kept open",
-                symbol=symbol, order=_order_summary(order),
+                symbol=symbol, order=_order_summary(order), client_order_id=coid,
             )
             raise LivePartialFill(
                 f"sell {symbol} partially filled ({filled_amount!r} of {held!r}); booked, remainder "
                 f"{left!r} stays open for the monitor to exit",
                 result,
+                remaining_amount=left,
             )
         return result
 
