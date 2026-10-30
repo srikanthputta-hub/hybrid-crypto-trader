@@ -282,3 +282,95 @@ def test_gate_still_checked_before_any_state_file_is_read_or_written(tmp_path):
         with pytest.raises(broker_live.LiveTradingDisabled):
             LiveBroker(FaultyExchange(), Portfolio(cash=1.0, trade_log_path=logs_dir(tmp_path) / "t.csv"), mode, confirmed)
     assert not _halt_file(tmp_path).exists()
+
+
+# --- 3. sells capped at the real free balance (item 3) -------------------------------------
+
+
+def _held_btc(tmp_path, amount=0.002, free=None, exchange=None):
+    exchange = exchange or FaultyExchange()
+    if free is not None:
+        exchange.free["BTC"] = free
+    positions = {"BTC/USDT": Position("BTC/USDT", amount, 50_000.0)}
+    portfolio = Portfolio(cash=10_000.0, positions=positions, trade_log_path=logs_dir(tmp_path) / "trades.csv")
+    return LiveBroker(exchange, portfolio, "live", True), portfolio, exchange
+
+
+@pytest.mark.parametrize("free", [0.002, 0.5, 10.0])
+def test_sell_never_sends_more_than_tracked(tmp_path, free):
+    broker, portfolio, exchange = _held_btc(tmp_path, free=free)
+    broker.sell("BTC/USDT", 55_000.0)
+    assert exchange.orders == [("BTC/USDT", "sell", 0.002)]  # other coins in the account are never sold
+    assert "BTC/USDT" not in portfolio.positions and not broker.halted
+
+
+def test_sell_capped_at_free_balance_within_fee_tolerance_closes_fully(tmp_path):
+    # Binance without BNB: the buy fee came out of the base asset, so 0.1% less is free.
+    broker, portfolio, exchange = _held_btc(tmp_path, free=0.002 * 0.999)
+    broker.sell("BTC/USDT", 55_000.0)
+    assert exchange.orders == [("BTC/USDT", "sell", 0.002 * 0.999)]
+    assert "BTC/USDT" not in portfolio.positions and not broker.halted
+    assert portfolio.cash == pytest.approx(10_000.0 + 0.002 * 0.999 * 50_000.0)
+
+
+def test_sell_capped_well_below_tracked_halts_first_then_sells_what_is_there(tmp_path):
+    from src.broker_live import LivePartialFill
+
+    # e.g. an unusable buy response booked the requested 0.002 but only 0.0005 really filled,
+    # or a stale full amount after a restart following a partial sell.
+    broker, portfolio, exchange = _held_btc(tmp_path, free=0.0005)
+    with pytest.raises(LivePartialFill) as info:
+        broker.sell("BTC/USDT", 55_000.0)
+    assert exchange.orders == [("BTC/USDT", "sell", 0.0005)]  # protective exit still happened
+    assert info.value.remaining_amount == pytest.approx(0.0015)
+    assert portfolio.positions["BTC/USDT"].amount == pytest.approx(0.0015)
+    assert broker.halted
+    assert any("only 0.0005 is free" in a["title"] for a in broker.pop_alerts())
+
+
+def test_sell_with_nothing_free_places_no_order_and_halts(tmp_path):
+    broker, portfolio, exchange = _held_btc(tmp_path, free=0.0)
+    with pytest.raises(LiveOrderUnreconciled, match="no order placed"):
+        broker.sell("BTC/USDT", 55_000.0)
+    assert exchange.orders == [] and portfolio.positions["BTC/USDT"].amount == 0.002 and broker.halted
+    assert not _state_file(tmp_path).exists()  # refused before any write-ahead record
+
+
+@pytest.mark.parametrize("fault", ["error", "missing", "nan", "negative"])
+def test_unknown_free_balance_falls_back_to_the_tracked_amount(tmp_path, fault):
+    broker, portfolio, exchange = _held_btc(tmp_path)
+    if fault == "error":
+        exchange.balance_error = ccxt.NetworkError("down")
+    elif fault == "nan":
+        exchange.free["BTC"] = float("nan")
+    elif fault == "negative":
+        exchange.free["BTC"] = -1.0
+    broker.sell("BTC/USDT", 55_000.0)
+    assert exchange.orders == [("BTC/USDT", "sell", 0.002)] and not broker.halted
+
+
+def test_insufficient_funds_on_an_exit_is_alerted_not_silent(tmp_path):
+    broker, portfolio, exchange = _held_btc(tmp_path)
+    exchange.create_error = ccxt.InsufficientFunds("balance too low")
+    for _cycle in range(2):
+        with pytest.raises(ccxt.InsufficientFunds):
+            broker.sell("BTC/USDT", 55_000.0)
+    alerts = broker.pop_alerts()
+    assert [a["kind"] for a in alerts] == ["exit_jammed"]  # once, not every cycle
+    assert alerts[0]["symbol"] == "BTC/USDT" and alerts[0]["client_order_id"] == exchange.client_ids[0]
+    assert portfolio.positions["BTC/USDT"].amount == 0.002 and _state(tmp_path)["inflight"] == {}
+
+
+def test_base_fee_buy_then_exit_no_longer_jams(tmp_path):
+    from src.bot import _execute_monitor_action
+
+    exchange = FaultyExchange()
+    exchange.track_balances = True
+    exchange.fee = {"currency": "base", "rate": 0.001}
+    broker, portfolio, store = start(tmp_path, exchange)
+    store.set_pending("BTC/USDT", dict(PLAN))
+    _execute_monitor_action(_fill(), store.get("BTC/USDT"), broker, store, _risk(tmp_path), {})
+    _execute_monitor_action(_stop(), store.get("BTC/USDT"), broker, store, _risk(tmp_path), {})
+    assert store.get("BTC/USDT") is None and "BTC/USDT" not in portfolio.positions
+    assert exchange.free["BTC"] == pytest.approx(0.0, abs=1e-15)  # sold exactly what was there
+    assert not broker.halted

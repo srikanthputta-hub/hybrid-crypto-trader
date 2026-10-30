@@ -632,6 +632,17 @@ class LiveBroker:
         except Exception as exc:
             if _is_definite_rejection(exc):
                 self._drop_entry(coid)
+                if side == "sell" and isinstance(exc, ccxt.InsufficientFunds):
+                    # Item 3: an exit jammed by the balance must never go unnoticed. Alert only:
+                    # nothing was placed, so there is nothing to halt for (definite rejection).
+                    self._queue_alert(
+                        ("sell-insufficient-funds", symbol, amount),
+                        kind="exit_jammed", title=f"sell {symbol} rejected: InsufficientFunds",
+                        symbol=symbol, side=side, amount=amount, client_order_id=coid,
+                        bot_action="Placed nothing, booked nothing; the position stays OPEN and the exit is retried "
+                                   "every cycle (capped at the free balance when the exchange reports one).",
+                        operator_check=self._operator_check(symbol, side, coid),
+                    )
                 raise  # the exchange answered and rejected it: nothing was placed
             self._halt(
                 f"{side} {symbol}: create_market_order raised {type(exc).__name__}; "
@@ -980,6 +991,10 @@ class LiveBroker:
             raise _UnusableFill(f"amount={ordered!r} is not a finite number in (0, held {held!r}]")
         partial = (remaining is not None and remaining > 0) or (
             ordered is not None and filled_amount < ordered * (1 - _OVERFILL_TOLERANCE)
+        ) or (
+            # Item 3: the send was capped well below the tracked amount (balance mismatch):
+            # whatever filled, the rest stays tracked for a human to reconcile.
+            sent < held * (1 - _SELL_SHORTFALL_TOLERANCE)
         )
         proceeds = filled_amount * filled_price
         new_cash = self.portfolio.cash + proceeds
@@ -1002,6 +1017,56 @@ class LiveBroker:
         self._log_live_trade(result)
         return result
 
+    def _free_balance(self, symbol: str) -> float | None:
+        """Free balance of `symbol`'s base asset, or None when unknown (error, not reported,
+        non-finite, negative)."""
+        base = symbol.split("/")[0]
+        try:
+            free = self.exchange.fetch_free_balance(base)
+        except Exception as exc:  # noqa: BLE001 -- unknown balance: fall back to the tracked amount
+            logger.warning("could not read the free %s balance (%s); selling the tracked amount", base,
+                           type(exc).__name__)
+            return None
+        if free is None or not (_is_finite_number(free) and free >= 0):
+            if free is not None:
+                logger.warning("free %s balance %r is unusable; selling the tracked amount", base, free)
+            return None
+        return float(free)
+
+    def _capped_sell_amount(self, symbol: str, held: float) -> float:
+        """Issue #99 item 3: never sell more than the account really holds (nor more than we
+        track). Design note §3: unknown balance -> held (the exchange is the arbiter);
+        a shortfall within _SELL_SHORTFALL_TOLERANCE is fees/rounding; a bigger one halts and
+        alerts BEFORE the (still protective) capped sell; nothing free -> no order at all."""
+        free = self._free_balance(symbol)
+        if free is None or free >= held:
+            return held
+        base = symbol.split("/")[0]
+        if free <= 0:
+            self._halt(
+                f"sell {symbol}: tracked {held!r} {base} but the exchange reports a free balance of {free!r}; "
+                "NO sell placed",
+                symbol=symbol, side="sell", requested_amount=held,
+                bot_action=(
+                    "Placed NO sell (there is nothing to sell) and kept the position tracked; HALTED new buys and "
+                    "new plans. The exit is retried every cycle."
+                ),
+            )
+            raise LiveOrderUnreconciled(
+                f"sell {symbol}: exchange free {base} balance is {free!r} but {held!r} is tracked; no order placed"
+            )
+        if free < held * (1 - _SELL_SHORTFALL_TOLERANCE):
+            self._halt(
+                f"sell {symbol}: tracked {held!r} {base} but only {free!r} is free on the exchange; selling "
+                f"{free!r} and keeping the difference tracked",
+                symbol=symbol, side="sell", requested_amount=free,
+                bot_action=(
+                    f"Sold only the free {free!r} (protective exit, capped); the shortfall stays OPEN in the ledger "
+                    "for a human to reconcile. HALTED new buys and new plans."
+                ),
+            )
+        return free
+
     def sell(
         self, symbol: str, price_hint: float, order_ref: str | None = None, exit_reason: str | None = None,
     ) -> FillResult:
@@ -1012,7 +1077,7 @@ class LiveBroker:
             raise ValueError(f"refusing to sell {symbol}: price_hint {price_hint!r} is not a finite number > 0; no order placed")
         held = pos.amount
         self._check_can_place(symbol, "sell")
-        sent = held
+        sent = self._capped_sell_amount(symbol, held)
         coid = self._record_intent(
             symbol, "sell", order_ref or f"{symbol}|adhoc",
             requested_amount=float(sent), held_at_send=float(held), price_hint=float(price_hint),
