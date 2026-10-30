@@ -475,3 +475,52 @@ def test_halted_broker_creates_no_new_plan_and_skips_the_scan(tmp_path):
     assert event["action"] == "none" and "live broker halted" in event["note"]
     assert store.all_current() == {} and events == [event]
     assert risk.check_new_trade("BTC/USDT", "buy", 10_000.0, 10_000.0).allowed  # no cooldown/cap slot burnt
+
+
+# --- 5. `filled` without `amount`/`remaining` (item 5) -------------------------------------
+
+
+def _filled_only(filled):
+    return lambda order: {"id": order["id"], "average": order["average"], "filled": filled}
+
+
+@pytest.mark.parametrize("precision", [None, lambda s, a: 3.0], ids=["no-precision", "precision"])
+def test_filled_only_response_below_what_was_sent_is_a_partial(tmp_path, precision):
+    from src.broker_live import LivePartialFill
+
+    broker, portfolio, exchange = _held_btc(tmp_path, amount=3.7)
+    exchange.precision = precision
+    exchange.respond = _filled_only(1.0)
+    with pytest.raises(LivePartialFill) as info:
+        broker.sell("BTC/USDT", 55_000.0)
+    assert info.value.remaining_amount == pytest.approx(2.7)
+    assert portfolio.positions["BTC/USDT"].amount == pytest.approx(2.7) and broker.halted
+
+
+def test_filled_only_response_equal_to_the_precision_truncated_send_is_a_full_close(tmp_path):
+    broker, portfolio, exchange = _held_btc(tmp_path, amount=3.7)
+    exchange.precision = lambda s, a: 3.0  # ccxt truncated 3.7 -> 3.0 before sending
+    exchange.respond = _filled_only(3.0)
+    broker.sell("BTC/USDT", 55_000.0)
+    assert "BTC/USDT" not in portfolio.positions and not broker.halted
+
+
+def test_filled_only_response_without_precision_info_and_dust_shortfall_is_conservative(tmp_path):
+    from src.broker_live import LivePartialFill
+
+    # No market precision available: a 19% shortfall can't be told apart from a partial ->
+    # booked as partial and halted (fail closed), never silently closed.
+    broker, portfolio, exchange = _held_btc(tmp_path, amount=3.7)
+    exchange.respond = _filled_only(3.0)
+    with pytest.raises(LivePartialFill):
+        broker.sell("BTC/USDT", 55_000.0)
+    assert broker.halted
+
+
+@pytest.mark.parametrize("bad_precision", [lambda s, a: float("nan"), lambda s, a: 99.0, lambda s, a: -1.0])
+def test_nonsensical_precision_falls_back_to_the_raw_amount(tmp_path, bad_precision):
+    broker, portfolio, exchange = _held_btc(tmp_path, amount=0.002)
+    exchange.precision = bad_precision
+    exchange.respond = _filled_only(0.002)
+    broker.sell("BTC/USDT", 55_000.0)
+    assert "BTC/USDT" not in portfolio.positions and not broker.halted

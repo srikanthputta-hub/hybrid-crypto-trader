@@ -1011,6 +1011,12 @@ class LiveBroker:
         partial = (remaining is not None and remaining > 0) or (
             ordered is not None and filled_amount < ordered * (1 - _OVERFILL_TOLERANCE)
         ) or (
+            # Item 5: `filled` reported but neither `amount` nor `remaining`: compare with what
+            # was really sent (the market-precision truncation ccxt itself applies, else the raw
+            # amount). Less than that is a partial, not a full close; precision dust is not.
+            ordered is None and remaining is None and order.get("filled") is not None
+            and filled_amount < self._sent_reference(symbol, sent) * (1 - _OVERFILL_TOLERANCE)
+        ) or (
             # Item 3: the send was capped well below the tracked amount (balance mismatch):
             # whatever filled, the rest stays tracked for a human to reconcile.
             sent < held * (1 - _SELL_SHORTFALL_TOLERANCE)
@@ -1042,6 +1048,17 @@ class LiveBroker:
         result = FillResult(symbol, "sell", sale.price, sale.filled, sale.proceeds, now_iso(), order_id)
         self._log_live_trade(result)
         return result
+
+    def _sent_reference(self, symbol: str, sent: float) -> float:
+        """`sent` truncated to the market's amount precision (what ccxt actually sent), or
+        `sent` itself when precision is unavailable or nonsensical."""
+        try:
+            precise = self.exchange.amount_to_precision(symbol, sent)
+        except Exception:  # noqa: BLE001 -- no market info: compare with the raw amount (stricter)
+            return sent
+        if _is_finite_number(precise) and 0 < precise <= sent * (1 + _OVERFILL_TOLERANCE):
+            return float(precise)
+        return sent
 
     def _free_balance(self, symbol: str) -> float | None:
         """Free balance of `symbol`'s base asset, or None when unknown (error, not reported,
