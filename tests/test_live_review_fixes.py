@@ -267,6 +267,24 @@ def test_f3_arch_f_store_write_is_durable_before_the_order_record_is_cleared(tmp
     assert "fsync trades.csv" in events[:settle], events
 
 
+def test_f3_settle_reads_the_store_back_from_disk_before_clearing_the_record(tmp_path):
+    # Arch F (power loss): the store's write "succeeded" but never reached the disk. Settling the
+    # order record anyway would let an ordinary restart buy the same plan a second time.
+    ex = FaultyExchange()
+    broker, portfolio, store = start(tmp_path, ex)
+    store.set_pending(BTC, dict(PLAN))
+    with patch.object(TradePlanStore, "_persist_current", lambda self, *a: None):  # the write is lost
+        _act(FILL, broker, store)
+    assert store.get(BTC).status == "OPEN"            # memory believes it...
+    assert len(_inflight(tmp_path)) == 1 and broker.halted  # ...but the record is kept and the bot halts
+    broker2, _p, store2 = start(tmp_path, ex)         # restart: disk still says PENDING
+    _reconcile_live_orders(broker2, store2)
+    assert store2.get(BTC).status == "OPEN"
+    with pytest.raises(LiveBrokerHalted):
+        _act(FILL, broker2, store2)
+    assert len(ex.orders) == 1
+
+
 def test_f3_store_transitions_are_copy_on_write(tmp_path):
     store = TradePlanStore(tmp_path / "c.json", tmp_path / "h.jsonl")
     store.set_pending(BTC, dict(PLAN))
@@ -350,6 +368,30 @@ def test_f4_partial_sell_halt_reason_is_kept_when_the_marker_write_fails(tmp_pat
     record = next(iter(_inflight(tmp_path).values()))  # settle refused: the halt is not on disk
     assert record["halt_reason"] and record["halt_durable"] is False
     monkeypatch.setattr(broker_live, "_atomic_write_json", real)
+    broker2, _p, _s = start(tmp_path, ex)
+    assert broker2.halted
+
+
+def test_f4_booked_record_alone_keeps_the_restart_halted_when_the_marker_never_reached_disk(tmp_path, monkeypatch):
+    # Isolates the record-level guarantee (the pending-halt stash is disabled here): a partial sell
+    # whose marker write failed, then the process dies before the plan store moved.
+    ex = FaultyExchange()
+    broker, portfolio, store = _opened(tmp_path, ex)
+    ex.fill_ratio = 0.5
+    real = broker_live._atomic_write_json
+
+    def no_marker(path, payload):
+        if path.name == HALT_MARKER_NAME:
+            raise OSError("read-only")
+        return real(path, payload)
+
+    monkeypatch.setattr(broker_live, "_atomic_write_json", no_marker)
+    monkeypatch.setattr(broker_live.LiveBroker, "_stash_pending_halt", lambda self, reason: None)
+    store.update_open_amount = lambda *a, **k: (_ for _ in ()).throw(SimulatedCrash("killed"))
+    with pytest.raises(SimulatedCrash):
+        _act(STOP, broker, store)
+    record = next(iter(_inflight(tmp_path).values()))
+    assert record["state"] == "booked" and record["halt_durable"] is False
     broker2, _p, _s = start(tmp_path, ex)
     assert broker2.halted
 
