@@ -186,7 +186,13 @@ def _validate_order_state(raw: object) -> dict:
     unverified = raw.get("unverified", {})
     if not isinstance(unverified, dict) or not all(isinstance(v, dict) for v in unverified.values()):
         raise ValueError("malformed 'unverified' object")
-    return {"version": 1, "inflight": inflight, "attempts": attempts, "unverified": unverified}
+    state = {"version": 1, "inflight": inflight, "attempts": attempts, "unverified": unverified}
+    pending = raw.get("pending_halt")
+    if pending is not None:
+        if not isinstance(pending, str):
+            raise ValueError("malformed 'pending_halt'")
+        state["pending_halt"] = pending
+    return state
 
 
 # One live process per logs/ directory. Re-entrant within a process (restart simulations in
@@ -456,6 +462,12 @@ class LiveBroker:
                     f"startup: {entry['halt_reason']}",
                     symbol=entry["symbol"], side=entry["side"], client_order_id=coid,
                 )
+        pending = self._state.get("pending_halt")
+        if pending:
+            if self._halt_is_durable():
+                self._stash_pending_halt(None)  # the marker made it to disk: it is the human's control now
+            else:
+                self._halt(f"startup: halt whose marker never reached the disk: {pending}")
         for coid, info in sorted(self._state["unverified"].items()):
             self._halt(
                 f"startup: {info.get('side')} {info.get('symbol')} fill of order {coid} is still UNVERIFIED",
@@ -544,12 +556,31 @@ class LiveBroker:
         )
         self._persist_halt(reason, details)
 
+    def _stash_pending_halt(self, reason: str | None) -> None:
+        """Best effort: the order-state file carries a halt whose marker is not (yet) on disk, so a
+        crash while writing the marker -- or a marker write that failed -- still halts the restart."""
+        if self._state_error is not None or self._state.get("pending_halt") == reason:
+            return
+
+        def change(s: dict) -> None:
+            if reason is None:
+                s.pop("pending_halt", None)
+            else:
+                s["pending_halt"] = reason
+
+        try:
+            self._mutate_state(change)
+        except Exception:  # noqa: BLE001
+            logger.exception("could not stash the pending halt in %s", self._state_path)
+
     def _persist_halt(self, reason: str, details: dict | None = None) -> bool:
         if self._halt_marker_path is None:
             return True
+        self._stash_pending_halt(reason)  # durable BEFORE the marker write (review fuzz: HALT_LOST)
         try:
             payload = {"halted_at": now_iso(), "reason": reason, **{k: repr(v) for k, v in (details or {}).items()}}
             _atomic_write_json(self._halt_marker_path, payload)
+            self._stash_pending_halt(None)  # the marker carries it now (a human may delete the marker)
             return True
         except Exception as exc:  # noqa: BLE001 -- the in-memory latch still holds for this process
             logger.exception("could not persist live broker halt marker %s", self._halt_marker_path)
@@ -580,7 +611,11 @@ class LiveBroker:
 
     def report_store_failure(self, symbol: str, detail: str) -> None:
         """bot.py could not persist a plan-store transition for an order this broker booked:
-        the order record is kept (its symbol stays blocked), halt, alert."""
+        the order record is kept (its symbol stays blocked), halt, alert. The record carries the
+        halt first, so a crash while the marker is written still halts the restart."""
+        for coid, entry in list(self._state["inflight"].items()):
+            if entry["symbol"] == symbol and entry["state"] == "booked" and not entry.get("halt_reason"):
+                self._set_entry(coid, halt_reason=f"{symbol}: plan store transition not persisted", halt_durable=False)
         self._halt(
             f"{symbol}: the plan store transition for a booked order was not persisted ({detail}); the order "
             "record is kept",

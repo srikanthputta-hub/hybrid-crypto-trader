@@ -367,6 +367,32 @@ def test_f4_reconcile_alert_text_tells_the_truth_about_the_halt(tmp_path):
     assert texts and all("NOT halted" in t for t in texts) and not broker2.halted
 
 
+def test_f4_fuzz_a_halt_stashed_before_its_marker_survives_a_crash_in_the_marker_write(tmp_path):
+    # Found by the bounded Architect fuzz in the fix round (seed 90/183 class): a halt that is not
+    # tied to an order record (here: a free-balance mismatch) and whose marker write is interrupted.
+    ex = FaultyExchange()
+    broker, portfolio, store = _opened(tmp_path, ex)
+    ex.free["BTC"] = 0.0005
+    real = broker_live._atomic_write_json
+
+    def crash_on_marker(path, payload):
+        if path.name == HALT_MARKER_NAME:
+            raise SimulatedCrash("killed while writing the halt marker")
+        return real(path, payload)
+
+    with patch.object(broker_live, "_atomic_write_json", crash_on_marker):
+        with pytest.raises(SimulatedCrash):
+            _act(STOP, broker, store)
+    assert not (logs_dir(tmp_path) / HALT_MARKER_NAME).exists()
+    broker2, _p, _s = start(tmp_path, ex)
+    assert broker2.halted and (logs_dir(tmp_path) / HALT_MARKER_NAME).exists()
+    assert "pending_halt" not in json.loads((logs_dir(tmp_path) / ORDER_STATE_NAME).read_text())
+    # ...and once the marker is on disk it is the human's control: deleting it resumes.
+    (logs_dir(tmp_path) / HALT_MARKER_NAME).unlink()
+    broker3, _p, _s = start(tmp_path, ex)
+    assert not broker3.halted
+
+
 # --- F5: settle never outruns the halt; terminal zero fills are not executed ----------------------
 
 
