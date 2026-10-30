@@ -235,8 +235,13 @@ def test_r1_unsettled_booked_record_blocks_its_symbol_until_the_store_catches_up
         _act(_fill(), broker, store, tmp_path)
     _reconcile_live_orders(broker, store)  # the store still fails -> record kept
     assert store.get(BTC).status == "PENDING"
-    with pytest.raises(LiveBrokerHalted, match="awaiting reconcile"):
+    assert broker.halted  # review F3: a store failure for a booked order halts and alerts
+    with pytest.raises(LiveBrokerHalted):
         _act(_fill(), broker, store, tmp_path)  # the monitor would FILL the PENDING plan again
+    broker._halt_reason = None  # even without the halt latch, the record alone blocks the symbol
+    (logs_dir(tmp_path) / HALT_MARKER_NAME).unlink()
+    with pytest.raises(LiveBrokerHalted, match="awaiting reconcile"):
+        _act(_fill(), broker, store, tmp_path)
     assert len(exchange.orders) == 1
 
 
@@ -459,7 +464,7 @@ def test_unknown_outcome_sends_one_telegram_alert_with_what_to_check(tmp_path):
     exchange.create_error = ccxt.RequestTimeout("timeout")
     with pytest.raises(broker_live.LiveOrderUnreconciled):
         _act(_fill(), broker, store, tmp_path)
-    with patch("src.bot.notifier.send_telegram_message") as send:
+    with patch("src.bot.notifier.send_telegram_message", return_value=True) as send:
         _send_broker_alerts(CFG, broker)
         _reconcile_live_orders(broker, store)  # next cycle: still unknown (the fake never saw it)
         _send_broker_alerts(CFG, broker)

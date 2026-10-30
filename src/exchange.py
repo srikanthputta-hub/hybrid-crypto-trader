@@ -120,7 +120,11 @@ class ExchangeClient:
         we know that order was placed.
 
         Kraken's ccxt fetch_order(clientOrderId=...) maps to the numeric `userref`, not the
-        `cl_ord_id` we send, so the lookup by client id lists orders instead."""
+        `cl_ord_id` we send, so the lookup by client id lists orders instead -- with the
+        clientOrderId as a SERVER-SIDE filter (ccxt 4.5.90 kraken fetch_open_orders /
+        fetch_closed_orders map params.clientOrderId to `cl_ord_id`), so a busy account's first
+        result page can't hide it. Exchanges without such a filter are listed with a large
+        explicit limit (never ccxt's default page)."""
         if exchange_order_id is not None:
             order = self.client.fetch_order(exchange_order_id, symbol)
             if not isinstance(order, dict):
@@ -128,13 +132,17 @@ class ExchangeClient:
             return order
         has = getattr(self.client, "has", None) or {}
         listings: list[Any] = []
-        if has.get("fetchOrders"):
-            listings.append(self.client.fetch_orders(symbol, since_ms))
+        by_client_id = {"clientOrderId": client_order_id}
+        if has.get("fetchOpenOrders") and has.get("fetchClosedOrders") and self.exchange_id in _SERVER_SIDE_CLIENT_ID:
+            listings.append(self.client.fetch_open_orders(symbol, since_ms, None, by_client_id))
+            listings.append(self.client.fetch_closed_orders(symbol, since_ms, None, by_client_id))
+        elif has.get("fetchOrders"):
+            listings.append(self.client.fetch_orders(symbol, since_ms, _LISTING_LIMIT))
         elif has.get("fetchOpenOrders") and has.get("fetchClosedOrders"):
-            listings.append(self.client.fetch_open_orders(symbol, since_ms))
-            listings.append(self.client.fetch_closed_orders(symbol, since_ms))
+            listings.append(self.client.fetch_open_orders(symbol, since_ms, _LISTING_LIMIT))
+            listings.append(self.client.fetch_closed_orders(symbol, since_ms, _LISTING_LIMIT))
             if has.get("fetchCanceledOrders"):
-                listings.append(self.client.fetch_canceled_orders(symbol, since_ms))
+                listings.append(self.client.fetch_canceled_orders(symbol, since_ms, _LISTING_LIMIT))
         else:
             raise OrderLookupAmbiguous(f"{self.exchange_id} cannot list orders; the outcome can't be determined")
         matches: dict[str, dict[str, Any]] = {}
@@ -174,6 +182,27 @@ class ExchangeClient:
         """`amount` truncated to the market's amount precision -- what ccxt itself sends."""
         self.client.load_markets()
         return float(self.client.amount_to_precision(symbol, amount))
+
+    def _market_limit(self, symbol: str, kind: str) -> float | None:
+        markets = self.client.load_markets()
+        market = markets.get(symbol) if isinstance(markets, dict) else None
+        value = (((market or {}).get("limits") or {}).get(kind) or {}).get("min")
+        return None if value is None else float(value)
+
+    def min_order_amount(self, symbol: str) -> float | None:
+        """The market's minimum order amount (base units), or None when not published."""
+        return self._market_limit(symbol, "amount")
+
+    def min_order_cost(self, symbol: str) -> float | None:
+        """The market's minimum order cost (quote units), or None when not published."""
+        return self._market_limit(symbol, "cost")
+
+
+# Exchanges whose ccxt fetch_open_orders/fetch_closed_orders filter by params.clientOrderId
+# server-side (verified in the installed ccxt 4.5.90 source for kraken).
+_SERVER_SIDE_CLIENT_ID = frozenset({"kraken"})
+# Explicit page size for listings without a server-side filter (ccxt's default can be 50).
+_LISTING_LIMIT = 1000
 
 
 class OrderLookupAmbiguous(RuntimeError):

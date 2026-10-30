@@ -155,7 +155,7 @@ def test_create_market_order_sends_client_order_id_as_unified_param():
 
 
 class _ListingClient:
-    """Order-listing fake: `has` like ccxt, every call recorded."""
+    """Order-listing fake: `has` like ccxt, every call recorded (with ccxt's since/limit/params)."""
 
     def __init__(self, has, orders=None, open_orders=None, closed=None, canceled=None, by_id=None):
         self.has = has
@@ -163,20 +163,20 @@ class _ListingClient:
         self.by_id = by_id or {}
         self.calls = []
 
-    def fetch_orders(self, symbol, since=None):
-        self.calls.append(("orders", symbol, since))
+    def fetch_orders(self, symbol, since=None, limit=None, params=None):
+        self.calls.append(("orders", symbol, since, limit, params))
         return self.orders
 
-    def fetch_open_orders(self, symbol, since=None):
-        self.calls.append(("open", symbol, since))
+    def fetch_open_orders(self, symbol, since=None, limit=None, params=None):
+        self.calls.append(("open", symbol, since, limit, params))
         return self.open_orders
 
-    def fetch_closed_orders(self, symbol, since=None):
-        self.calls.append(("closed", symbol, since))
+    def fetch_closed_orders(self, symbol, since=None, limit=None, params=None):
+        self.calls.append(("closed", symbol, since, limit, params))
         return self.closed
 
-    def fetch_canceled_orders(self, symbol, since=None):
-        self.calls.append(("canceled", symbol, since))
+    def fetch_canceled_orders(self, symbol, since=None, limit=None, params=None):
+        self.calls.append(("canceled", symbol, since, limit, params))
         return self.canceled
 
     def fetch_order(self, order_id, symbol):
@@ -186,9 +186,10 @@ class _ListingClient:
         return self.by_id[order_id]
 
 
-def _lister(client):
+def _lister(client, exchange_id="kraken"):
     exchange = _make_client(FakeCcxtClient(num_bars=1, now_ms=0))
     exchange.client = client
+    exchange.exchange_id = exchange_id
     return exchange
 
 
@@ -209,10 +210,11 @@ def test_find_order_by_known_exchange_id_is_authoritative():
     ("orders", "expected"),
     [([OTHER, MINE], MINE), ([OTHER], None), ([], None), ([NO_ID_SELL, OTHER], None)],
 )
-def test_find_order_by_client_id_via_fetch_orders(orders, expected):
+def test_find_order_by_client_id_via_fetch_orders_with_an_explicit_page_size(orders, expected):
     client = _ListingClient({"fetchOrders": True}, orders=orders)
-    assert _lister(client).find_order("BTC/USD", "hctmine", since_ms=123, side="buy") == expected
-    assert client.calls == [("orders", "BTC/USD", 123)]
+    assert _lister(client, "binance").find_order("BTC/USD", "hctmine", since_ms=123, side="buy") == expected
+    # review F8a: never ccxt's default page (Kraken's is 50)
+    assert client.calls == [("orders", "BTC/USD", 123, 1000, None)]
 
 
 @pytest.mark.parametrize(
@@ -227,16 +229,34 @@ def test_find_order_refuses_to_conclude_when_ambiguous(orders):
 
     client = _ListingClient({"fetchOrders": True}, orders=orders)
     with pytest.raises(OrderLookupAmbiguous):
-        _lister(client).find_order("BTC/USD", "hctmine", side="buy")
+        _lister(client, "binance").find_order("BTC/USD", "hctmine", side="buy")
 
 
-def test_find_order_kraken_style_lists_open_closed_and_canceled():
+def test_find_order_on_kraken_filters_by_client_order_id_server_side():
+    # review F8a: ccxt 4.5.90 kraken fetch_open_orders/fetch_closed_orders map params.clientOrderId to
+    # cl_ord_id, so only our order comes back and no result page can hide it.
+    has = {"fetchOpenOrders": True, "fetchClosedOrders": True, "fetchCanceledOrders": True}
+    client = _ListingClient(has, open_orders=[], closed=[MINE], canceled=[])
+    assert _lister(client).find_order("BTC/USD", "hctmine", since_ms=5) == MINE
+    assert client.calls == [("open", "BTC/USD", 5, None, {"clientOrderId": "hctmine"}),
+                            ("closed", "BTC/USD", 5, None, {"clientOrderId": "hctmine"})]
+    client = _ListingClient(has, open_orders=[], closed=[])
+    assert _lister(client).find_order("BTC/USD", "hctmine") is None
+
+
+def test_find_order_kraken_filter_matches_ccxt_source():
+    """The server-side filter claim, checked against the INSTALLED ccxt source."""
+    import inspect
+
+    src = inspect.getsource(ccxt.kraken.fetch_open_orders) + inspect.getsource(ccxt.kraken.fetch_closed_orders)
+    assert src.count("request['cl_ord_id'] = clientOrderId") == 2
+
+
+def test_find_order_other_exchanges_list_open_closed_and_canceled_with_a_page_size():
     has = {"fetchOpenOrders": True, "fetchClosedOrders": True, "fetchCanceledOrders": True}
     client = _ListingClient(has, open_orders=[], closed=[OTHER], canceled=[MINE])
-    assert _lister(client).find_order("BTC/USD", "hctmine", since_ms=5) == MINE
-    assert [c[0] for c in client.calls] == ["open", "closed", "canceled"]
-    client = _ListingClient({"fetchOpenOrders": True, "fetchClosedOrders": True}, open_orders=[], closed=[OTHER])
-    assert _lister(client).find_order("BTC/USD", "hctmine") is None
+    assert _lister(client, "bitstamp").find_order("BTC/USD", "hctmine", since_ms=5) == MINE
+    assert [(c[0], c[3]) for c in client.calls] == [("open", 1000), ("closed", 1000), ("canceled", 1000)]
 
 
 def test_find_order_without_listing_support_is_ambiguous():
@@ -248,11 +268,29 @@ def test_find_order_without_listing_support_is_ambiguous():
 
 def test_find_order_listing_errors_propagate():
     class Failing(_ListingClient):
-        def fetch_orders(self, symbol, since=None):
+        def fetch_orders(self, symbol, since=None, limit=None, params=None):
             raise ccxt.RequestTimeout("t/o")
 
     with pytest.raises(ccxt.RequestTimeout):
-        _lister(Failing({"fetchOrders": True})).find_order("BTC/USD", "hctmine")
+        _lister(Failing({"fetchOrders": True}), "binance").find_order("BTC/USD", "hctmine")
+
+
+class _MarketsClient:
+    def __init__(self, markets):
+        self.markets = markets
+
+    def load_markets(self):
+        return self.markets
+
+
+@pytest.mark.parametrize(
+    ("markets", "amount", "cost"),
+    [({"BTC/USD": {"limits": {"amount": {"min": 0.0001}, "cost": {"min": 0.5}}}}, 0.0001, 0.5),
+     ({"BTC/USD": {"limits": {}}}, None, None), ({}, None, None)],
+)
+def test_market_minimums(markets, amount, cost):
+    exchange = _lister(_MarketsClient(markets))
+    assert exchange.min_order_amount("BTC/USD") == amount and exchange.min_order_cost("BTC/USD") == cost
 
 
 class _BalanceClient:

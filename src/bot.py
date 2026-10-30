@@ -132,6 +132,9 @@ def build_components(cfg: Config):
     store = TradePlanStore(
         current_path=PROJECT_ROOT / log_cfg.get("trade_plan_current_path", "logs/trade_plans_current.json"),
         history_path=PROJECT_ROOT / log_cfg.get("trade_plan_history_path", "logs/trade_plans_history.jsonl"),
+        # Live only (issue #99 review F3): an unreadable current.json is moved aside and the live
+        # broker halts with an alert below, instead of crash-looping. Paper keeps raising, as before.
+        quarantine_corrupt=cfg.mode == "live",
     )
     # The risk engine's global new-entry window is in-memory; without this a restart
     # (deploy, crash, systemd Restart=always) would forget entries accepted minutes ago
@@ -159,6 +162,15 @@ def build_components(cfg: Config):
         from src.broker_live import LiveBroker  # imported lazily: paper mode never needs this
 
         broker = LiveBroker(exchange, portfolio, cfg.mode, cfg.live_trading_confirmed)
+        if store.load_error is not None:
+            broker.require_human(
+                f"startup: the plan store was unreadable ({store.load_error}); open positions are NOT "
+                "monitored until a human restores it",
+                bot_action="Quarantined the file and HALTED: no new plans, no buys. Positions from the lost file "
+                           "have NO stop-loss until the plan store is restored.",
+                operator_check="Restore logs/trade_plans_current.json from the quarantined copy / "
+                               "trade_plans_history.jsonl and the exchange, then delete the halt marker and restart.",
+            )
     else:
         broker = PaperBroker(portfolio)
 
@@ -572,10 +584,19 @@ def _plan_ref(record) -> str:
     return f"{record.symbol}|{record.created_at}"
 
 
+def _flag(broker, name: str) -> bool:
+    """A live-broker capability/state flag, True ONLY for a real `True` (review S1): an object
+    that merely answers every attribute (a MagicMock) never blocks planning or gets order refs."""
+    try:
+        return getattr(broker, name, False) is True
+    except Exception:  # noqa: BLE001 -- a broken property counts as "not set"
+        return False
+
+
 def _order_kwargs(broker, record, exit_reason: str | None = None) -> dict:
     """Extra keyword arguments for broker.buy/sell: only a broker that declares
     TRACKS_ORDER_REFS (the live broker) gets them, so PaperBroker's calls are unchanged."""
-    if not getattr(broker, "TRACKS_ORDER_REFS", False):
+    if not _flag(broker, "TRACKS_ORDER_REFS"):
         return {}
     kwargs = {"order_ref": _plan_ref(record)}
     if exit_reason is not None:
@@ -583,19 +604,66 @@ def _order_kwargs(broker, record, exit_reason: str | None = None) -> dict:
     return kwargs
 
 
-def _settle(broker, symbol: str) -> None:
+def _persisted_as_expected(store, symbol: str, expect: str, amount: float | None = None,
+                           plan_ref: str | None = None) -> bool:
+    """Review F3: read the plan store BACK FROM DISK before a live order record is cleared.
+    expect "OPEN": the symbol's record is OPEN (with `amount` when given); "GONE": no record
+    for the plan any more (closed). A store without read_persisted (test doubles) is trusted."""
+    read = getattr(store, "read_persisted", None)
+    if not callable(read):
+        return True
+    try:
+        rec = read(symbol)
+    except Exception:  # noqa: BLE001 -- unreadable current.json: not verified
+        return False
+    if expect == "GONE":
+        return rec is None or (plan_ref is not None and f"{symbol}|{rec.get('created_at')}" != plan_ref)
+    if rec is None or rec.get("status") != "OPEN":
+        return False
+    if plan_ref is not None and f"{symbol}|{rec.get('created_at')}" != plan_ref:
+        return False
+    if amount is not None:
+        held = rec.get("fill_amount")
+        return isinstance(held, (int, float)) and abs(float(held) - float(amount)) <= max(abs(amount), 1e-300) * 1e-9
+    return True
+
+
+def _store_failed(broker, symbol: str, detail: str) -> None:
+    report = getattr(broker, "report_store_failure", None)
+    if callable(report):
+        report(symbol, detail)
+
+
+def _settle(broker, symbol: str, store=None, expect: str | None = None, amount: float | None = None,
+            plan_ref: str | None = None) -> None:
     """Tell a live broker the plan store now reflects the order it just booked for `symbol`
-    (clears its write-ahead record). No-op for the paper broker."""
+    (clears its write-ahead record) -- only once the store transition is verified ON DISK.
+    No-op for the paper broker."""
     settle = getattr(broker, "settle", None)
-    if callable(settle):
-        settle(symbol)
+    if not callable(settle):
+        return
+    if store is not None and expect is not None and not _persisted_as_expected(store, symbol, expect, amount,
+                                                                              plan_ref):
+        _store_failed(broker, symbol, f"current.json does not show the {expect} transition")
+        return
+    settle(symbol)
+
+
+def _order_in_flight(broker, symbol: str) -> bool:
+    check = getattr(broker, "order_in_flight", None)
+    if not callable(check):
+        return False
+    try:
+        return check(symbol) is True
+    except Exception:  # noqa: BLE001 -- can't tell: treat as in flight (never discard on a guess)
+        return True
 
 
 def _apply_reconcile_result(broker, store: TradePlanStore, result) -> None:
     """Bring the plan store in line with one reconciled live order (decision table:
-    docs/live_readiness_design.md §2), then let the broker clear its record. A result
-    without a fill (unknown / never placed / not executed / anomaly) needs nothing here:
-    the broker already kept or cleared the record itself."""
+    docs/live_readiness_design.md §2), verify the transition ON DISK, then let the broker
+    clear its record. A result without a fill (unknown / never placed / not executed /
+    anomaly) needs nothing here: the broker already kept or cleared the record itself."""
     fill = getattr(result, "fill", None)
     if fill is None:
         return
@@ -608,15 +676,21 @@ def _apply_reconcile_result(broker, store: TradePlanStore, result) -> None:
         elif not (matches and record.status == "OPEN"):
             broker.report_unmatched(result.client_order_id, "no PENDING/OPEN plan matches it (no stop-loss)")
             return
+        expect, amount = "OPEN", None
     elif result.remaining_amount is not None:  # partial sell: the remainder stays open
         if matches and record.status == "OPEN":
             store.update_open_amount(symbol, result.remaining_amount)
         else:
             broker.report_unmatched(result.client_order_id, "no OPEN plan matches its remainder")
             return
-    elif matches and record.status == "OPEN":  # full sell
-        store.mark_closed(symbol, reason=result.exit_reason or "reconciled_exit", price=fill.price)
-    # (a full sell whose plan is already closed needs nothing)
+        expect, amount = "OPEN", result.remaining_amount
+    else:  # full sell (a plan that is already closed needs nothing)
+        if matches and record.status == "OPEN":
+            store.mark_closed(symbol, reason=result.exit_reason or "reconciled_exit", price=fill.price)
+        expect, amount = "GONE", None
+    if not _persisted_as_expected(store, symbol, expect, amount, result.plan_ref):
+        _store_failed(broker, symbol, f"current.json does not show the {expect} transition")
+        return
     broker.settle_order(result.client_order_id)
 
 
@@ -636,11 +710,14 @@ def _reconcile_live_orders(broker, store: TradePlanStore) -> None:
     for result in results:
         try:
             _apply_reconcile_result(broker, store, result)
-        except Exception:  # noqa: BLE001 -- record stays booked -> its symbol stays blocked; retried next cycle
+        except Exception as exc:  # noqa: BLE001 -- record stays booked -> its symbol stays blocked; retried
             logger.exception("could not apply reconciled order %s to the plan store", result.client_order_id)
+            _store_failed(broker, result.symbol, f"plan store update failed ({type(exc).__name__})")
 
 
 _SECRET_ATTRS = ("exchange_api_key", "exchange_api_secret", "exchange_api_password", "anthropic_api_key")
+# Telegram's hard limit is 4096; leave room for the Markdown escaping and the label prefix.
+ALERT_MAX_CHARS = 3500
 
 
 def _redact_alert(cfg, value: object) -> str:
@@ -658,25 +735,32 @@ def _redact_alert(cfg, value: object) -> str:
 
 def _format_broker_alert(cfg, alert: dict) -> str:
     """Plain-language live-broker alert: what happened, to which order, what the bot did,
-    what the operator must check. Every dynamic field is redacted, then Markdown-escaped."""
+    what the operator must check. Every dynamic field is redacted, then Markdown-escaped;
+    the whole text is capped at ALERT_MAX_CHARS."""
 
     def field(key: str) -> str:
         value = alert.get(key)
         return notifier.escape_md(_redact_alert(cfg, "-" if value is None else value))
 
     prefix = notifier.label_prefix(getattr(cfg, "notifier_label", None))
-    return (
-        f"{prefix}🚨 *LIVE BROKER ALERT*: {field('title')}\n"
+    heading = "REMINDER -- " if alert.get("reminder") else ""
+    text = (
+        f"{prefix}🚨 *LIVE BROKER ALERT*: {heading}{field('title')}\n"
         f"Symbol: {field('symbol')}  Side: {field('side')}  Amount: {field('amount')}\n"
         f"clientOrderId: {field('client_order_id')}\n"
         f"What the bot did: {field('bot_action')}\n"
         f"Check on the exchange: {field('operator_check')}"
     )
+    if len(text) > ALERT_MAX_CHARS:
+        text = text[: ALERT_MAX_CHARS - 16].rstrip("\\") + "\n…(truncated)"
+    return text
 
 
 def _send_broker_alerts(cfg, broker) -> None:
-    """Drains the live broker's alert queue (halts, unknown outcomes, reconcile results) to
-    the log (CRITICAL) and, when configured, Telegram. No-op for the paper broker. Never raises."""
+    """Drains the live broker's alert queue (halts, unknown outcomes, failed exits, reconcile
+    results, reminders) to the log (CRITICAL) and, when configured, Telegram. An alert whose
+    Telegram send failed goes back to the broker's queue and is retried next time (review
+    F10). No-op for the paper broker. Never raises."""
     pop = getattr(broker, "pop_alerts", None)
     if not callable(pop):
         return
@@ -686,15 +770,20 @@ def _send_broker_alerts(cfg, broker) -> None:
         logger.exception("could not read live broker alerts")
         return
     bot_token, chat_id = getattr(cfg, "telegram_bot_token", None), getattr(cfg, "telegram_chat_id", None)
+    undelivered = []
     for alert in alerts:
         try:
             text = _format_broker_alert(cfg, alert)
         except Exception:  # noqa: BLE001
             logger.exception("could not format a live broker alert")
             continue
-        logger.critical("%s", text)
-        if bot_token and chat_id:
-            notifier.send_telegram_message(bot_token, chat_id, text)
+        if not alert.get("_logged"):
+            logger.critical("%s", text)
+        if bot_token and chat_id and notifier.send_telegram_message(bot_token, chat_id, text) is not True:
+            undelivered.append({**alert, "_logged": True})
+    requeue = getattr(broker, "requeue_alerts", None)
+    if undelivered and callable(requeue):
+        requeue(undelivered)
 
 
 def _execute_monitor_action(action, record, broker, store, risk_engine, event) -> None:
@@ -711,14 +800,25 @@ def _execute_monitor_action(action, record, broker, store, risk_engine, event) -
     if action.action == "FILL":
         quote_amount = record.plan["approved_quote_amount"]
         fill = broker.buy(action.symbol, quote_amount, action.price, **_order_kwargs(broker, record))
-        store.mark_open(action.symbol, fill_price=fill.price, fill_amount=fill.base_amount)
-        _settle(broker, action.symbol)  # only AFTER the store moved (write-ahead order record, issue #99)
+        try:
+            store.mark_open(action.symbol, fill_price=fill.price, fill_amount=fill.base_amount)
+        except Exception as exc:
+            # The order record stays booked (its symbol stays blocked); the next reconcile retries.
+            _store_failed(broker, action.symbol, f"mark_open failed ({type(exc).__name__})")
+            raise
+        # only AFTER the store moved, verified on disk (write-ahead order record, issue #99)
+        _settle(broker, action.symbol, store, "OPEN", fill.base_amount, _plan_ref(record))
         # Refreshes the per-symbol cooldown as before. new_entry=False: this plan was
         # already counted toward the global new-entry cap when it was accepted (the
         # record_trade call in run_cycle), so its later fill must not count it twice.
         risk_engine.record_trade(action.symbol, new_entry=False)
         event["execution"] = fill.__dict__
     elif action.action == "DISCARD":
+        if _order_in_flight(broker, action.symbol):
+            # Review F6: the buy for this plan may have filled; discarding the plan would leave
+            # a position with no stop-loss. Keep it until the reconcile resolves the order.
+            event["note"] = "discard deferred: a live order for this plan is unresolved"
+            return
         store.discard_pending(action.symbol, reason="invalidated", price=action.price)
     elif action.action in ("STOP_LOSS", "TAKE_PROFIT"):
         try:
@@ -729,11 +829,19 @@ def _execute_monitor_action(action, record, broker, store, risk_engine, event) -
             # never imports broker_live. The exception still propagates (unchanged error path).
             remaining = getattr(exc, "remaining_amount", None)
             if remaining is not None:
-                store.update_open_amount(action.symbol, remaining)
-                _settle(broker, action.symbol)
+                try:
+                    store.update_open_amount(action.symbol, remaining)
+                except Exception as store_exc:
+                    _store_failed(broker, action.symbol, f"update_open_amount failed ({type(store_exc).__name__})")
+                    raise
+                _settle(broker, action.symbol, store, "OPEN", remaining, _plan_ref(record))
             raise
-        store.mark_closed(action.symbol, reason=action.action.lower(), price=action.price)
-        _settle(broker, action.symbol)
+        try:
+            store.mark_closed(action.symbol, reason=action.action.lower(), price=action.price)
+        except Exception as exc:
+            _store_failed(broker, action.symbol, f"mark_closed failed ({type(exc).__name__})")
+            raise
+        _settle(broker, action.symbol, store, "GONE", None, _plan_ref(record))
         event["execution"] = fill.__dict__
 
 
@@ -782,7 +890,7 @@ def _evaluate_new_entry(c: _Cycle, symbol: str, enriched, price: float, event: d
     # Issue #99 item 4: a halted live broker refuses every buy, so a plan made now could
     # only burn a cooldown / new-entry-cap slot and then fill in a burst after the human
     # resumes it. No new plans while halted. (PaperBroker has no `halted`: never blocks.)
-    if getattr(c.broker, "halted", False):
+    if _flag(c.broker, "halted"):
         event["action"] = "none"
         event["note"] = (
             "blocked: live broker halted -- no new plans until a human reconciles the exchange "
@@ -965,8 +1073,12 @@ def _evaluate_new_entry(c: _Cycle, symbol: str, enriched, price: float, event: d
         fill = c.broker.buy(symbol, plan_dict["approved_quote_amount"], price, **_order_kwargs(c.broker, fresh_record))
         if c.parity:
             c.same_bar_fills[symbol] = float(plan_dict["approved_quote_amount"])
-        c.store.mark_open(symbol, fill_price=fill.price, fill_amount=fill.base_amount)
-        _settle(c.broker, symbol)
+        try:
+            c.store.mark_open(symbol, fill_price=fill.price, fill_amount=fill.base_amount)
+        except Exception as exc:
+            _store_failed(c.broker, symbol, f"mark_open failed ({type(exc).__name__})")
+            raise
+        _settle(c.broker, symbol, c.store, "OPEN", fill.base_amount, _plan_ref(fresh_record))
         event["execution"] = fill.__dict__
     return False
 

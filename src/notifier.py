@@ -148,9 +148,12 @@ def bar_validity_text(bar_close: str | None, max_entry_delay_minutes: float | No
     )
 
 
-def send_telegram_message(bot_token: str | None, chat_id: str | None, text: str) -> None:
+def send_telegram_message(bot_token: str | None, chat_id: str | None, text: str) -> bool:
+    """True once Telegram accepted the message; False when not configured or the send failed
+    (never raises). Existing callers ignore the result; the live broker's alert path uses it
+    so a failed send is retried instead of being marked delivered (issue #99 review F10)."""
     if not bot_token or not chat_id:
-        return
+        return False
     try:
         try:
             _post(bot_token, {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
@@ -161,6 +164,7 @@ def send_telegram_message(bot_token: str | None, chat_id: str | None, text: str)
             # Plain text: drop parse_mode, and un-escape our own backslash escapes so
             # they don't show up as literal backslashes.
             _post(bot_token, {"chat_id": chat_id, "text": _MD_ESCAPED_RE.sub(r"\1", text)})
+        return True
     except Exception as exc:  # noqa: BLE001 — a notification failure must never break a trading cycle
         # Deliberately NOT logging str(exc) / exc_info: requests' exception text contains the
         # request URL, and with it the bot token.  Class name + status + description only.
@@ -174,3 +178,4 @@ def send_telegram_message(bot_token: str | None, chat_id: str | None, text: str)
             f" (HTTP {status})" if status is not None else "",
             f": {description}" if description else "",
         )
+        return False

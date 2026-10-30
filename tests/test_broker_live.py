@@ -56,6 +56,14 @@ class FakeExchange:
         self.error = error
         self.orders: list[tuple[str, str, float]] = []
         self.client_ids: list[str | None] = []
+        # Issue #99 review F8b: the hardened broker verifies an ack-only / unusable response with
+        # an exchange lookup. The fake "exchange" keeps its own clean record of every order: filled
+        # in full, at the price an ACK-ONLY response reported (so verifying it books exactly what
+        # the legacy broker booked) and without a price for a garbled response (so the verified
+        # booking equals the old conservative one: requested amount at price_hint).
+        # lookup_error makes every lookup fail.
+        self.book: dict[str, dict] = {}
+        self.lookup_error: BaseException | None = None
 
     def create_market_order(self, symbol, side, amount, client_order_id=None):
         # client_order_id: issue #99 (the hardened broker sends one; the frozen legacy one doesn't).
@@ -65,7 +73,21 @@ class FakeExchange:
         if self.error is not None:
             raise self.error
         r = self.response
-        return r(symbol, side, amount) if callable(r) else copy.deepcopy(r)
+        response = r(symbol, side, amount) if callable(r) else copy.deepcopy(r)
+        known = {"id": response.get("id") if isinstance(response, dict) else None,
+                 "status": "closed", "amount": amount, "filled": amount, "remaining": 0.0}
+        if isinstance(response, dict) and response.get("filled") is None:
+            for key in ("average", "price"):
+                value = response.get(key)
+                if broker_live._is_finite_number(value) and value > 0:
+                    known[key] = value
+        self.book[client_order_id] = known
+        return response
+
+    def find_order(self, symbol, client_order_id, exchange_order_id=None, since_ms=None, side=None):
+        if self.lookup_error is not None:
+            raise self.lookup_error
+        return copy.deepcopy(self.book.get(client_order_id))
 
 
 def _full_fill(symbol, side, amount, price=50_000.0):
@@ -404,11 +426,19 @@ def _sell_response(**overrides):
 def _assert_sell_kept_position_and_halted(broker, exchange, portfolio, before, tmp_path):
     assert _state(portfolio) == before  # nothing booked: position kept, no cash, no log row
     _assert_halted_and_buys_refused(broker, exchange, tmp_path)
-    # Selling (closing risk) stays allowed while halted.
+    # Issue #99 review F2: the unusable sell may really have filled, so a same-symbol re-sell
+    # is refused (it could double-sell / reuse the order's id) until the reconcile resolves it.
+    # (Before the review this helper asserted the re-sell went straight through.)
     exchange.response = _full_fill
     exchange.error = None
-    broker.sell("BTC/USDT", 55_000.0)
-    assert "BTC/USDT" not in portfolio.positions
+    n = len(exchange.orders)
+    with pytest.raises(LiveBrokerHalted):
+        broker.sell("BTC/USDT", 55_000.0)
+    assert len(exchange.orders) == n
+    # The next cycle's reconcile finds the order filled on the exchange and books the exit
+    # exactly once: closing risk still happens, without a second order.
+    broker.reconcile()
+    assert "BTC/USDT" not in portfolio.positions and len(exchange.orders) == n
 
 
 @pytest.mark.parametrize("overrides", UNUSABLE_SELL_RESPONSES, ids=repr)
@@ -535,13 +565,21 @@ def test_trade_log_failure_after_fill_halts_and_reraises(tmp_path, monkeypatch):
         raise OSError("disk full")
 
     monkeypatch.setattr(portfolio, "log_trade", broken_log)
+    before = (portfolio.cash, dict(portfolio.positions))
     with pytest.raises(OSError):
         broker.buy("BTC/USDT", 100.0, 50_000.0)
-    assert "BTC/USDT" in portfolio.positions  # the real fill is still reflected in memory
+    # Issue #99 review F1: trades.csv is written FIRST; when it fails, memory is NOT touched
+    # (before the review the fill was reflected in memory, and a reconcile then booked it again).
+    assert (portfolio.cash, dict(portfolio.positions)) == before
     assert broker.halted
     with pytest.raises(LiveBrokerHalted):
         broker.buy("ETH/USDT", 50.0, 2_000.0)
     assert len(exchange.orders) == 1
+    # Once the disk works, the reconcile books the one real order exactly once.
+    monkeypatch.setattr(portfolio, "log_trade", Portfolio.log_trade.__get__(portfolio))
+    broker.reconcile()
+    assert portfolio.positions["BTC/USDT"].amount == 0.002 and portfolio.cash == 10_000.0 - 100.0
+    assert len(portfolio.trade_log_path.read_text().splitlines()) == 2  # header + one row
 
 
 # --- 5. partial sells -----------------------------------------------------------------
@@ -807,16 +845,25 @@ def _live_replay(tmp_path, label, module, poison_order: int | None = None):
 
     orders: list[tuple] = []
 
+    exchange_book: dict = {}
+
     class OrderingFake(wiring.FakeCcxt):
         def create_order(self, symbol, type, side, amount, price=None, params=None):  # noqa: A002 -- ccxt's own signature
             orders.append((symbol, side, amount))
             last = [r for r in self.hourly[symbol] if r[0] + 3_600_000 <= self.now_ms][-1][4]
             n = len(orders)
+            # The exchange's own record (issue #99 review F8b: the hardened broker verifies an
+            # ack-only response by id): filled in full; no price for the ack-only ones, so the
+            # verified booking is the legacy price_hint fallback byte for byte.
+            exchange_book[str(n)] = {"id": n, "status": "closed", "amount": amount, "filled": amount}
             if poison_order is not None and n == poison_order:
                 return {"id": n, "average": float("nan"), "filled": amount}
             if n % 3 == 0:
                 return {"id": n}  # ack-only exchange response -> fallback path
             return {"id": n, "average": last, "filled": amount, "remaining": 0.0, "status": "closed"}
+
+        def fetch_order(self, order_id, symbol=None):
+            return copy.deepcopy(exchange_book[str(order_id)])
 
     fake = OrderingFake(hourly, daily)
     cfg, parts, events = wiring._components(wiring._isolated_raw(real_raw, tmp_path / label), fake)

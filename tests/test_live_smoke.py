@@ -48,8 +48,14 @@ class LiveFakeCcxt(wiring.FakeCcxt):
             raise SimulatedCrash("process killed right after the order reached the exchange")
         return copy.deepcopy(order)
 
-    def fetch_orders(self, symbol, since=None):
+    def fetch_orders(self, symbol, since=None, limit=None, params=None):
         return [copy.deepcopy(o) for o in self.book if o["symbol"] == symbol]
+
+    def fetch_order(self, order_id, symbol=None):
+        for o in self.book:
+            if o["id"] == order_id:
+                return copy.deepcopy(o)
+        raise RuntimeError(f"OrderNotFound {order_id}")
 
     def fetch_balance(self):
         return {"free": dict(self.free)}

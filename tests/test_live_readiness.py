@@ -328,12 +328,20 @@ def test_sell_capped_well_below_tracked_halts_first_then_sells_what_is_there(tmp
     assert any("only 0.0005 is free" in a["title"] for a in broker.pop_alerts())
 
 
-def test_sell_with_nothing_free_places_no_order_and_halts(tmp_path):
+def test_sell_with_nothing_free_halts_but_still_attempts_the_protective_exit(tmp_path):
+    # Review (RO f6): a 0 may be a misreport; the exchange is the arbiter. Before the review the
+    # stop-loss was never even sent.
     broker, portfolio, exchange = _held_btc(tmp_path, free=0.0)
-    with pytest.raises(LiveOrderUnreconciled, match="no order placed"):
-        broker.sell("BTC/USDT", 55_000.0)
-    assert exchange.orders == [] and portfolio.positions["BTC/USDT"].amount == 0.002 and broker.halted
-    assert not _state_file(tmp_path).exists()  # refused before any write-ahead record
+    broker.sell("BTC/USDT", 55_000.0)
+    assert exchange.orders == [("BTC/USDT", "sell", 0.002)] and "BTC/USDT" not in portfolio.positions
+    assert broker.halted and any("free balance of 0.0" in a["title"] for a in broker.pop_alerts())
+    # ...and when the coins really are not there, the exchange's rejection is alerted, nothing booked.
+    broker2, portfolio2, exchange2 = _held_btc(tmp_path / "b", free=0.0)
+    exchange2.create_error = ccxt.InsufficientFunds("nothing there")
+    with pytest.raises(ccxt.InsufficientFunds):
+        broker2.sell("BTC/USDT", 55_000.0)
+    assert portfolio2.positions["BTC/USDT"].amount == 0.002
+    assert any(a["kind"] == "exit_failed" for a in broker2.pop_alerts())
 
 
 @pytest.mark.parametrize("fault", ["error", "missing", "nan", "negative"])
@@ -356,7 +364,7 @@ def test_insufficient_funds_on_an_exit_is_alerted_not_silent(tmp_path):
         with pytest.raises(ccxt.InsufficientFunds):
             broker.sell("BTC/USDT", 55_000.0)
     alerts = broker.pop_alerts()
-    assert [a["kind"] for a in alerts] == ["exit_jammed"]  # once, not every cycle
+    assert [a["kind"] for a in alerts] == ["exit_failed"]  # once per reminder window, not every cycle
     assert alerts[0]["symbol"] == "BTC/USDT" and alerts[0]["client_order_id"] == exchange.client_ids[0]
     assert portfolio.positions["BTC/USDT"].amount == 0.002 and _state(tmp_path)["inflight"] == {}
 
