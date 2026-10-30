@@ -5,13 +5,16 @@ name: Refresh dashboard data
 # snapshot. See README.md "Dashboard" section for the manual equivalent of
 # what this automates.
 #
-# mode is "live" in config/config.yaml, but exchange.testnet is still true —
-# every order this places goes to Binance's TESTNET (fake funds), not real
-# markets. This exercises the real order-placement path (src/broker_live.py)
-# as a dress rehearsal, gated behind EXCHANGE_API_KEY/EXCHANGE_API_SECRET
-# repo secrets (a Binance testnet key, never a real-account key) plus the
-# LIVE_TRADING_CONFIRM flag below — both required by that module's own
-# double-gate check, same as real live trading would need.
+# config/config.yaml has mode: paper, so this job runs the PAPER broker: no order
+# ever reaches an exchange. (An earlier version of this comment described a live
+# Binance-testnet dress rehearsal; that is no longer what this job does.)
+#
+# LIVE_TRADING_CONFIRM is deliberately NOT set here (removed for issue #99). It is
+# read only when mode is "live" (src/bot.py build_components), so a paper run never
+# needs it -- and without it, a `mode: live` flip in config.yaml would make this job
+# fail with LiveTradingDisabled instead of trading: mode: paper is no longer the only
+# switch protecting this job. tests/test_paper_isolation.py fails if any workflow
+# sets it again.
 #
 # State (logs/) is intentionally gitignored (see .gitignore) — it's runtime
 # data, not something this repo persists in git history. To carry portfolio
@@ -20,15 +23,15 @@ name: Refresh dashboard data
 # That cache can be evicted (GitHub drops caches unused for 7 days, or past
 # the repo's 10GB cap) — if that happens, the bot silently starts over from
 # starting_cash_usd with no open positions, which is a state reset, not a
-# failure, and (since this hits Binance testnet) never a real-money issue.
+# failure, and (paper mode) never a real-money issue.
 #
 # `schedule:` is disabled as of 2026-09-29: scripts/run_live.py now runs
 # continuously as a systemd service on an always-on Oracle Cloud VM (see
 # deploy/README.md), cycling the paper-mode bot and pushing web/data.json
 # after every cycle with near-zero gaps. Running this workflow's own
 # schedule at the same time would mean two independent processes racing to
-# push web/data.json (this one against Binance testnet in live mode, the VM
-# against the paper portfolio) — kept disabled to avoid that. workflow_dispatch
+# push web/data.json (this one against its own cached paper state, the VM
+# against the real paper portfolio) — kept disabled to avoid that. workflow_dispatch
 # still works for an occasional manual on-demand run/dress-rehearsal.
 
 on:
@@ -64,11 +67,10 @@ jobs:
           restore-keys: |
             bot-logs-
 
-      - name: Run one bot cycle (Binance testnet)
+      - name: Run one bot cycle (paper)
         env:
           EXCHANGE_API_KEY: ${{ secrets.EXCHANGE_API_KEY }}
           EXCHANGE_API_SECRET: ${{ secrets.EXCHANGE_API_SECRET }}
-          LIVE_TRADING_CONFIRM: "YES-I-UNDERSTAND-THE-RISK"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m src.bot --once
