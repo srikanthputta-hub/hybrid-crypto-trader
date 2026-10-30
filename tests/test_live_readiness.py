@@ -374,3 +374,104 @@ def test_base_fee_buy_then_exit_no_longer_jams(tmp_path):
     assert store.get("BTC/USDT") is None and "BTC/USDT" not in portfolio.positions
     assert exchange.free["BTC"] == pytest.approx(0.0, abs=1e-15)  # sold exactly what was there
     assert not broker.halted
+
+
+# --- 4. partial remainder persisted, live fees, halt gates planning (item 4) ---------------
+
+
+def test_partial_sell_remainder_is_persisted_and_a_restart_sees_it(tmp_path):
+    from src.bot import _execute_monitor_action
+    from src.broker_live import LivePartialFill
+
+    broker, portfolio, store, exchange = _open_btc(tmp_path)
+    exchange.fill_ratio, exchange.status = 0.25, "canceled"
+    with pytest.raises(LivePartialFill):
+        _execute_monitor_action(_stop(), store.get("BTC/USDT"), broker, store, _risk(tmp_path), {})
+    assert store.get("BTC/USDT").status == "OPEN"
+    assert store.get("BTC/USDT").fill_amount == pytest.approx(0.0015)  # not the original 0.002
+    assert _state(tmp_path)["inflight"] == {}  # settled after the store update
+
+    exchange.fill_ratio, exchange.status = 1.0, "closed"
+    broker2, portfolio2, store2 = start(tmp_path, exchange)  # restart
+    assert portfolio2.positions["BTC/USDT"].amount == pytest.approx(0.0015)
+    _execute_monitor_action(_stop(), store2.get("BTC/USDT"), broker2, store2, _risk(tmp_path), {})
+    assert exchange.orders[-1] == ("BTC/USDT", "sell", pytest.approx(0.0015))  # the remainder, not 0.002
+    assert store2.get("BTC/USDT") is None and "BTC/USDT" not in portfolio2.positions
+    # A second sell order needed its own id (attempt 1), not the partial one's.
+    assert len(set(exchange.client_ids)) == len(exchange.client_ids) == 3
+
+
+def test_partial_remainder_store_failure_is_repaired_by_the_next_reconcile(tmp_path):
+    from src.bot import _execute_monitor_action, _reconcile_live_orders
+    from src.broker_live import LivePartialFill
+
+    broker, portfolio, store, exchange = _open_btc(tmp_path)
+    exchange.fill_ratio, exchange.status = 0.25, "canceled"
+    real = store.update_open_amount
+    store.update_open_amount = lambda *a, **k: (_ for _ in ()).throw(OSError("disk"))
+    with pytest.raises(OSError):
+        _execute_monitor_action(_stop(), store.get("BTC/USDT"), broker, store, _risk(tmp_path), {})
+    store.update_open_amount = real
+    assert store.get("BTC/USDT").fill_amount == 0.002
+    _reconcile_live_orders(broker, store)
+    assert store.get("BTC/USDT").fill_amount == pytest.approx(0.0015) and _state(tmp_path)["inflight"] == {}
+    assert portfolio.positions["BTC/USDT"].amount == pytest.approx(0.0015)
+    assert not isinstance(store, LivePartialFill)
+
+
+def test_buy_fee_in_base_asset_books_the_net_amount(tmp_path):
+    exchange = FaultyExchange()
+    exchange.fee = {"currency": "base", "rate": 0.001}
+    broker, portfolio, store = start(tmp_path, exchange)
+    fill = broker.buy("BTC/USDT", 100.0, 50_000.0)
+    assert fill.base_amount == pytest.approx(0.002 * 0.999) and fill.quote_amount == pytest.approx(100.0)
+    assert portfolio.positions["BTC/USDT"].amount == pytest.approx(0.002 * 0.999)
+    assert portfolio.cash == pytest.approx(9_900.0)
+
+
+def test_fees_in_quote_asset_are_debited_and_replayed_after_restart(tmp_path):
+    from src.portfolio import reconstruct_cash
+
+    exchange = FaultyExchange()
+    exchange.fee = {"currency": "quote", "rate": 0.0026}  # Kraken taker, charged in USDT
+    broker, portfolio, store = start(tmp_path, exchange)
+    buy = broker.buy("BTC/USDT", 100.0, 50_000.0)
+    assert buy.base_amount == 0.002 and buy.quote_amount == pytest.approx(100.26)
+    sell = broker.sell("BTC/USDT", 50_000.0)
+    assert sell.quote_amount == pytest.approx(100.0 - 0.26)
+    assert portfolio.cash == pytest.approx(10_000.0 - 0.52)
+    assert reconstruct_cash(logs_dir(tmp_path) / "trades.csv", 10_000.0) == pytest.approx(portfolio.cash)
+
+
+@pytest.mark.parametrize(
+    "fee",
+    [{"currency": "BNB", "cost": 0.01}, {"currency": "USDT", "cost": float("nan")}, {"currency": None, "cost": 1.0},
+     {"currency": "BTC", "cost": -1.0}, {"currency": "BTC", "cost": 1.0}],  # last: fee >= filled
+    ids=repr,
+)
+def test_foreign_or_malformed_fees_are_ignored_without_halting(tmp_path, fee):
+    exchange = FaultyExchange()
+    exchange.respond = lambda order: dict(order, fee=fee, fees=[fee])
+    broker, portfolio, store = start(tmp_path, exchange)
+    fill = broker.buy("BTC/USDT", 100.0, 50_000.0)
+    assert (fill.base_amount, fill.quote_amount) == (0.002, 100.0) and not broker.halted
+
+
+def test_halted_broker_creates_no_new_plan_and_skips_the_scan(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from src.bot import _Cycle, _evaluate_new_entry
+
+    store = make_store(tmp_path)
+    events: list[dict] = []
+    risk = _risk(tmp_path)
+    cycle = _Cycle(cfg=SimpleNamespace(indicators={}), exchange=None, risk_engine=risk,
+                   portfolio=Portfolio(cash=10_000.0), broker=SimpleNamespace(halted=True), store=store,
+                   record=events.append, current_prices={}, equity=10_000.0)
+    event: dict = {"symbol": "BTC/USDT"}
+    with patch("src.bot.scanner.scan", side_effect=AssertionError("scanned while halted")):
+        assert _evaluate_new_entry(cycle, "BTC/USDT", None, 50_000.0, event) is True
+    assert event["action"] == "none" and "live broker halted" in event["note"]
+    assert store.all_current() == {} and events == [event]
+    assert risk.check_new_trade("BTC/USDT", "buy", 10_000.0, 10_000.0).allowed  # no cooldown/cap slot burnt

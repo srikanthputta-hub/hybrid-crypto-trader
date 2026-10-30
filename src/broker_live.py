@@ -864,11 +864,15 @@ class LiveBroker:
 
     # ---------------------------------------------------------------- buy
 
-    def _buy_ledger(self, symbol: str, price: float, amount: float) -> tuple[float, float, float] | None:
+    def _buy_ledger(
+        self, symbol: str, price: float, amount: float, cost: float | None = None,
+    ) -> tuple[float, float, float] | None:
         """(new_cash, new_amount, new_entry_price) for booking `amount` at `price`, or None
         if any of it would be non-finite / non-positive. Pure -- mutates nothing. Same
-        arithmetic, in the same order, as the pre-hardening code (byte-identical ledger)."""
-        cost = amount * price
+        arithmetic, in the same order, as the pre-hardening code (byte-identical ledger)
+        unless the exchange reported fees (`cost` = the real cash debit, item 4)."""
+        if cost is None:
+            cost = amount * price
         new_cash = self.portfolio.cash - cost
         existing = self.portfolio.positions.get(symbol)
         if existing is None:
@@ -889,12 +893,27 @@ class LiveBroker:
     def _compute_buy(
         self, symbol: str, order: object, requested: float, price_hint: float,
     ) -> tuple[float, float, float, tuple[float, float, float]]:
-        """(price, base_amount, quote_amount, ledger) for booking `order`, or _UnusableFill. Pure."""
+        """(price, base_amount, quote_amount, ledger) for booking `order`, or _UnusableFill. Pure.
+
+        Item 4 (fees): a fee in the BASE asset comes out of the coins received (book the net
+        amount); a fee in the QUOTE asset is debited on top of the cost (and logged in
+        trades.csv's quote_amount, so reconstruct_cash replays it). No fee fields -> exactly
+        the pre-#99 booking."""
         filled_price, filled_amount, _remaining = _parse_fill(order, requested, price_hint)
-        ledger = self._buy_ledger(symbol, filled_price, filled_amount)
+        base_fee, quote_fee = _order_fees(order, symbol)
+        amount = filled_amount
+        if base_fee:
+            if base_fee < filled_amount:
+                amount = filled_amount - base_fee
+            else:
+                logger.warning("buy %s: base fee %r >= filled %r -- ignored", symbol, base_fee, filled_amount)
+        cost = filled_amount * filled_price
+        if quote_fee:
+            cost = cost + quote_fee
+        ledger = self._buy_ledger(symbol, filled_price, amount, cost if (base_fee or quote_fee) else None)
         if ledger is None:
             raise _UnusableFill(f"fill {filled_amount!r} @ {filled_price!r} would make the ledger non-finite")
-        return filled_price, filled_amount, filled_amount * filled_price, ledger
+        return filled_price, amount, cost, ledger
 
     def _commit_buy(self, symbol: str, ledger: tuple[float, float, float]) -> None:
         new_cash, new_amount, new_entry_price = ledger
@@ -997,8 +1016,15 @@ class LiveBroker:
             sent < held * (1 - _SELL_SHORTFALL_TOLERANCE)
         )
         proceeds = filled_amount * filled_price
-        new_cash = self.portfolio.cash + proceeds
         left = held - filled_amount
+        base_fee, quote_fee = _order_fees(order, symbol)  # item 4
+        if quote_fee and quote_fee < proceeds:
+            proceeds = proceeds - quote_fee
+        elif quote_fee:
+            logger.warning("sell %s: quote fee %r >= proceeds %r -- ignored", symbol, quote_fee, proceeds)
+        if base_fee and partial and base_fee < left:
+            left = left - base_fee  # the fee came out of the coins still held
+        new_cash = self.portfolio.cash + proceeds
         if not (_is_finite_number(proceeds) and proceeds > 0):
             raise _UnusableFill(f"proceeds {proceeds!r} are not a finite number > 0")
         if _is_finite_number(self.portfolio.cash) and not _is_finite_number(new_cash):
@@ -1164,6 +1190,34 @@ class _Sale:
     new_cash: float
     left: float
     partial: bool
+
+
+def _order_fees(order: object, symbol: str) -> tuple[float, float]:
+    """(fee in the base asset, fee in the quote asset) reported by a ccxt order (`fees`
+    list, else `fee`). A fee in another currency (e.g. BNB) or a malformed one is ignored
+    with a warning -- never a reason to halt; the sell balance cap absorbs the difference."""
+    if not isinstance(order, dict):
+        return 0.0, 0.0
+    fees = order.get("fees")
+    if not (isinstance(fees, list) and fees):
+        fee = order.get("fee")
+        fees = [fee] if isinstance(fee, dict) else []
+    base, _, rest = symbol.partition("/")
+    quote = rest.split(":")[0]
+    base_fee = quote_fee = 0.0
+    for fee in fees:
+        if not isinstance(fee, dict) or fee.get("cost") is None:
+            continue
+        cost, currency = fee.get("cost"), fee.get("currency")
+        if not (_is_finite_number(cost) and cost >= 0 and isinstance(currency, str)):
+            logger.warning("%s: unusable fee %r ignored", symbol, fee)
+        elif currency == base:
+            base_fee += float(cost)
+        elif currency == quote:
+            quote_fee += float(cost)
+        else:
+            logger.warning("%s: fee in %s (not %s/%s) not booked", symbol, currency, base, quote)
+    return base_fee, quote_fee
 
 
 def _same_amount(a: object, b: float) -> bool:

@@ -863,8 +863,13 @@ def test_run_cycle_replay_poisoned_fill_halts_new_buys_but_keeps_exits(tmp_path,
     assert broker.halted and (tmp_path / "poisoned" / HALT_MARKER_NAME).exists()
     # No buy order ever reached the exchange after the poisoned one...
     assert all(side == "sell" for _s, side, _a in orders[2:])
-    # ...the refusals were surfaced through run_cycle's normal per-symbol error path...
-    assert any("live broker is halted" in e.get("error", "") for e in events)
+    # ...the refusals were surfaced through run_cycle's normal per-symbol paths: since issue #99
+    # item 4 a halted broker blocks PLANNING ("blocked: live broker halted" note) instead of
+    # creating PENDING plans whose fills then fail with "live broker is halted"...
+    assert any("live broker is halted" in e.get("error", "") or "live broker halted" in e.get("note", "")
+               for e in events)
+    poisoned_at = next(i for i, e in enumerate(events) if "execution" in e and e["symbol"] == orders[1][0])
+    assert not any(e.get("action") == "planned" for e in events[poisoned_at + 1:])
     # ...and the ledger never went non-finite.
     assert math.isfinite(portfolio.cash)
     assert all(math.isfinite(p.amount) and math.isfinite(p.entry_price) for p in portfolio.positions.values())

@@ -721,7 +721,17 @@ def _execute_monitor_action(action, record, broker, store, risk_engine, event) -
     elif action.action == "DISCARD":
         store.discard_pending(action.symbol, reason="invalidated", price=action.price)
     elif action.action in ("STOP_LOSS", "TAKE_PROFIT"):
-        fill = broker.sell(action.symbol, action.price, **_order_kwargs(broker, record, action.action.lower()))
+        try:
+            fill = broker.sell(action.symbol, action.price, **_order_kwargs(broker, record, action.action.lower()))
+        except Exception as exc:
+            # Live partial fill (issue #99 item 4): the remainder stays OPEN; persist it so a
+            # restart rebuilds the remainder, not the original fill. Duck-typed so this module
+            # never imports broker_live. The exception still propagates (unchanged error path).
+            remaining = getattr(exc, "remaining_amount", None)
+            if remaining is not None:
+                store.update_open_amount(action.symbol, remaining)
+                _settle(broker, action.symbol)
+            raise
         store.mark_closed(action.symbol, reason=action.action.lower(), price=action.price)
         _settle(broker, action.symbol)
         event["execution"] = fill.__dict__
@@ -768,6 +778,18 @@ def _evaluate_new_entry(c: _Cycle, symbol: str, enriched, price: float, event: d
     exception anywhere in here still reaches the caller's per-symbol except."""
     cfg = c.cfg
     indicators_cfg = cfg.indicators
+
+    # Issue #99 item 4: a halted live broker refuses every buy, so a plan made now could
+    # only burn a cooldown / new-entry-cap slot and then fill in a burst after the human
+    # resumes it. No new plans while halted. (PaperBroker has no `halted`: never blocks.)
+    if getattr(c.broker, "halted", False):
+        event["action"] = "none"
+        event["note"] = (
+            "blocked: live broker halted -- no new plans until a human reconciles the exchange "
+            "and deletes logs/live_broker_halt.json"
+        )
+        c.record(event)
+        return True
 
     # Monitor-only symbol (walked because something is held on it, but not
     # one the risk engine may open NEW plans on): don't scan it for a new
