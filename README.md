@@ -217,6 +217,18 @@ Before you do this:
   performance in a backtest is not a guarantee of anything.
 - **Scope your exchange API key to trading only** — disable withdrawal
   permissions on the key you give this bot.
+- **Use a dedicated (sub-)account that holds nothing but the bot's
+  positions.** Sells are capped at the account's free balance of the coin
+  (issue #99), which only detects a phantom/stale position when no other
+  holdings of that coin exist in the account.
+- **Know the halt / reconcile procedure** (`docs/live_readiness_design.md`):
+  every live order is recorded in `logs/live_order_state.json` before it is
+  sent; an order whose outcome is unknown halts new buys and plans, is looked
+  up on the exchange by its clientOrderId at every cycle, and is announced on
+  Telegram. The bot never resumes buying on its own: after checking the
+  exchange against `logs/trades.csv` and `logs/trade_plans_current.json`,
+  delete `logs/live_broker_halt.json` and restart. Live is still **not
+  ready** — see the open items at the end of that design note.
 - **Start with a small amount of capital** you are fully prepared to lose.
   Crypto markets are volatile and this bot, like any trading system, can lose
   money — including all of it.

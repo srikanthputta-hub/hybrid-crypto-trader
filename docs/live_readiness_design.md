@@ -172,7 +172,9 @@ a non-finite value or an error all count as **unknown**.
 | `<= 0` | **nothing** | nothing booked, position kept | yes; `LiveOrderUnreconciled` |
 
 A sell rejected with `InsufficientFunds` stays a definite rejection (nothing placed, nothing booked). It now also
-**halts and alerts**, so the exit jam can't go unnoticed. Recommendation (docs and README only, no code
+**alerts** (once per symbol and amount), so the exit jam can't go unnoticed. It does **not** halt: nothing was
+placed, and the existing broker tests pin "definite rejection = no halt". (Implementation note: this replaces the
+"halts and alerts" wording of the first draft of this note.) Recommendation (docs and README only, no code
 enforcement): run live in a **dedicated sub-account** that holds nothing but the bot's positions. With other
 holdings of the same coin in the account, `free >= held` always holds, so the cap can't detect a phantom position.
 
@@ -235,7 +237,28 @@ is removed in this branch. A test asserts that no workflow sets it.
 
 ## 9. Still NOT ready for live after this branch
 
-See the branch report. In short: no live/testnet end-to-end run of these code paths; exchange-specific
-`clientOrderId`/listing behaviour verified only against the installed ccxt source, not a real account; no
-exchange-side stop orders (stop-loss is still the bot's own poll loop, so a dead process means no stop); a
-reconcile only finds orders in the listing window; and the issue #87 risk-engine NaN fail-open is still open.
+1. **Never run against a real or testnet account.** Every path above is proven only against fakes
+   (`tests/_live_fakes.py`, `tests/test_live_smoke.py`). Kraken `cl_ord_id` echo, `fetch_closed_orders`
+   coverage of canceled orders, balance reporting (Kraken omits zero balances, which is treated as *unknown*), and
+   `amount_to_precision` were checked against the installed ccxt **source** only.
+2. **The clientOrderId is not an exchange-side duplicate guard** (§0). Duplicate protection rests on the local
+   write-ahead record. Losing `logs/` (disk loss, `actions/cache` eviction, a fresh VM) loses it.
+3. **Listing window**: a reconcile looks back to `created_at - 10 min` with the exchange's default page size. An
+   order outside the window or past the first page is "not found". This is mitigated by the unattributable-order
+   rule and the 120 s grace period, not eliminated.
+4. **No exchange-side stop orders**: stop-loss/take-profit are still the bot's own poll loop. A dead process,
+   a halted-and-blocked symbol (unknown outcome) or a failing order-state disk means **no exit**. The alert says
+   so; nothing closes the position automatically.
+5. **A failing disk blocks protective exits** (fail closed by design: no order without a record).
+6. **Crash window between trades.csv and the `booked` record with an id-less create response**: the dedup has no
+   exchange id, so a reconcile can debit cash twice (conservative direction, halted, alerted). It needs two
+   faults at once.
+7. **Shared accounts**: the sell cap cannot see phantom positions, and an `unusable`-response re-sell can hit
+   other holdings. Use a dedicated sub-account.
+8. **Fees in a third currency** (BNB) and malformed fees are not booked. Equity is slightly overstated until
+   the balance cap absorbs it on exit.
+9. **PENDING plans created before a halt** still exist and may fill right after a human resumes.
+10. **Issue #87** (risk engine fails open on NaN equity/cash) is still open. So are the Kraken per-pair minimums
+    (issue #81) and partial **buys** (booked as filled, as before, never halted).
+11. **No operator tooling** to edit `live_order_state.json`. Resolving a stuck record is a manual JSON edit
+    (delete that entry only, so the `attempts` counters survive).
