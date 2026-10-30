@@ -744,6 +744,115 @@ def test_f10_alert_length_is_capped_and_state_file_alert_has_no_exception_text(t
     assert alerts and all("SECRET-DETAIL" not in str(a) and "Expecting" not in str(a) for a in alerts)
 
 
+# --- mutations that survived the review (Architect my_mut.txt X03/X05/X06/X08/X09/X11/X15) -----------
+
+
+def _never_sent_intent(tmp_path):
+    """A buy intent whose request never left (crash before sending): the record is all there is."""
+    ex = FaultyExchange()
+    broker, portfolio, store = start(tmp_path, ex)
+    store.set_pending(BTC, dict(PLAN))
+    ex.on_create = lambda *a: (_ for _ in ()).throw(SimulatedCrash("killed before sending"))
+    with pytest.raises(SimulatedCrash):
+        _act(FILL, broker, store)
+    ex.on_create = None
+    broker2, portfolio2, store2 = start(tmp_path, ex)
+    entry = next(iter(_inflight(tmp_path).values()))
+    return ex, broker2, store2, entry
+
+
+def test_x03_not_found_is_trusted_only_after_the_120s_grace_period(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    monkeypatch.setattr(broker_live, "RECONCILE_NOT_FOUND_GRACE_SECONDS", 120)
+    ex, broker, store, entry = _never_sent_intent(tmp_path)
+    created = datetime.fromisoformat(entry["created_at"])
+    assert [r.outcome for r in broker.reconcile(now=created + timedelta(seconds=60))] == ["unknown"]
+    assert [r.outcome for r in broker.reconcile(now=created + timedelta(seconds=119))] == ["unknown"]
+    assert [r.outcome for r in broker.reconcile(now=created + timedelta(seconds=121))] == ["never_placed"]
+
+
+def test_x03_the_shipped_grace_period_is_120_seconds_and_is_the_one_used():
+    # (the source, not the module attribute: the autouse fixture patches the attribute to 0)
+    source = Path(broker_live.__file__).read_text()
+    assert "\nRECONCILE_NOT_FOUND_GRACE_SECONDS = 120\n" in source
+    assert "(now - created).total_seconds() < RECONCILE_NOT_FOUND_GRACE_SECONDS:" in source
+
+
+def test_x15_order_listing_looks_back_ten_minutes_before_the_record(tmp_path):
+    from datetime import datetime
+
+    ex, broker, store, entry = _never_sent_intent(tmp_path)
+    broker.reconcile()
+    created_ms = int(datetime.fromisoformat(entry["created_at"]).timestamp() * 1000)
+    assert ex.lookups[-1][3] == created_ms - broker_live.RECONCILE_LOOKBACK_SECONDS * 1000
+    assert broker_live.RECONCILE_LOOKBACK_SECONDS == 600
+
+
+def test_x05_order_state_writes_are_fsynced_before_the_replace(tmp_path, monkeypatch):
+    synced = []
+    real = os.fsync
+
+    def fsync(fd):
+        try:
+            synced.append(Path(os.readlink(f"/proc/self/fd/{fd}")).name)
+        except OSError:
+            synced.append("?")
+        return real(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    broker_live._atomic_write_json(tmp_path / ORDER_STATE_NAME, {"x": 1})
+    assert synced[0] == ORDER_STATE_NAME + ".tmp"
+
+
+def test_x06_every_cycle_reconciles_not_only_the_first(tmp_path):
+    calls = []
+    broker = SimpleNamespace(reconcile=lambda: calls.append(1) or [])
+    for _ in range(3):
+        _reconcile_live_orders(broker, SimpleNamespace())
+    assert len(calls) == 3
+
+
+def test_x08_an_unusable_record_alone_halts_buys_everywhere(tmp_path):
+    ex = FaultyExchange()
+    broker, portfolio, store = _opened(tmp_path, ex)
+    ex.respond = lambda o: dict(o, filled=float("nan"))
+    with pytest.raises(LiveOrderUnreconciled):
+        _act(STOP, broker, store)
+    ex.respond = None
+    broker._halt_reason = None
+    (logs_dir(tmp_path) / HALT_MARKER_NAME).unlink()  # only the record is left
+    assert broker.halted
+    with pytest.raises(LiveBrokerHalted):
+        broker.buy("ETH/USDT", 50.0, 2_000.0)
+    broker2, _p, _s = start(tmp_path, ex)  # and after a restart
+    assert broker2.halted
+
+
+def test_x09_a_reconciled_buy_is_never_attached_to_a_different_plan(tmp_path):
+    ex = FaultyExchange()
+    broker, portfolio, store = start(tmp_path, ex)
+    store.set_pending(BTC, dict(PLAN))
+    store.mark_open = lambda *a, **k: (_ for _ in ()).throw(SimulatedCrash("killed"))
+    with pytest.raises(SimulatedCrash):
+        _act(FILL, broker, store)
+    broker2, portfolio2, store2 = start(tmp_path, ex)
+    store2.discard_pending(BTC, reason="manual", price=1.0)
+    store2.set_pending(BTC, dict(PLAN))  # a NEW plan on the same symbol
+    _reconcile_live_orders(broker2, store2)
+    assert store2.get(BTC).status == "PENDING"  # not opened with the old plan's fill
+    assert len(_inflight(tmp_path)) == 1 and broker2.halted
+
+
+def test_x11_order_state_memory_moves_only_after_the_disk_write(tmp_path, monkeypatch):
+    ex = FaultyExchange()
+    broker, portfolio, store = start(tmp_path, ex)
+    monkeypatch.setattr(broker_live, "_atomic_write_json", lambda path, payload: (_ for _ in ()).throw(OSError("EIO")))
+    with pytest.raises(OSError):
+        broker._mutate_state(lambda s: s["attempts"].__setitem__("k", 1))
+    assert "k" not in broker._state["attempts"]
+
+
 # --- S1: the broker contract ------------------------------------------------------------------------
 
 
