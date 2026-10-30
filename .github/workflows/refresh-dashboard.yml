@@ -68,9 +68,10 @@ jobs:
             bot-logs-
 
       - name: Run one bot cycle (paper)
+        # No EXCHANGE_API_KEY/EXCHANGE_API_SECRET either (removed, issue #99 review S2): the paper
+        # bot only reads public market data (OHLCV); no private endpoint is ever called in paper
+        # mode, so the job does not need exchange credentials at all.
         env:
-          EXCHANGE_API_KEY: ${{ secrets.EXCHANGE_API_KEY }}
-          EXCHANGE_API_SECRET: ${{ secrets.EXCHANGE_API_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m src.bot --once
