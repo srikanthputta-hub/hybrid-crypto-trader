@@ -12,6 +12,16 @@ deliberately flip two independent safety switches.
 ## Architecture
 
 ```
+live order reconcile   src/broker_live.py   (live mode only; first thing every cycle)
+   Before anything else can place an order, every write-ahead order record
+   (logs/live_order_state.json) is resolved against the exchange by its
+   clientOrderId: a fill lost in a crash is booked exactly once, a never-placed
+   order is cleared, anything undeterminable stays HALTED (no guessing). A
+   halted live broker skips stages 1-4 entirely (no new plans); stage 5 keeps
+   running exits except on a symbol whose order is unresolved. Alerts go to
+   Telegram, repeating while the condition lasts. Paper mode: a no-op.
+   |
+   v
 universe               src/universe.py   (infrastructure, not a stage)
    Which symbols the bot may open NEW plans on. `universe.mode: static`
    (the only implemented mode; `discover` raises NotImplementedError) is
@@ -107,7 +117,10 @@ market data (ccxt)     src/market_data.py   (infrastructure, not a stage)
    fills and closes if configured).
    |
    v
-   paper broker (simulated) or live broker (real order, double-gated)
+   paper broker (simulated) or live broker (real order, double-gated:
+   write-ahead order record + clientOrderId before every order, trades.csv
+   written before memory, fills verified by exchange lookup, sells capped at
+   the free balance, one live process per logs/ -- docs/live_readiness_design.md)
 ```
 
 Each cycle walks the symbols once, in universe order: a symbol with an
@@ -250,7 +263,8 @@ Before you do this:
 config/config.yaml           settings for every pipeline stage
 src/universe.py               which symbols are tradeable (static mode = market.symbols) + held-symbol tagging
 src/market_data.py            bar-close-aligned OHLCV cache + logs/market_snapshot.json writer
-src/exchange.py               ccxt wrapper (market data + live order placement)
+src/exchange.py               ccxt wrapper: market data; live-only: order placement with clientOrderId, order lookup
+                              (find_order: Kraken server-side cl_ord_id filter), free-balance and market-minimum checks
 src/indicators.py             EMA / RSI / ATR
 src/scanner.py                stage 1: Breakout/Pullback/Momentum/Trend/Reversal detectors
 src/signal_engine.py          stage 2: filters + prioritizes candidates into one signal (+ rank_signals, not yet wired in)
@@ -262,7 +276,9 @@ src/trade_plan_store.py       PENDING/OPEN/CLOSED lifecycle for every plan (curr
 src/monitor.py                stage 5: fills/discards/exits, pure decision logic
 src/portfolio.py              cash/position/PnL bookkeeping shared by both brokers
 src/broker_paper.py           simulated fills, no exchange credentials needed
-src/broker_live.py            real order placement, gated by two independent switches
+src/broker_live.py            real order placement, gated by two independent switches; write-ahead order record
+                              (logs/live_order_state.json), every-cycle reconcile, halt + alerts, single-instance lock
+src/broker_contract.py        the live-broker attributes bot.py duck-types (PaperBroker has none of them)
 src/audit.py                  append-only JSONL log of every decision, every cycle
 src/backtest.py               replays the pattern/planning pipeline over historical OHLCV (simplified: no advisor, no risk-engine sizing)
 src/pnl.py, src/risk_analytics.py, src/risk_counterfactual.py
@@ -277,7 +293,9 @@ scripts/export_dashboard_data.py  writes web/data.json from the bot's logs + mar
 scripts/validate_invariants.py    mechanical check of the safety non-negotiables (also run by CI)
 scripts/paper_parity_check.py     weekly paper-trial check: live paper decisions vs the P6 harness on the same closed daily bars (read-only; docs/paper_parity_check.md)
 scripts/reset_portfolio.py, diagnose_recent_closes.py, replay_risk_rejections.py
-                              paper-portfolio reset (archives logs) and read-only diagnostics
+                              paper-portfolio reset (archives logs; refuses while live order state / a halt is
+                              unresolved unless --include-live-state) and read-only diagnostics
+scripts/mutation_check_live_readiness.py  59 deliberate live-broker bugs, each must be caught by the tests
 strategy_pack_run/            standalone real-pipeline backtest / strategy-evaluation harness and its reports (own README)
 research/v2_signals.py        scaffolding for a prospective v2 strategy; not wired into src/
 docs/                         playbook, design docs and validation write-ups; start at docs/STATUS.md

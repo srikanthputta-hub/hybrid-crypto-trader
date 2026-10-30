@@ -68,12 +68,11 @@ Every live order (buy or sell) goes through one lifecycle. Each arrow is one ato
   alert is sent. The file is never overwritten, so the evidence is kept.
 * An `intent`/`placed` entry for any symbol: the broker is **halted**. Every buy is refused. A sell on **that**
   symbol is refused (it could double-sell). Sells on other symbols are allowed (protective exits keep running).
-* An `unusable` entry: a **sell** whose response came back but could not be booked (the existing hardening books
-  nothing and keeps the position). It halts buys like `intent`/`placed` and is reconciled the same way. It does
-  **not** block a same-symbol sell. The order is known to have reached the exchange, a re-sell is capped at the
-  real free balance (item 3), and on spot an already-sold amount is rejected. This keeps the existing contract
-  "selling stays allowed while halted" (tests/test_broker_live.py). In a shared account a re-sell could hit other
-  holdings of that coin: that is one more reason for the dedicated sub-account (item 3).
+* An `unusable` entry: a **sell** whose response came back but could not be booked (nothing booked, position
+  kept). It halts buys like `intent`/`placed`, consumes its attempt in the same write, and is reconciled the same
+  way. **Review round (§10, F2): it now also blocks every order on its symbol.** The first draft let a same-symbol
+  re-sell through; the reviewers showed that re-sell reused the clientOrderId, overwrote the record, and in a
+  shared account sold the coins twice.
 * A `booked` entry that this process did not just create (a leftover from before a restart, or one that survived
   a reconcile pass): every order on **that symbol** is refused until reconcile settles it. A `booked` entry this
   process created and has not yet handed to a reconcile pass does **not** block. The caller is still in the middle
@@ -169,7 +168,7 @@ a non-finite value or an error all count as **unknown**.
 | `>= held` | `held` (never more than tracked: other coins in the account are never sold) | as before | no |
 | `held*(1-0.5%) <= free < held` | `free` | a full fill closes the whole position (the shortfall is base-asset fees / rounding) | no |
 | `0 < free < held*(1-0.5%)` | `free` (protective) | a full fill is booked as **partial**: the remainder stays tracked | yes, before the order |
-| `<= 0` | **nothing** | nothing booked, position kept | yes; `LiveOrderUnreconciled` |
+| `<= 0` | `held` (review round, RO f6: a 0 may be a misreport; the exchange rejects it if the coins are really not there) | as before | yes, before the order |
 
 A sell rejected with `InsufficientFunds` stays a definite rejection (nothing placed, nothing booked). It now also
 **alerts** (once per symbol and amount), so the exit jam can't go unnoticed. It does **not** halt: nothing was
@@ -237,28 +236,76 @@ is removed in this branch. A test asserts that no workflow sets it.
 
 ## 9. Still NOT ready for live after this branch
 
-1. **Never run against a real or testnet account.** Every path above is proven only against fakes
-   (`tests/_live_fakes.py`, `tests/test_live_smoke.py`). Kraken `cl_ord_id` echo, `fetch_closed_orders`
-   coverage of canceled orders, balance reporting (Kraken omits zero balances, which is treated as *unknown*), and
-   `amount_to_precision` were checked against the installed ccxt **source** only.
+1. **Never run against a real or testnet account.** Every path is proven only against fakes (`tests/_live_fakes.py`,
+   the two review fuzz harnesses, `tests/test_live_smoke.py`). Kraken's `cl_ord_id` echo, the server-side
+   `clientOrderId` filter of `fetch_open_orders`/`fetch_closed_orders`, `create_order` returning only txid/descr,
+   balance reporting (Kraken omits zero balances, treated as *unknown*), market minimums and `amount_to_precision`
+   were checked against the installed ccxt 4.5.90 **source** only.
 2. **The clientOrderId is not an exchange-side duplicate guard** (§0). Duplicate protection rests on the local
    write-ahead record. Losing `logs/` (disk loss, `actions/cache` eviction, a fresh VM) loses it.
-3. **Listing window**: a reconcile looks back to `created_at - 10 min` with the exchange's default page size. An
-   order outside the window or past the first page is "not found". This is mitigated by the unattributable-order
-   rule and the 120 s grace period, not eliminated.
-4. **No exchange-side stop orders**: stop-loss/take-profit are still the bot's own poll loop. A dead process,
-   a halted-and-blocked symbol (unknown outcome) or a failing order-state disk means **no exit**. The alert says
-   so; nothing closes the position automatically.
-5. **A failing disk blocks protective exits** (fail closed by design: no order without a record).
-6. **Crash window between trades.csv and the `booked` record with an id-less create response**: the dedup has no
-   exchange id, so a reconcile can debit cash twice (conservative direction, halted, alerted). It needs two
-   faults at once.
-7. **Shared accounts**: the sell cap cannot see phantom positions, and an `unusable`-response re-sell can hit
-   other holdings. Use a dedicated sub-account.
-8. **Fees in a third currency** (BNB) and malformed fees are not booked. Equity is slightly overstated until
-   the balance cap absorbs it on exit.
-9. **PENDING plans created before a halt** still exist and may fill right after a human resumes.
-10. **Issue #87** (risk engine fails open on NaN equity/cash) is still open. So are the Kraken per-pair minimums
-    (issue #81) and partial **buys** (booked as filled, as before, never halted).
-11. **No operator tooling** to edit `live_order_state.json`. Resolving a stuck record is a manual JSON edit
-    (delete that entry only, so the `attempts` counters survive).
+3. **Listing window and clock skew**: a reconcile without an exchange id lists orders from `created_at - 10 min`. A
+   host clock wrong by more than 10 minutes, or by more than the 120 s not-found grace (in the other direction),
+   can make an existing order look absent. Use exchange time or monitor NTP (§11).
+4. **No exchange-side stop orders**: stop-loss/take-profit are still the bot's own poll loop. A dead process, a
+   symbol blocked by an unknown outcome, a failing order-state disk, a dust position or a rejected exit means **no
+   exit**. Each of these is alerted, with reminders; nothing closes the position automatically.
+5. **I/O errors and power loss**: a failing disk blocks protective exits (fail closed: no order without a record).
+   Every ledger file is fsync'd (order state, halt marker, trades.csv, current.json, history.jsonl, directory
+   fsyncs after replaces), but this is only as good as the filesystem and the hardware's write cache. A halt whose
+   every following write fails or crashes is lost with the process (fuzz: 4 and 1 cases in 300 seeds at 2-4% I/O
+   error rates; 0 with crashes alone); the order records still block every affected symbol.
+6. **Id-less responses**: trades.csv is keyed by the exchange id, or by `coid:<clientOrderId>` when the exchange
+   gave none. A crash between the trades.csv row and the `booked` record is therefore deduplicated for buys AND
+   sells (the first draft of this list wrongly called the sell direction "conservative": it credited twice). It
+   still depends on the clientOrderId the broker generated being the one in the row, i.e. on the local record.
+7. **Concurrency**: one live process per `logs/` directory (flock, F9). Two directories pointed at one exchange
+   account are not detected.
+8. **Kraken response data**: an ack-only response is verified with one lookup. If that fails, the requested amount
+   at the price hint is booked `unverified` (halted, alerted, re-checked every cycle). A mismatch found later is
+   alerted but **not** corrected automatically.
+9. **Fees in a third currency** (BNB) and malformed fees are not booked.
+10. **PENDING plans created before a halt** still exist and may fill right after a human resumes.
+11. **Issue #87** (risk engine fails open on NaN equity/cash) is still open, the daily-loss baseline is not persisted
+    across restarts, and Kraken per-pair minimums (issue #81) are only enforced for exits (F8c), not for buys.
+12. **`scripts/reset_portfolio.py`** refuses while live order state or a halt is unresolved; `--include-live-state`
+    archives them, after which the bot no longer knows about any order still open on the exchange.
+13. **No operator tooling** to resolve a stuck `live_order_state.json` entry: it is a manual JSON edit (delete
+    that entry only, so the `attempts` counters survive).
+
+## 10. Review round (two Opus reviews of 2168b7ae; head of this round in the branch report)
+
+| Finding | Fix | Regression tests (`tests/test_live_review_fixes.py` unless noted) |
+|---|---|---|
+| F1 trades.csv failure -> one order booked 2-4x in memory | `_book`: trades.csv (fsync'd) first, memory after; the record + reconcile are the only booking path | `test_f1_rr_*`, `test_f1_arch_b_*` |
+| F2 unusable-sell id reuse / record overwrite / shared-account double sell | `unusable` blocks its symbol and consumes its attempt in the same write; `_record_intent` refuses an id with a record; `_drop_entry` drops only `intent` | `test_f2*` |
+| F3 plan store / trades.csv durability; torn current.json crash loop | copy-on-write store with atomic fsync'd current.json and fsync'd history; fsync'd trades.csv; settle only after the transition is read back from disk; store failure halts + alerts; live quarantines a torn current.json (paper unchanged) | `test_f3_*` |
+| F4 partial-sell halt lost by a crash | halt first, then book; the record carries `halt_reason` + `halt_durable`; reconcile alert text states the real halt state | `test_f4_*` |
+| F5 settle with an in-memory-only halt; phantom zero-fill | settle refused until the halt is on disk; terminal zero-fill = not executed; failed marker write alerts; halt stashed (`pending_halt`) before the marker write | `test_f5_*`, `test_f4_fuzz_*` |
+| F6 DISCARD while the buy is unresolved | bot.py defers the discard (`order_in_flight`) | `test_f6_*` |
+| F7 id-less double credit; paper header; reset_portfolio | `coid:<id>` trades.csv key (never "None"); atomic header extension; reset refuses unless `--include-live-state` | `test_f7_*` |
+| F8 Kraken: page size, txid-only create, dust, truncation label | server-side `clientOrderId` filter / explicit page size; ack-only and unusable responses verified by lookup (fallback `unverified` + halt + re-check); dust exits not sent (alert); precision-truncated full fill is `filled` | `test_f8*`, `tests/test_exchange.py` |
+| F9 two processes on one logs/ | exclusive flock on `logs/.live_broker.lock` after the gate | `test_f9_*` (two processes) |
+| F10 silent exit jams; alerts lost / too long / exception text | every failed exit alerts; reminders every 30 min while a condition lasts; failed Telegram sends retried; 3500-char cap; class names only | `test_f10_*` |
+| S1 duck-typed contract | `src/broker_contract.py`; PaperBroker has none of it; `halted`/`TRACKS_ORDER_REFS` only count as a real `True` | `test_s1_*` |
+| S2 workflow credentials / tripwires | refresh-dashboard.yml gets no exchange keys; tripwire covers `*.yaml`; static check catches every import form | `tests/test_paper_isolation.py` |
+| RO f6 free balance 0 blocks the stop-loss | halt + alert, but the protective sell is still sent (the exchange is the arbiter) | `tests/test_live_readiness.py::test_sell_with_nothing_free_*` |
+| Review mutation survivors X03/X05/X06/X08/X09/X11/X15 | tests added; now in `scripts/mutation_check_live_readiness.py` (M25-M31) | `test_x*` |
+
+Both review fuzz harnesses run in the suite with fixed seeds (`tests/test_live_fuzz.py`).
+
+## 11. Conditions before ANY real-money use (Risk Officer)
+
+None of these is met by this branch. Each must be in place before a single real order:
+
+1. **Exchange-side protective stop orders**, or an equivalent that survives a dead, halted or disk-broken process.
+   The bot's own poll loop is not enough.
+2. **Paging alerts that repeat until acknowledged, plus a dead-man's switch.** The Telegram reminders here repeat,
+   but nothing requires an acknowledgement, and nobody is paged if the process dies.
+3. **A dedicated sub-account**, checked at startup (no balance in the traded coins that the bot does not track).
+4. **A single-instance lock (done, F9) and backed-up `logs/`.** The order record is the duplicate guard.
+5. **Periodic reconciliation of cash and ALL coin balances** against the exchange, with a halt on drift.
+6. **Fix issue #87** (risk engine fails open on NaN) and **persist the daily-loss baseline** across restarts.
+7. **A funded minimum-size test on Kraken itself** for `find_order` (server-side `cl_ord_id` filter), balance
+   reporting, `amount_to_precision`/minimums and the `cl_ord_id` echo.
+8. **Operator tooling and a runbook** for resolving `live_order_state.json` entries, unverified fills and halts.
+9. **Clock skew**: use exchange time, or monitor NTP and halt on skew.
