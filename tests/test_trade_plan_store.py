@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 from src.trade_plan_store import TradePlanStore
 
 SAMPLE_PLAN = {
@@ -58,6 +62,40 @@ def test_state_persists_across_store_instances(tmp_path):
     record = store2.get("ETH/USDT")
     assert record is not None
     assert record.status == "PENDING"
+
+
+def test_update_open_amount_persists_current_and_history_and_survives_restart(tmp_path):
+    store = _store(tmp_path)
+    store.set_pending("BTC/USDT", SAMPLE_PLAN)
+    store.mark_open("BTC/USDT", fill_price=118.9, fill_amount=8.4)
+    store.update_open_amount("BTC/USDT", 6.3)
+    assert store.get("BTC/USDT").fill_amount == 6.3 and store.get("BTC/USDT").status == "OPEN"
+    lines = [json.loads(x) for x in (tmp_path / "history.jsonl").read_text().splitlines()]
+    assert [(r["status"], r["fill_amount"]) for r in lines] == [("PENDING", None), ("OPEN", 8.4), ("OPEN", 6.3)]
+    reborn = TradePlanStore(tmp_path / "current.json", tmp_path / "history.jsonl")
+    assert reborn.get("BTC/USDT").fill_amount == 6.3  # a restart rebuilds the remainder
+
+
+@pytest.mark.parametrize("bad", [0, 0.0, -1.0, float("nan"), float("inf"), True, None, "1"])
+def test_update_open_amount_refuses_bad_amounts_and_leaves_store_untouched(tmp_path, bad):
+    store = _store(tmp_path)
+    store.set_pending("BTC/USDT", SAMPLE_PLAN)
+    store.mark_open("BTC/USDT", fill_price=118.9, fill_amount=8.4)
+    before = ((tmp_path / "current.json").read_text(), (tmp_path / "history.jsonl").read_text())
+    with pytest.raises(ValueError):
+        store.update_open_amount("BTC/USDT", bad)
+    assert ((tmp_path / "current.json").read_text(), (tmp_path / "history.jsonl").read_text()) == before
+    assert store.get("BTC/USDT").fill_amount == 8.4
+
+
+def test_update_open_amount_only_for_open_plans(tmp_path):
+    store = _store(tmp_path)
+    with pytest.raises(ValueError):
+        store.update_open_amount("BTC/USDT", 1.0)
+    store.set_pending("BTC/USDT", SAMPLE_PLAN)
+    with pytest.raises(ValueError):
+        store.update_open_amount("BTC/USDT", 1.0)
+    assert store.get("BTC/USDT").fill_amount is None
 
 
 def test_history_log_gets_one_line_per_transition(tmp_path):

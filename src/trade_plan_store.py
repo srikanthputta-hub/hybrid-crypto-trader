@@ -13,6 +13,7 @@ dashboard's history/trend views and for post-hoc debugging.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -87,6 +88,23 @@ class TradePlanStore:
         record.filled_at = now or now_iso()
         record.fill_price = fill_price
         record.fill_amount = fill_amount
+        self._persist_current()
+        self._append_history(record)
+        return record
+
+    def update_open_amount(self, symbol: str, fill_amount: float) -> PlanRecord:
+        """An OPEN position was partly sold (live broker partial fill, issue #99): record the
+        base amount still held, so a restart rebuilds the remainder, not the original fill.
+        Like every transition it updates current.json AND appends to history.jsonl.
+
+        Raises (store unchanged) unless the record is OPEN and fill_amount is a finite number > 0."""
+        record = self._current.get(symbol)
+        if record is None or record.status != "OPEN":
+            raise ValueError(f"no OPEN plan for {symbol} to update (status {getattr(record, 'status', None)!r})")
+        if isinstance(fill_amount, bool) or not isinstance(fill_amount, (int, float)) or not math.isfinite(fill_amount) \
+                or fill_amount <= 0:
+            raise ValueError(f"invalid remaining amount {fill_amount!r} for {symbol}: must be a finite number > 0")
+        record.fill_amount = float(fill_amount)
         self._persist_current()
         self._append_history(record)
         return record

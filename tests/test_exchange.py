@@ -10,6 +10,7 @@ research/, which is intentionally not wired into src/).
 """
 from __future__ import annotations
 
+import ccxt
 import pandas as pd
 import pytest
 
@@ -151,6 +152,138 @@ def test_create_market_order_sends_client_order_id_as_unified_param():
     client.create_market_order("BTC/USD", "sell", 0.5, client_order_id="hct0123456789abcde")
     assert client.client.calls == [((), {"symbol": "BTC/USD", "type": "market", "side": "sell", "amount": 0.5,
                                           "params": {"clientOrderId": "hct0123456789abcde"}})]
+
+
+class _ListingClient:
+    """Order-listing fake: `has` like ccxt, every call recorded."""
+
+    def __init__(self, has, orders=None, open_orders=None, closed=None, canceled=None, by_id=None):
+        self.has = has
+        self.orders, self.open_orders, self.closed, self.canceled = orders, open_orders, closed, canceled
+        self.by_id = by_id or {}
+        self.calls = []
+
+    def fetch_orders(self, symbol, since=None):
+        self.calls.append(("orders", symbol, since))
+        return self.orders
+
+    def fetch_open_orders(self, symbol, since=None):
+        self.calls.append(("open", symbol, since))
+        return self.open_orders
+
+    def fetch_closed_orders(self, symbol, since=None):
+        self.calls.append(("closed", symbol, since))
+        return self.closed
+
+    def fetch_canceled_orders(self, symbol, since=None):
+        self.calls.append(("canceled", symbol, since))
+        return self.canceled
+
+    def fetch_order(self, order_id, symbol):
+        self.calls.append(("order", order_id, symbol))
+        if order_id not in self.by_id:
+            raise ccxt.OrderNotFound(order_id)
+        return self.by_id[order_id]
+
+
+def _lister(client):
+    exchange = _make_client(FakeCcxtClient(num_bars=1, now_ms=0))
+    exchange.client = client
+    return exchange
+
+
+MINE = {"id": "7", "clientOrderId": "hctmine", "side": "buy", "status": "closed", "filled": 1.0}
+OTHER = {"id": "8", "clientOrderId": "hctother", "side": "buy", "status": "closed", "filled": 1.0}
+NO_ID_BUY = {"id": "9", "clientOrderId": None, "side": "buy", "status": "closed", "filled": 1.0}
+NO_ID_SELL = {"id": "10", "clientOrderId": None, "side": "sell", "status": "closed", "filled": 1.0}
+
+
+def test_find_order_by_known_exchange_id_is_authoritative():
+    client = _ListingClient({"fetchOrders": True}, by_id={"7": MINE})
+    assert _lister(client).find_order("BTC/USD", "hctmine", exchange_order_id="7") == MINE
+    with pytest.raises(ccxt.OrderNotFound):  # we know it was placed: not found is NOT "never placed"
+        _lister(client).find_order("BTC/USD", "hctmine", exchange_order_id="404")
+
+
+@pytest.mark.parametrize(
+    ("orders", "expected"),
+    [([OTHER, MINE], MINE), ([OTHER], None), ([], None), ([NO_ID_SELL, OTHER], None)],
+)
+def test_find_order_by_client_id_via_fetch_orders(orders, expected):
+    client = _ListingClient({"fetchOrders": True}, orders=orders)
+    assert _lister(client).find_order("BTC/USD", "hctmine", since_ms=123, side="buy") == expected
+    assert client.calls == [("orders", "BTC/USD", 123)]
+
+
+@pytest.mark.parametrize(
+    "orders",
+    [[MINE, dict(MINE, id="77")],  # two orders carry our id
+     [NO_ID_BUY],                  # same side, no client id: could be ours
+     "garbage", [None]],
+    ids=["duplicate", "unattributable", "not-a-list", "not-a-dict"],
+)
+def test_find_order_refuses_to_conclude_when_ambiguous(orders):
+    from src.exchange import OrderLookupAmbiguous
+
+    client = _ListingClient({"fetchOrders": True}, orders=orders)
+    with pytest.raises(OrderLookupAmbiguous):
+        _lister(client).find_order("BTC/USD", "hctmine", side="buy")
+
+
+def test_find_order_kraken_style_lists_open_closed_and_canceled():
+    has = {"fetchOpenOrders": True, "fetchClosedOrders": True, "fetchCanceledOrders": True}
+    client = _ListingClient(has, open_orders=[], closed=[OTHER], canceled=[MINE])
+    assert _lister(client).find_order("BTC/USD", "hctmine", since_ms=5) == MINE
+    assert [c[0] for c in client.calls] == ["open", "closed", "canceled"]
+    client = _ListingClient({"fetchOpenOrders": True, "fetchClosedOrders": True}, open_orders=[], closed=[OTHER])
+    assert _lister(client).find_order("BTC/USD", "hctmine") is None
+
+
+def test_find_order_without_listing_support_is_ambiguous():
+    from src.exchange import OrderLookupAmbiguous
+
+    with pytest.raises(OrderLookupAmbiguous):
+        _lister(_ListingClient({"fetchOpenOrders": True})).find_order("BTC/USD", "hctmine")
+
+
+def test_find_order_listing_errors_propagate():
+    class Failing(_ListingClient):
+        def fetch_orders(self, symbol, since=None):
+            raise ccxt.RequestTimeout("t/o")
+
+    with pytest.raises(ccxt.RequestTimeout):
+        _lister(Failing({"fetchOrders": True})).find_order("BTC/USD", "hctmine")
+
+
+class _BalanceClient:
+    def __init__(self, balance):
+        self.balance = balance
+        self.markets_loaded = 0
+
+    def fetch_balance(self):
+        return self.balance
+
+    def load_markets(self):
+        self.markets_loaded += 1
+
+    def amount_to_precision(self, symbol, amount):
+        return f"{int(amount * 1000) / 1000:.3f}"
+
+
+@pytest.mark.parametrize(
+    ("balance", "expected"),
+    [({"free": {"BTC": 0.5}}, 0.5), ({"free": {"BTC": "0.25"}}, 0.25), ({"free": {"ETH": 1.0}}, None),
+     ({"free": None}, None), ({}, None)],
+)
+def test_fetch_free_balance(balance, expected):
+    exchange = _lister(_BalanceClient(balance))
+    assert exchange.fetch_free_balance("BTC") == expected
+
+
+def test_amount_to_precision_loads_markets_and_returns_a_float():
+    client = _BalanceClient({})
+    exchange = _lister(client)
+    assert exchange.amount_to_precision("BTC/USD", 0.12345) == 0.123 and client.markets_loaded == 1
 
 
 def test_create_market_order_still_rejects_a_bad_side_before_any_call():

@@ -591,6 +591,112 @@ def _settle(broker, symbol: str) -> None:
         settle(symbol)
 
 
+def _apply_reconcile_result(broker, store: TradePlanStore, result) -> None:
+    """Bring the plan store in line with one reconciled live order (decision table:
+    docs/live_readiness_design.md §2), then let the broker clear its record. A result
+    without a fill (unknown / never placed / not executed / anomaly) needs nothing here:
+    the broker already kept or cleared the record itself."""
+    fill = getattr(result, "fill", None)
+    if fill is None:
+        return
+    symbol = result.symbol
+    record = store.get(symbol)
+    matches = record is not None and _plan_ref(record) == result.plan_ref
+    if result.side == "buy":
+        if matches and record.status == "PENDING":
+            store.mark_open(symbol, fill_price=fill.price, fill_amount=fill.base_amount)
+        elif not (matches and record.status == "OPEN"):
+            broker.report_unmatched(result.client_order_id, "no PENDING/OPEN plan matches it (no stop-loss)")
+            return
+    elif result.remaining_amount is not None:  # partial sell: the remainder stays open
+        if matches and record.status == "OPEN":
+            store.update_open_amount(symbol, result.remaining_amount)
+        else:
+            broker.report_unmatched(result.client_order_id, "no OPEN plan matches its remainder")
+            return
+    elif matches and record.status == "OPEN":  # full sell
+        store.mark_closed(symbol, reason=result.exit_reason or "reconciled_exit", price=fill.price)
+    # (a full sell whose plan is already closed needs nothing)
+    broker.settle_order(result.client_order_id)
+
+
+def _reconcile_live_orders(broker, store: TradePlanStore) -> None:
+    """Issue #99 item 2: resolve the live broker's in-flight order records before anything
+    else in the cycle can place an order. No-op for the paper broker. Never raises: a
+    record that can't be resolved stays in place, and the broker keeps refusing the orders
+    it would make unsafe."""
+    reconcile = getattr(broker, "reconcile", None)
+    if not callable(reconcile):
+        return
+    try:
+        results = reconcile()
+    except Exception:  # noqa: BLE001 -- the broker's own blocking rules still hold
+        logger.exception("live order reconcile failed -- in-flight records kept; retried next cycle")
+        return
+    for result in results:
+        try:
+            _apply_reconcile_result(broker, store, result)
+        except Exception:  # noqa: BLE001 -- record stays booked -> its symbol stays blocked; retried next cycle
+            logger.exception("could not apply reconciled order %s to the plan store", result.client_order_id)
+
+
+_SECRET_ATTRS = ("exchange_api_key", "exchange_api_secret", "exchange_api_password", "anthropic_api_key")
+
+
+def _redact_alert(cfg, value: object) -> str:
+    """Telegram token patterns + the configured token and exchange/API secrets, by literal."""
+    text = notifier.redact_secrets(str(value), getattr(cfg, "telegram_bot_token", None))
+    for attr in _SECRET_ATTRS:
+        try:
+            secret = getattr(cfg, attr, None)
+        except Exception:  # noqa: BLE001 -- a config property must never break an alert
+            secret = None
+        if isinstance(secret, str) and len(secret) >= 6:
+            text = text.replace(secret, "<redacted>")
+    return text
+
+
+def _format_broker_alert(cfg, alert: dict) -> str:
+    """Plain-language live-broker alert: what happened, to which order, what the bot did,
+    what the operator must check. Every dynamic field is redacted, then Markdown-escaped."""
+
+    def field(key: str) -> str:
+        value = alert.get(key)
+        return notifier.escape_md(_redact_alert(cfg, "-" if value is None else value))
+
+    prefix = notifier.label_prefix(getattr(cfg, "notifier_label", None))
+    return (
+        f"{prefix}🚨 *LIVE BROKER ALERT*: {field('title')}\n"
+        f"Symbol: {field('symbol')}  Side: {field('side')}  Amount: {field('amount')}\n"
+        f"clientOrderId: {field('client_order_id')}\n"
+        f"What the bot did: {field('bot_action')}\n"
+        f"Check on the exchange: {field('operator_check')}"
+    )
+
+
+def _send_broker_alerts(cfg, broker) -> None:
+    """Drains the live broker's alert queue (halts, unknown outcomes, reconcile results) to
+    the log (CRITICAL) and, when configured, Telegram. No-op for the paper broker. Never raises."""
+    pop = getattr(broker, "pop_alerts", None)
+    if not callable(pop):
+        return
+    try:
+        alerts = pop()
+    except Exception:  # noqa: BLE001
+        logger.exception("could not read live broker alerts")
+        return
+    bot_token, chat_id = getattr(cfg, "telegram_bot_token", None), getattr(cfg, "telegram_chat_id", None)
+    for alert in alerts:
+        try:
+            text = _format_broker_alert(cfg, alert)
+        except Exception:  # noqa: BLE001
+            logger.exception("could not format a live broker alert")
+            continue
+        logger.critical("%s", text)
+        if bot_token and chat_id:
+            notifier.send_telegram_message(bot_token, chat_id, text)
+
+
 def _execute_monitor_action(action, record, broker, store, risk_engine, event) -> None:
     # Deliberate (P1b): this path never consults the risk engine's symbol
     # whitelist. The whitelist only gates ORIGINATING a new plan (the same scope
@@ -869,7 +975,20 @@ def run_cycle(
     def _record(event: dict) -> None:
         audit.write(event)
         _maybe_notify(cfg, event)
+        _send_broker_alerts(cfg, broker)
 
+    # Issue #99: the live broker's in-flight orders are resolved before anything below can
+    # place an order (no-op for the paper broker), and its alerts go out even if the cycle
+    # dies early.
+    try:
+        _reconcile_live_orders(broker, store)
+        _send_broker_alerts(cfg, broker)
+        _run_cycle_body(cfg, exchange, risk_engine, portfolio, broker, store, market_data, _record)
+    finally:
+        _send_broker_alerts(cfg, broker)
+
+
+def _run_cycle_body(cfg, exchange, risk_engine, portfolio, broker, store, market_data, _record) -> None:
     parity = cfg.bar_parity
     indicators_cfg = cfg.indicators
     enriched_by_symbol = {}
