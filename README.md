@@ -238,10 +238,16 @@ Before you do this:
   every live order is recorded in `logs/live_order_state.json` before it is
   sent; an order whose outcome is unknown halts new buys and plans, is looked
   up on the exchange by its clientOrderId at every cycle, and is announced on
-  Telegram. The bot never resumes buying on its own: after checking the
-  exchange against `logs/trades.csv` and `logs/trade_plans_current.json`,
-  delete `logs/live_broker_halt.json` and restart. Live is still **not
-  ready** — see the open items at the end of that design note.
+  Telegram. The bot never resumes buying on its own. To resume (full
+  procedure: §2 of the design note): first resolve every entry under
+  `"inflight"` and `"unverified"` in `logs/live_order_state.json` (most
+  resolve themselves at the next reconcile; delete a stuck one by hand only
+  after fixing `logs/trades.csv` / `logs/trade_plans_current.json` to what
+  the exchange really did, and never delete the whole file), check cash and
+  coin balances on the exchange, and only then delete
+  `logs/live_broker_halt.json` and restart. Deleting only the marker resumes
+  nothing while an entry remains. Live is still **not ready** — see the open
+  items at the end of that design note.
 - **Start with a small amount of capital** you are fully prepared to lose.
   Crypto markets are volatile and this bot, like any trading system, can lose
   money — including all of it.

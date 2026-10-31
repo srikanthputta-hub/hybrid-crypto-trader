@@ -97,10 +97,18 @@ Every live order (buy or sell) goes through one lifecycle. Each arrow is one ato
 
 ### Alerts
 `LiveBroker` queues a structured alert every time a **new** halt reason latches, every time an order-state write
-fails, every time a sell meets InsufficientFunds or a balance mismatch, and for every reconcile result (once per
-clientOrderId and outcome, so an unresolved order does not spam every cycle). `bot.py` drains the queue
-(`broker.pop_alerts()`) after the reconcile pass and after every audit event. It formats each alert and sends it
-through the existing `notifier.send_telegram_message`. Every dynamic field goes through `notifier.escape_md`. The
+fails, every time a sell meets InsufficientFunds or a balance mismatch, and for every reconcile result. Alerts are
+keyed (e.g. clientOrderId + outcome): a key is alerted when it first appears and then **re-alerted as a REMINDER
+every `ALERT_REMINDER_SECONDS` = 30 min** while the condition lasts, never every cycle. The queue is deduplicated by
+key and capped at `ALERT_QUEUE_MAX` = 50 (`alerts_dropped` counts the overflow, which is logged).
+
+Delivery is **bounded and non-blocking for the trading loop** (review round 2, item 1): `bot._send_broker_alerts`
+runs **once per cycle**, in `run_cycle`'s `finally` (never per symbol). It stops at the first failed send, gives
+every send a timeout of the remaining `ALERT_SEND_BUDGET_SECONDS` = 5 s budget, and requeues whatever was not
+delivered for the next cycle. A Telegram outage therefore costs at most one bounded attempt per cycle and the
+backlog never grows past the cap (`tests/test_live_review_round2.py::test_item1_*`,
+`tests/test_live_review_round2_ro.py::test_n2_*`). It formats each alert and sends it through
+`notifier.send_telegram_message` (which now returns whether it was delivered and takes a timeout). Every dynamic field goes through `notifier.escape_md`. The
 whole text goes through `notifier.redact_secrets` with the bot token, plus a literal redaction of the configured
 exchange key/secret/password. The text contains exception **class names** only, never exception text, URLs or
 keys. Each alert states: symbol, side, amount, clientOrderId, what the bot did, and what the operator must check
@@ -153,9 +161,21 @@ entry can never silently re-enable buys after a restart.
 | R11 | intent/placed | error / unsupported / unusable fields / several matches / unattributable order | any | nothing (**no guessing**) | none | kept | latched + alert |
 | R12 | state file unreadable | not queried | any | every order refused, file left untouched | none | - | latched + alert |
 
-Once a human has checked the exchange and the ledger, they delete `logs/live_broker_halt.json` and restart. They
-remove a stuck entry from `logs/live_order_state.json` by hand only after reconciling it on the exchange. They
-delete only that entry, so the `attempts` counters survive.
+**Resume procedure** (the order matters: `halted` is true while the marker exists **or** any `inflight` entry is
+unresolved **or** any `unverified` entry exists, so deleting only the marker resumes nothing --
+`tests/test_live_review_round2.py::test_item3_arch_J_*`):
+
+1. Stop the bot. Read the alerts and `logs/live_order_state.json`.
+2. For every entry under `"inflight"`: find its clientOrderId on the exchange. Most resolve themselves at the next
+   reconcile once the exchange answers; if one can't (e.g. the order is gone from the exchange's history), make
+   `logs/trades.csv` and `logs/trade_plans_current.json` match what the exchange really did, then delete **that
+   entry only** (never the whole file: the `attempts` counters must survive, or a clientOrderId could be reused).
+3. For every entry under `"unverified"`: the reconcile clears it by itself when the exchange's fill equals the
+   booking up to precision, and corrects an unverified **buy** to the exchange's figure (§9.8). The alert names the
+   exact entry (`"unverified" -> "<clientOrderId>"`) when it can't: fix `logs/trades.csv` and
+   `logs/trade_plans_current.json` by hand, then delete that entry.
+4. Check cash and every coin balance on the exchange against `logs/trades.csv` / `logs/trade_plans_current.json`.
+5. Only then delete `logs/live_broker_halt.json` and restart. The first cycle's reconcile must report nothing new.
 
 ## 3. Item 3 (HIGH): sells capped at the real free balance
 
@@ -171,7 +191,8 @@ a non-finite value or an error all count as **unknown**.
 | `<= 0` | `held` (review round, RO f6: a 0 may be a misreport; the exchange rejects it if the coins are really not there) | as before | yes, before the order |
 
 A sell rejected with `InsufficientFunds` stays a definite rejection (nothing placed, nothing booked). It now also
-**alerts** (once per symbol and amount), so the exit jam can't go unnoticed. It does **not** halt: nothing was
+**alerts** (keyed by symbol and amount, with a reminder every 30 min while it lasts), so the exit jam can't go
+unnoticed. It does **not** halt: nothing was
 placed, and the existing broker tests pin "definite rejection = no halt". (Implementation note: this replaces the
 "halts and alerts" wording of the first draft of this note.) Recommendation (docs and README only, no code
 enforcement): run live in a **dedicated sub-account** that holds nothing but the bot's positions. With other
@@ -191,7 +212,9 @@ holdings of the same coin in the account, `free >= held` always holds, so the ca
   malformed one, is ignored with a warning. It is not a reason to halt, and the balance cap absorbs the
   difference later. Responses without fee fields book exactly as before.
 * **Halt gates planning**: `_evaluate_new_entry` returns "none" with the note `blocked: live broker halted ...`
-  before scanning when `getattr(broker, "halted", False)`. No new PENDING plan, no cooldown or entry-cap slot
+  before scanning when `bot._flag(broker, "halted")` is true. `_flag` counts only a real `True` (a stand-in that
+  answers every attribute, e.g. a MagicMock, never blocks; the paper broker has no `halted`), and a `halted`
+  property that **raises** counts as halted (fail closed; RO round 2, minor a). No new PENDING plan, no cooldown or entry-cap slot
   spent. PENDING plans that already exist are still refused at `buy()` (no order) and are visible to the operator
   in the halt alert.
 
@@ -210,11 +233,15 @@ truncated amount) is still a full close.
 | intent write fails (disk full, permissions, read-only fs) | no order; in-memory halt; alert; `LiveOrderStateError` |
 | state file corrupt / unreadable | every order refused; alert; file untouched |
 | `placed` write fails | logged; the `intent` entry still reconciles through the clientOrderId |
-| `booked` write fails | halt (in memory); fill returned; trades.csv dedup (R4) prevents a second booking |
+| `booked` write fails | halt (in memory, then stashed + marker); fill returned; trades.csv dedup (R4) prevents a second booking |
+| trades.csv write fails | nothing booked in memory (trades.csv is written first); halt; the reconcile books it once (R4/R5) |
+| plan store write / read-back fails | settle refused (the transition is read back from disk first); halt + alert; retried every cycle |
 | settle fails | halt; entry stays `booked`; the next reconcile settles it |
 | reconcile lookup fails / ambiguous | entry kept, halted, alert, retried next cycle; never "assume filled" or "assume not placed" |
-| halt marker write fails | in-memory latch; any `intent`/`placed` entry re-halts after a restart; entries are cleared only once the halt is on disk |
-| Telegram down | `send_telegram_message` swallows it (existing); CRITICAL log line stays |
+| halt marker write fails | in-memory latch; the reason is stashed (`pending_halt`) in the order state first and re-latched at startup; entries are cleared only once the halt is on disk |
+| response says "not executed" | confirmed with one lookup (bounded re-poll) before the record is retired; a contradicting record is booked + halts; an unconfirmable one keeps the record + halts (N3) |
+| ack-only response, lookup fails | booked `unverified` at the requested amount, halted; re-checked every cycle (cleared / corrected / alerted, §9.8) |
+| Telegram down / slow | at most one bounded send attempt per cycle (5 s budget, stop at the first failure), undelivered alerts requeued (deduped, capped at 50); CRITICAL log line stays |
 
 ## 7. What stays exactly as it was
 
@@ -253,16 +280,33 @@ is removed in this branch. A test asserts that no workflow sets it.
    Every ledger file is fsync'd (order state, halt marker, trades.csv, current.json, history.jsonl, directory
    fsyncs after replaces), but this is only as good as the filesystem and the hardware's write cache. A halt whose
    every following write fails or crashes is lost with the process (fuzz: 4 and 1 cases in 300 seeds at 2-4% I/O
-   error rates; 0 with crashes alone); the order records still block every affected symbol.
+   error rates; 0 with crashes alone); the order records still block every affected symbol. The directory fsyncs
+   after `os.replace` cannot be tested with fakes (they only matter on power loss): removing them (mutation Y06)
+   passes every test, so they are pinned by code review only.
 6. **Id-less responses**: trades.csv is keyed by the exchange id, or by `coid:<clientOrderId>` when the exchange
    gave none. A crash between the trades.csv row and the `booked` record is therefore deduplicated for buys AND
    sells (the first draft of this list wrongly called the sell direction "conservative": it credited twice). It
    still depends on the clientOrderId the broker generated being the one in the row, i.e. on the local record.
 7. **Concurrency**: one live process per `logs/` directory (flock, F9). Two directories pointed at one exchange
    account are not detected.
-8. **Kraken response data**: an ack-only response is verified with one lookup. If that fails, the requested amount
-   at the price hint is booked `unverified` (halted, alerted, re-checked every cycle). A mismatch found later is
-   alerted but **not** corrected automatically.
+8. **Kraken response data**: an ack-only (txid-only) response is verified by a lookup. A lookup that finds the
+   order still working is re-polled at most `VERIFY_REPOLLS` = 3 times, `VERIFY_REPOLL_SECONDS` = 1 s apart (review
+   round 2, item 4), so a routine Kraken fill is not declared unverified. If the lookup fails or the order is still
+   open after that, the requested amount at the price hint is booked `unverified` (halted, alerted, re-checked every
+   cycle). The re-check (RO round 2, N1) compares the exchange's fill with the precision-truncated amount actually
+   sent (`_sent_reference`; without market info, a relative `UNVERIFIED_ROUNDING_TOLERANCE` = 1e-4):
+   * equal up to precision/lot rounding -> the entry is cleared (the ledger may stay up to one lot above the
+     exchange; sells are capped at the free balance);
+   * a real difference on a **buy** whose tracked position still equals the booking -> corrected to the exchange's
+     figure: `corrected_to` is recorded first, then one `adjust` row in trades.csv (`order_id corr:<clientOrderId>`,
+     the base/quote difference; `reconstruct_cash` debits it like a buy, the P&L pairing ignores it), then memory,
+     then the OPEN plan (`update_open_amount`, read back from disk), and only then is the entry cleared. Each step is
+     idempotent, so a crash anywhere is finished exactly once by a later cycle;
+   * a sell, a position that changed since, or an exchange record showing nothing filled -> **not** corrected:
+     alerted (with reminders) naming the exact entry to resolve. The halt marker stays for the human in every case.
+   The RR fuzz harness has a Kraken ack-only profile (every create answer txid-only, 30% lookup failures).
+   Known limitation (RO round 2, minor c): an **unusable sell** response is not verified inline; its record blocks
+   further exits on that symbol until the next reconcile (one cycle) resolves it from the exchange.
 9. **Fees in a third currency** (BNB) and malformed fees are not booked.
 10. **PENDING plans created before a halt** still exist and may fill right after a human resumes.
 11. **Issue #87** (risk engine fails open on NaN equity/cash) is still open, the daily-loss baseline is not persisted
@@ -270,7 +314,10 @@ is removed in this branch. A test asserts that no workflow sets it.
 12. **`scripts/reset_portfolio.py`** refuses while live order state or a halt is unresolved; `--include-live-state`
     archives them, after which the bot no longer knows about any order still open on the exchange.
 13. **No operator tooling** to resolve a stuck `live_order_state.json` entry: it is a manual JSON edit (delete
-    that entry only, so the `attempts` counters survive).
+    that entry only, so the `attempts` counters survive), following the resume procedure in §2. Alerts name the
+    exact entry; unverified fills that match or are buy-correctable resolve themselves (§9.8).
+14. **The per-event audit notifier** (`bot._maybe_notify`, pre-existing, not part of this branch) still sends
+    synchronously with its own 10 s timeout per event; only the live-broker alerts are budgeted.
 
 ## 10. Review round (two Opus reviews of 2168b7ae; head of this round in the branch report)
 
@@ -293,6 +340,22 @@ is removed in this branch. A test asserts that no workflow sets it.
 
 Both review fuzz harnesses run in the suite with fixed seeds (`tests/test_live_fuzz.py`).
 
+### Review round 2 (Architect + Risk Officer re-verification of 624c7954)
+
+| Finding | Fix | Regression tests |
+|---|---|---|
+| Arch 1 / RO N2 alert retry storm on a Telegram outage | one bounded send pass per cycle (5 s budget, first failure stops, timeout passed down), queue deduped by key and capped at 50 | `tests/test_live_review_round2.py::test_item1_*`, `tests/test_live_review_round2_ro.py::test_n2_*` |
+| Arch 2 reconcile alert said "halted" and "not halted" | one halt statement per alert, from the real state | `test_item2_*` |
+| Arch 3 resume procedure / stale wording | §2 resume procedure, §3/§4/§6 wording, README | `test_item3_arch_J_*` |
+| Arch 4 Kraken ack-only, order still open at the lookup | bounded re-poll (3 x 1 s) | `test_item4_*` |
+| Arch 5 `halt_durable` stayed False after the marker was written | `_after_marker_written()` flips it and clears the stash | `test_item5_*` |
+| Arch 6 X02 (partial-sell settle without read-back) | test added | `test_item6_x02_*` |
+| RO N1 unverified fill never clears (precision) | precision-aware match; buy correction (csv first, store, then clear); exact-entry alert text; fuzz ack-only mode | `tests/test_live_review_round2_ro.py::test_n1_*` |
+| RO N3 terminal zero-fill response trusted without a lookup | confirmed by a lookup; contradicted -> booked + halt; unconfirmed -> record kept + halt | `test_n3_*` |
+| RO minor a `_flag` swallowed exceptions | `halted` fails closed | `test_minor_a_*` |
+| RO minor b mutants R06/R19 survived | G3/G4 tests; both mutants in the mutation script | `test_g3_*`, `test_g4_*` |
+| RO minor c unusable sells block exits until the next reconcile | documented (§9.8): inline verification would change ~25 established tests for a one-cycle delay | - |
+
 ## 11. Conditions before ANY real-money use (Risk Officer)
 
 None of these is met by this branch. Each must be in place before a single real order:
@@ -309,3 +372,11 @@ None of these is met by this branch. Each must be in place before a single real 
    reporting, `amount_to_precision`/minimums and the `cl_ord_id` echo.
 8. **Operator tooling and a runbook** for resolving `live_order_state.json` entries, unverified fills and halts.
 9. **Clock skew**: use exchange time, or monitor NTP and halt on skew.
+10. **An API key with NO withdrawal rights and an IP allowlist** restricted to the bot's host.
+11. **A small hard capital cap for the first live phase**: fund the dedicated sub-account with only what the first
+    phase may lose, independent of the risk engine's percentages.
+12. **Non-blocking, bounded alert delivery as a verified property** (done for live-broker alerts, review round 2:
+    once per cycle, 5 s budget, deduped and capped queue; tests above). The pre-existing audit notifier
+    (`_maybe_notify`) must get the same treatment before live.
+13. **Precision-aware resolution of unverified fills plus operator tooling** (precision-aware re-check and buy
+    correction done, §9.8; a CLI to inspect/resolve `live_order_state.json` entries is still missing).
