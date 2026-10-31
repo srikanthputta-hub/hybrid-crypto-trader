@@ -107,11 +107,11 @@ def _is_parse_error(exc: BaseException, bot_token: str | None) -> bool:
     return status == 400 and "can't parse entities" in description.lower()
 
 
-def _post(bot_token: str, payload: dict) -> None:
+def _post(bot_token: str, payload: dict, timeout: float = 10) -> None:
     response = requests.post(
         f"{TELEGRAM_API_BASE}/bot{bot_token}/sendMessage",
         json=payload,
-        timeout=10,
+        timeout=timeout,
     )
     response.raise_for_status()
 
@@ -148,7 +148,7 @@ def bar_validity_text(bar_close: str | None, max_entry_delay_minutes: float | No
     )
 
 
-def send_telegram_message(bot_token: str | None, chat_id: str | None, text: str) -> bool:
+def send_telegram_message(bot_token: str | None, chat_id: str | None, text: str, timeout: float = 10) -> bool:
     """True once Telegram accepted the message; False when not configured or the send failed
     (never raises). Existing callers ignore the result; the live broker's alert path uses it
     so a failed send is retried instead of being marked delivered (issue #99 review F10)."""
@@ -156,14 +156,14 @@ def send_telegram_message(bot_token: str | None, chat_id: str | None, text: str)
         return False
     try:
         try:
-            _post(bot_token, {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
+            _post(bot_token, {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout)
         except Exception as exc:  # noqa: BLE001
             if not _is_parse_error(exc, bot_token):
                 raise
             logger.warning("Telegram rejected Markdown (can't parse entities) -- retrying once as plain text")
             # Plain text: drop parse_mode, and un-escape our own backslash escapes so
             # they don't show up as literal backslashes.
-            _post(bot_token, {"chat_id": chat_id, "text": _MD_ESCAPED_RE.sub(r"\1", text)})
+            _post(bot_token, {"chat_id": chat_id, "text": _MD_ESCAPED_RE.sub(r"\1", text)}, timeout)
         return True
     except Exception as exc:  # noqa: BLE001 — a notification failure must never break a trading cycle
         # Deliberately NOT logging str(exc) / exc_info: requests' exception text contains the

@@ -749,7 +749,7 @@ def test_f10_rr_f5_a_failed_telegram_send_is_retried_until_delivered(tmp_path):
     attempts = []
     results = iter([False, False, True] + [True] * 50)
 
-    def send(token, chat, text):
+    def send(token, chat, text, timeout=10):
         attempts.append(text)
         return next(results)
 

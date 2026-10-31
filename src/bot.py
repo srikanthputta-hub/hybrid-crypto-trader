@@ -756,11 +756,18 @@ def _format_broker_alert(cfg, alert: dict) -> str:
     return text
 
 
+# Review round 2: alert delivery is bounded per cycle -- once per cycle (run_cycle's `finally`),
+# stops at the first failed send, and never spends more than this in total (each request's
+# timeout is the budget left), so an unreachable Telegram can't delay the loop that runs exits.
+ALERT_SEND_BUDGET_SECONDS = 5.0
+
+
 def _send_broker_alerts(cfg, broker) -> None:
     """Drains the live broker's alert queue (halts, unknown outcomes, failed exits, reconcile
-    results, reminders) to the log (CRITICAL) and, when configured, Telegram. An alert whose
-    Telegram send failed goes back to the broker's queue and is retried next time (review
-    F10). No-op for the paper broker. Never raises."""
+    results, reminders) to the log (CRITICAL) and, when configured, Telegram. Bounded (review
+    round 2): after the first failed send, or once ALERT_SEND_BUDGET_SECONDS are spent, nothing
+    else is attempted this time; every alert not delivered goes back to the broker's queue
+    (deduplicated by key, capped) for the next cycle. No-op for the paper broker. Never raises."""
     pop = getattr(broker, "pop_alerts", None)
     if not callable(pop):
         return
@@ -770,6 +777,8 @@ def _send_broker_alerts(cfg, broker) -> None:
         logger.exception("could not read live broker alerts")
         return
     bot_token, chat_id = getattr(cfg, "telegram_bot_token", None), getattr(cfg, "telegram_chat_id", None)
+    deadline = time.monotonic() + ALERT_SEND_BUDGET_SECONDS
+    sending = bool(bot_token and chat_id)
     undelivered = []
     for alert in alerts:
         try:
@@ -779,7 +788,14 @@ def _send_broker_alerts(cfg, broker) -> None:
             continue
         if not alert.get("_logged"):
             logger.critical("%s", text)
-        if bot_token and chat_id and notifier.send_telegram_message(bot_token, chat_id, text) is not True:
+        if not (bot_token and chat_id):
+            continue
+        left = deadline - time.monotonic()
+        if not sending or left <= 0:
+            undelivered.append({**alert, "_logged": True})
+            continue
+        if notifier.send_telegram_message(bot_token, chat_id, text, timeout=max(0.5, left)) is not True:
+            sending = False  # first failure: stop for this cycle; everything left is retried next cycle
             undelivered.append({**alert, "_logged": True})
     requeue = getattr(broker, "requeue_alerts", None)
     if undelivered and callable(requeue):
@@ -1109,14 +1125,14 @@ def run_cycle(
     def _record(event: dict) -> None:
         audit.write(event)
         _maybe_notify(cfg, event)
-        _send_broker_alerts(cfg, broker)
 
     # Issue #99: the live broker's in-flight orders are resolved before anything below can
-    # place an order (no-op for the paper broker), and its alerts go out even if the cycle
-    # dies early.
+    # place an order (no-op for the paper broker). Its alerts are delivered ONCE per cycle, at
+    # the end -- after every exit of the cycle ran -- within a time budget (review round 2:
+    # sending after every audit event let an unreachable Telegram multiply attempts and delay
+    # the loop that runs the stop-losses). The `finally` also covers a cycle that dies early.
     try:
         _reconcile_live_orders(broker, store)
-        _send_broker_alerts(cfg, broker)
         _run_cycle_body(cfg, exchange, risk_engine, portfolio, broker, store, market_data, _record)
     finally:
         _send_broker_alerts(cfg, broker)

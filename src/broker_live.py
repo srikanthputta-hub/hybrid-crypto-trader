@@ -103,6 +103,13 @@ LOCK_NAME = ".live_broker.lock"
 # An alert for a condition that persists (halt, unresolved order, jammed exit) is re-sent at
 # most this often; a failed Telegram send is retried every cycle until delivered.
 ALERT_REMINDER_SECONDS = 1800
+# Undelivered alerts kept for the next cycle at most (one per key; the oldest are dropped, counted
+# and logged) -- review round 2: an unreachable Telegram must not grow the queue without bound.
+ALERT_QUEUE_MAX = 50
+# Verifying an ack-only response: a lookup that finds the order still working is re-polled at
+# most this many times, this far apart, before the fill is booked `unverified` (and halts).
+VERIFY_REPOLLS = 3
+VERIFY_REPOLL_SECONDS = 1.0
 
 _CLIENT_ID_PREFIX = "hct"
 # Reconcile (issue #99 item 2): an order the exchange does not list is only trusted to be
@@ -415,10 +422,12 @@ class LiveBroker:
         if logs is not None:
             _acquire_lock(logs / LOCK_NAME, self)
         self._clock = time.time                  # injectable (alert reminders)
+        self._sleep = time.sleep                 # injectable (bounded verify re-poll)
         self._halt_reason: str | None = None
         self._alerts: list[dict] = []            # drained by bot.py (pop_alerts) and sent to Telegram
         self._alert_last: dict = {}              # alert key -> time last queued (reminder throttle)
         self._last_halt_reminder: float | None = None
+        self.alerts_dropped = 0                  # undelivered alerts dropped by the queue cap
         self._halt_marker_path: Path | None = logs / HALT_MARKER_NAME if logs is not None else None
         # Write-ahead order record (module docstring). Without a trade_log_path (tests only --
         # build_components always sets one) it lives in memory, exactly like the halt latch.
@@ -465,7 +474,7 @@ class LiveBroker:
         pending = self._state.get("pending_halt")
         if pending:
             if self._halt_is_durable():
-                self._stash_pending_halt(None)  # the marker made it to disk: it is the human's control now
+                self._after_marker_written()  # the marker made it to disk: it is the human's control now
             else:
                 self._halt(f"startup: halt whose marker never reached the disk: {pending}")
         for coid, info in sorted(self._state["unverified"].items()):
@@ -484,7 +493,22 @@ class LiveBroker:
         if last is not None and now - last < ALERT_REMINDER_SECONDS:
             return
         self._alert_last[key] = now
-        self._alerts.append({**alert, "reminder": last is not None})
+        self._alerts.append({**alert, "reminder": last is not None, "_key": repr(key)})
+        self._bound_alert_queue()
+
+    def _bound_alert_queue(self) -> None:
+        """One alert per key (the newest wins), at most ALERT_QUEUE_MAX, oldest dropped first."""
+        newest: dict = {}
+        for position, alert in enumerate(self._alerts):
+            newest[alert.get("_key", position)] = position
+        kept = [a for i, a in enumerate(self._alerts) if newest[a.get("_key", i)] == i]
+        overflow = len(kept) - ALERT_QUEUE_MAX
+        if overflow > 0:
+            self.alerts_dropped += overflow
+            logger.warning("live broker alert queue full: dropped the %d oldest undelivered alert(s) (%d so far)",
+                           overflow, self.alerts_dropped)
+            kept = kept[overflow:]
+        self._alerts = kept
 
     def pop_alerts(self) -> list[dict]:
         """Alerts raised since the last call (bot.py formats, escapes, redacts and sends them),
@@ -497,22 +521,26 @@ class LiveBroker:
                 self._last_halt_reminder = now
                 unresolved = sorted(self._unresolved_entries())
                 self._alerts.append(dict(
-                    kind="halt_reminder", reminder=True,
+                    kind="halt_reminder", reminder=True, _key="halt_reminder",
                     title=f"STILL HALTED: {self._halt_reason or self._halt_marker_path}",
                     symbol=None, side=None, amount=None,
                     client_order_id=", ".join(unresolved) if unresolved else None,
                     bot_action=f"New buys and new plans stay refused; {len(unresolved)} unresolved order record(s).",
                     operator_check=self._operator_check(None, None, None),
                 ))
+                self._bound_alert_queue()
         alerts, self._alerts = self._alerts, []
         return alerts
 
     def requeue_alerts(self, alerts: list[dict]) -> None:
-        """bot.py could not deliver these: they go back to the front of the queue (retried next cycle)."""
+        """bot.py could not deliver these: they go back to the front of the queue (retried next
+        cycle), deduplicated by key against anything queued since and capped (ALERT_QUEUE_MAX)."""
         self._alerts[:0] = list(alerts)
+        self._bound_alert_queue()
 
     def _action_suffix(self) -> str:
-        return " Buys stay HALTED until a human deletes the halt marker." if self.halted else \
+        return " Buys stay HALTED until a human resolves it (resume procedure: docs/live_readiness_design.md §2)." \
+            if self.halted else \
             " The broker is NOT halted (the outcome is fully known)."
 
     @staticmethod
@@ -573,6 +601,28 @@ class LiveBroker:
         except Exception:  # noqa: BLE001
             logger.exception("could not stash the pending halt in %s", self._state_path)
 
+    def _after_marker_written(self) -> None:
+        """The halt marker is on disk: it now carries every halt. Clear the pending-halt stash and
+        mark records whose halt had not reached disk as durable (one write), so a human who deletes
+        the marker resumes with ONE deletion (review round 2, item 5)."""
+        if self._state_error is not None:
+            return
+        stale = [c for c, e in self._state["inflight"].items()
+                 if e.get("halt_reason") and e.get("halt_durable") is False]
+        if not stale and "pending_halt" not in self._state:
+            return
+
+        def change(s: dict) -> None:
+            s.pop("pending_halt", None)
+            for coid in stale:
+                if coid in s["inflight"]:
+                    s["inflight"][coid]["halt_durable"] = True
+
+        try:
+            self._mutate_state(change)
+        except Exception:  # noqa: BLE001 -- fail closed: the stash / records keep re-halting a restart
+            logger.exception("could not record that the halt marker is on disk in %s", self._state_path)
+
     def _persist_halt(self, reason: str, details: dict | None = None) -> bool:
         if self._halt_marker_path is None:
             return True
@@ -580,7 +630,7 @@ class LiveBroker:
         try:
             payload = {"halted_at": now_iso(), "reason": reason, **{k: repr(v) for k, v in (details or {}).items()}}
             _atomic_write_json(self._halt_marker_path, payload)
-            self._stash_pending_halt(None)  # the marker carries it now (a human may delete the marker)
+            self._after_marker_written()  # the marker carries it now (a human may delete the marker)
             return True
         except Exception as exc:  # noqa: BLE001 -- the in-memory latch still holds for this process
             logger.exception("could not persist live broker halt marker %s", self._halt_marker_path)
@@ -951,6 +1001,15 @@ class LiveBroker:
         exchange_id = order.get("id") if isinstance(order, dict) else None
         looked = self._lookup(symbol, coid, None if exchange_id is None else str(exchange_id), side,
                               entry.get("created_at"))
+        # Review round 2 (item 4): Kraken acknowledges a market order before it is terminal. A
+        # lookup that finds it still working is re-polled a few times (bounded: VERIFY_REPOLLS x
+        # VERIFY_REPOLL_SECONDS) before the fill is declared unverified (which halts).
+        polls = 0
+        while looked is not None and looked.get("status") not in _TERMINAL_STATUSES and polls < VERIFY_REPOLLS:
+            polls += 1
+            self._sleep(VERIFY_REPOLL_SECONDS)
+            looked = self._lookup(symbol, coid, None if exchange_id is None else str(exchange_id), side,
+                                  entry.get("created_at"))
         if looked is not None and looked.get("status") in _TERMINAL_STATUSES:
             if _terminal_zero_fill(looked):
                 return looked, "not_executed"
@@ -1784,16 +1843,16 @@ def _parse_iso(value: object) -> datetime | None:
     return ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
 
 
+# The halt state is NOT stated here: LiveBroker._action_suffix appends the real one, exactly once.
 _RECONCILE_ACTIONS = {
-    "booked": "The fill was already in the ledger; re-synced the plan store and cleared the record. Buys stay halted.",
+    "booked": "The fill was already in the ledger; re-synced the plan store and cleared the record.",
     "filled": "Found the order filled on the exchange; booked it and updated the plan (its stop-loss now protects "
-              "it). Buys stay halted.",
-    "partial": "Found the order PARTIALLY filled; booked the filled part. Buys stay halted.",
-    "not_executed": "Found the order on the exchange with nothing filled; cleared the record. Buys stay halted.",
+              "it).",
+    "partial": "Found the order PARTIALLY filled; booked the filled part.",
+    "not_executed": "Found the order on the exchange with nothing filled; cleared the record.",
     "never_placed": "The order is not on the exchange (never placed); cleared the record; a later retry reuses the "
-                    "same clientOrderId. Buys stay halted.",
+                    "same clientOrderId.",
     "unknown": "Could NOT determine the outcome; booked nothing, kept the record, no other order on this symbol. "
-               "Retrying the lookup every cycle. Buys stay halted.",
-    "anomaly": "The exchange's record contradicts the tracked position; booked nothing, kept the record. "
-               "Buys stay halted.",
+               "Retrying the lookup every cycle.",
+    "anomaly": "The exchange's record contradicts the tracked position; booked nothing, kept the record.",
 }
