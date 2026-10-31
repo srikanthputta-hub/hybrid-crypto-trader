@@ -903,7 +903,7 @@ def test_s1_contract_declared_and_paper_broker_has_none_of_it():
     from src.broker_paper import PaperBroker
 
     assert set(LIVE_BROKER_ATTRIBUTES) == {"TRACKS_ORDER_REFS", "halted", "reconcile", "settle", "settle_order",
-                                            "report_unmatched", "pop_alerts", "requeue_alerts",
+                                            "settle_unverified", "report_unmatched", "pop_alerts", "requeue_alerts",
                                             "report_store_failure", "order_in_flight"}
     paper = PaperBroker(Portfolio(cash=1.0))
     assert not any(hasattr(paper, name) for name in LIVE_BROKER_ATTRIBUTES)

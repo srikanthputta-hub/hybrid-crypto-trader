@@ -110,6 +110,9 @@ ALERT_QUEUE_MAX = 50
 # most this many times, this far apart, before the fill is booked `unverified` (and halts).
 VERIFY_REPOLLS = 3
 VERIFY_REPOLL_SECONDS = 1.0
+# Re-checking an unverified fill (RO round 2, N1): without market precision, a difference up to
+# this fraction between the booked fallback and the exchange's fill is lot/precision rounding.
+UNVERIFIED_ROUNDING_TOLERANCE = 1e-4
 
 _CLIENT_ID_PREFIX = "hct"
 # Reconcile (issue #99 item 2): an order the exchange does not list is only trusted to be
@@ -378,7 +381,9 @@ class ReconcileResult:
     outcome: "booked" (already in the ledger; the plan store may lag), "filled"/"partial"
     (found on the exchange and booked now), "not_executed" (found, nothing filled; record
     cleared), "never_placed" (positively absent; record cleared), "unknown" (kept, halted),
-    "anomaly" (found but inconsistent with what we track; kept, halted). bot.py applies the
+    "anomaly" (found but inconsistent with what we track; kept, halted), "corrected" (an
+    unverified buy's booking moved to the exchange's figure -- `remaining_amount` is the corrected
+    position; bot.py moves the OPEN plan to it, then calls settle_unverified()). bot.py applies the
     plan-store transition for a result with a `fill`, then calls settle_order()."""
 
     client_order_id: str
@@ -843,6 +848,8 @@ class LiveBroker:
                 s["unverified"][coid] = {
                     "symbol": entry["symbol"], "side": entry["side"], "plan_ref": entry["plan_ref"],
                     "booked_base_amount": result.base_amount, "requested_amount": entry.get("requested_amount"),
+                    "booked_price": result.price, "booked_quote_amount": result.quote_amount,
+                    "price_hint": entry.get("price_hint"),
                     "exchange_order_id": result.order_id, "created_at": entry.get("created_at"),
                 }
 
@@ -970,17 +977,47 @@ class LiveBroker:
             return None
         return order if isinstance(order, dict) else None
 
+    def _lookup_terminal(self, symbol: str, coid: str, exchange_id: object, side: str,
+                         created_at: str | None) -> dict | None:
+        """The exchange's record of the order, re-polled while it is still working. Review round 2
+        (item 4): Kraken acknowledges a market order before it is terminal; a few bounded re-polls
+        (VERIFY_REPOLLS x VERIFY_REPOLL_SECONDS) avoid declaring a routine fill unverified."""
+        eid = None if exchange_id is None else str(exchange_id)
+        looked = self._lookup(symbol, coid, eid, side, created_at)
+        polls = 0
+        while looked is not None and looked.get("status") not in _TERMINAL_STATUSES and polls < VERIFY_REPOLLS:
+            polls += 1
+            self._sleep(VERIFY_REPOLL_SECONDS)
+            looked = self._lookup(symbol, coid, eid, side, created_at)
+        return looked
+
     def _verify_response(self, symbol: str, side: str, coid: str, order: object, requested: float,
                          price_hint: float, verify_unusable: bool) -> tuple[object, str]:
         """Review F5/F8b. (order to book, how):
         "response"     -- the create response is complete and usable: book it;
         "verified"     -- an ack-only / still-open (/ unusable, buys) response, replaced by the
                           exchange's own terminal record of the order;
-        "not_executed" -- terminal with nothing filled: nothing to book;
+        "not_executed" -- terminal with nothing filled, CONFIRMED by the exchange's own record
+                          (RO round 2, N3): nothing to book;
+        "verified_contradicted" -- the response said nothing filled, the exchange's record shows a
+                          fill: book the record, halt;
+        "unconfirmed_zero" -- the response said nothing filled, the lookup failed / still open:
+                          keep the record, halt (never retired on the response's word alone);
         "unverified"   -- ack-only / open and the lookup failed: book the response's fallback, halt;
         "unusable"     -- unusable and not (or not successfully) verified."""
+        entry = self._state["inflight"].get(coid, {})
+        exchange_id = order.get("id") if isinstance(order, dict) else None
         if _terminal_zero_fill(order):
-            return order, "not_executed"
+            # RO round 2 (N3): a response that SAYS terminal + nothing filled is confirmed with the
+            # exchange's own record before the record is retired. A wrong one would leave real coins
+            # untracked and let the plan buy again.
+            looked = self._lookup_terminal(symbol, coid, exchange_id, side, entry.get("created_at"))
+            if looked is not None and _terminal_zero_fill(looked):
+                return looked, "not_executed"
+            if looked is not None and looked.get("status") in _TERMINAL_STATUSES \
+                    and _response_usable(looked, requested, price_hint):
+                return looked, "verified_contradicted"
+            return order, "unconfirmed_zero"
         # Ack-only = neither filled nor remaining (Kraken: txid/descr only). A response with only
         # one of them is judged as it stands (remaining without filled is contradictory).
         complete = isinstance(order, dict) and order.get("status") != "open" and (
@@ -997,19 +1034,7 @@ class LiveBroker:
             unusable = True
         if unusable and not verify_unusable:
             return order, "unusable"
-        entry = self._state["inflight"].get(coid, {})
-        exchange_id = order.get("id") if isinstance(order, dict) else None
-        looked = self._lookup(symbol, coid, None if exchange_id is None else str(exchange_id), side,
-                              entry.get("created_at"))
-        # Review round 2 (item 4): Kraken acknowledges a market order before it is terminal. A
-        # lookup that finds it still working is re-polled a few times (bounded: VERIFY_REPOLLS x
-        # VERIFY_REPOLL_SECONDS) before the fill is declared unverified (which halts).
-        polls = 0
-        while looked is not None and looked.get("status") not in _TERMINAL_STATUSES and polls < VERIFY_REPOLLS:
-            polls += 1
-            self._sleep(VERIFY_REPOLL_SECONDS)
-            looked = self._lookup(symbol, coid, None if exchange_id is None else str(exchange_id), side,
-                                  entry.get("created_at"))
+        looked = self._lookup_terminal(symbol, coid, exchange_id, side, entry.get("created_at"))
         if looked is not None and looked.get("status") in _TERMINAL_STATUSES:
             if _terminal_zero_fill(looked):
                 return looked, "not_executed"
@@ -1020,6 +1045,20 @@ class LiveBroker:
             except _UnusableFill:
                 pass
         return order, "unusable" if unusable else "unverified"
+
+    def _unconfirmed_zero(self, symbol: str, side: str, coid: str, amount: float) -> None:
+        """N3: the response claims nothing was filled but the exchange could not confirm it: keep
+        the record (the reconcile resolves it from the exchange), halt, alert. Never retire it."""
+        self._halt(
+            f"{side} {symbol}: the response says order {coid} was not executed, but the exchange could not "
+            "confirm it; the order record is kept",
+            symbol=symbol, side=side, client_order_id=coid, requested_amount=amount,
+            bot_action="Booked nothing and kept the order record (no second order on this symbol); the reconcile "
+                       "looks the order up every cycle. HALTED new buys and new plans.",
+        )
+        raise LiveOrderUnreconciled(
+            f"{side} {symbol}: 'not executed' could not be confirmed with the exchange; record kept, new buys halted"
+        )
 
     def _retire_unexecuted(self, coid: str, symbol: str, side: str, amount: float, order: object) -> None:
         """Terminal zero-fill: the id exists on the exchange (attempt consumed) but nothing was
@@ -1116,34 +1155,155 @@ class LiveBroker:
                 operator_check=self._operator_check(result.symbol, result.side, coid),
             )
             results.append(result)
-        self._recheck_unverified()
+        results.extend(self._recheck_unverified())
         return results
 
-    def _recheck_unverified(self) -> None:
-        """An unverified fill (booked from a fallback) is looked up again every cycle; a match
-        clears the flag (the halt stays for the human), a mismatch is alerted (with reminders)."""
+    def _rounding_match(self, symbol: str, actual: float, booked: float) -> bool:
+        """`actual` (the exchange's fill) is `booked` up to market precision / lot rounding."""
+        if _same_amount(actual, booked) or _same_amount(actual, self._sent_reference(symbol, booked)):
+            return True
+        return abs(actual - booked) <= abs(booked) * UNVERIFIED_ROUNDING_TOLERANCE
+
+    def _recheck_unverified(self) -> list[ReconcileResult]:
+        """RO round 2 (N1). An unverified fill (booked from a fallback) is looked up again every
+        cycle. Equal up to precision/lot rounding -> the entry is cleared. A real difference on a
+        BUY is corrected to the exchange's figure -- trades.csv first (an idempotent `corr:<id>`
+        row), then memory, then (bot.py) the plan store -- and the entry is cleared only once all
+        of that is settled (settle_unverified). Anything it can't correct safely is alerted with the
+        exact entry to resolve. The halt marker stays for the human in every case."""
+        results: list[ReconcileResult] = []
         for coid, info in sorted(self._state.get("unverified", {}).items()):
-            looked = self._lookup(info.get("symbol"), coid, info.get("exchange_order_id"), info.get("side"),
-                                  info.get("created_at"))
+            symbol, side = info.get("symbol"), info.get("side")
+            looked = self._lookup(symbol, coid, info.get("exchange_order_id"), side, info.get("created_at"))
             if looked is None or looked.get("status") not in _TERMINAL_STATUSES:
                 continue
-            filled = looked.get("filled")
             booked = info.get("booked_base_amount")
-            if _is_finite_number(filled) and _is_finite_number(booked) and _same_amount(filled, float(booked)):
+            try:
+                if not _is_finite_number(looked.get("filled")) and not _terminal_zero_fill(looked):
+                    raise _UnusableFill(f"filled={looked.get('filled')!r}")
+                if not _is_finite_number(booked):
+                    raise _UnusableFill(f"booked_base_amount={booked!r}")
+                price, actual, cost = self._fill_figures(
+                    symbol, looked, float(info.get("requested_amount") or booked), float(info.get("price_hint")
+                                                                                         or info.get("booked_price")))
+            except (_UnusableFill, TypeError, ValueError) as exc:
+                self._unverified_alert(coid, info, "unreadable", f"the exchange's record is unusable ({exc})")
+                continue
+            if self._rounding_match(symbol, actual, float(booked)):
                 try:
                     self._mutate_state(lambda s: s["unverified"].pop(coid, None))
                 except Exception:  # noqa: BLE001
                     logger.exception("could not clear unverified flag %s", coid)
                     continue
-                outcome, detail = "verified", f"the exchange confirms the booked {booked!r}"
-            else:
-                outcome, detail = "verify_mismatch", f"booked {booked!r} but the exchange filled {filled!r}"
-            self._queue_alert(
-                ("unverified", coid, outcome), kind="unverified", title=f"unverified fill {outcome}: {detail}",
-                symbol=info.get("symbol"), side=info.get("side"), amount=booked, client_order_id=coid,
-                bot_action="Nothing changed in the ledger automatically." + self._action_suffix(),
-                operator_check=self._operator_check(info.get("symbol"), info.get("side"), coid),
-            )
+                self._unverified_alert(coid, info, "verified",
+                                       f"the exchange's fill {actual!r} matches the booked {booked!r} "
+                                       "(up to precision); entry cleared")
+                continue
+            if side != "buy":
+                self._unverified_alert(
+                    coid, info, "verify_mismatch",
+                    f"booked {booked!r} but the exchange filled {actual!r}; a sell is not corrected automatically")
+                continue
+            if coid in self._state["inflight"]:
+                continue  # its own order record is not settled into the plan store yet: correct next cycle
+            result = self._correct_unverified_buy(coid, info, price, actual, cost)
+            if result is not None:
+                results.append(result)
+        return results
+
+    def _fill_figures(self, symbol: str, order: dict, requested: float, price_hint: float) -> tuple[float, float, float]:
+        """(price, net base amount, quote cost incl. fees) of a terminal order record. Pure."""
+        if _terminal_zero_fill(order):
+            return float(price_hint), 0.0, 0.0
+        price, filled, _remaining = _parse_fill(order, requested, price_hint)
+        base_fee, quote_fee = _order_fees(order, symbol)
+        amount = filled - base_fee if 0 < base_fee < filled else filled
+        return price, amount, filled * price + (quote_fee or 0.0)
+
+    def _correct_unverified_buy(self, coid: str, info: dict, price: float, actual: float,
+                                cost: float) -> ReconcileResult | None:
+        """N1: move an unverified BUY's booking to the exchange's figure. Order, each step
+        idempotent so a crash anywhere is finished by the next cycle:
+          1. `corrected_to` written to the entry (write-ahead: the position may now be either amount);
+          2. one trades.csv row, side `adjust`, order_id `corr:<coid>`, carrying the base/quote
+             DIFFERENCE (reconstruct_cash debits it like a buy; P&L pairing ignores it);
+          3. memory (cash once per process / boot replay; position amount set to the exchange's);
+          4. bot.py moves the plan store, verifies it on disk, then settle_unverified() clears the entry.
+        Not corrected automatically (alerted, entry kept): the exchange shows nothing filled, or
+        the tracked position no longer equals either the booked or the corrected amount."""
+        symbol = info["symbol"]
+        booked = float(info["booked_base_amount"])
+        booked_quote = info.get("booked_quote_amount")
+        if not _is_finite_number(booked_quote):
+            booked_quote = booked * float(info.get("booked_price") or price)
+        pos = self.portfolio.positions.get(symbol)
+        corrected_to = info.get("corrected_to")
+        if actual <= 0 or pos is None or not (
+                _same_amount(pos.amount, booked)
+                or (corrected_to is not None and _same_amount(pos.amount, float(corrected_to)))):
+            why = ("the exchange shows nothing filled" if actual <= 0 else
+                   f"the tracked position ({None if pos is None else pos.amount!r}) no longer equals the booked amount")
+            self._unverified_alert(coid, info, "verify_mismatch",
+                                   f"booked {booked!r} but the exchange filled {actual!r}; {why}, so it is not "
+                                   "corrected automatically")
+            return None
+        if corrected_to is None:
+            try:
+                self._mutate_state(lambda s: s["unverified"][coid].update({"corrected_to": actual}))
+            except Exception as exc:  # noqa: BLE001 -- nothing corrected; retried next cycle
+                self._unverified_alert(coid, info, "verify_mismatch",
+                                       f"correction could not be recorded ({type(exc).__name__})")
+                return None
+        key = f"corr:{coid}"
+        delta_base, delta_quote = actual - booked, cost - float(booked_quote)
+        row = FillResult(symbol, "adjust", price, delta_base, delta_quote, now_iso(), key)
+        if not any(k == key for k, _row in self._trade_rows()):
+            try:
+                self.portfolio.log_trade({
+                    "timestamp": row.timestamp, "mode": "live", "symbol": symbol, "side": "adjust", "price": price,
+                    "base_amount": delta_base, "quote_amount": delta_quote, "order_id": key,
+                })
+            except Exception as exc:  # noqa: BLE001 -- nothing corrected; retried next cycle
+                self._unverified_alert(coid, info, "verify_mismatch",
+                                       f"correction could not be written to trades.csv ({type(exc).__name__})")
+                return None
+        if key not in self._boot_trade_keys and key not in self._applied:
+            self.portfolio.cash = self.portfolio.cash - delta_quote
+        self._applied.add(key)
+        pos.amount = actual
+        self._unverified_alert(coid, info, "corrected",
+                               f"booked {booked!r} but the exchange filled {actual!r}: trades.csv and the position "
+                               "corrected to the exchange's figure")
+        return ReconcileResult(coid, symbol, "buy", info["plan_ref"], "corrected",
+                               f"unverified fill corrected from {booked!r} to {actual!r}", fill=row,
+                               remaining_amount=actual)
+
+    def settle_unverified(self, coid: str) -> bool:
+        """bot.py moved the plan store to the corrected amount: the unverified entry is resolved."""
+        try:
+            self._mutate_state(lambda s: s["unverified"].pop(coid, None))
+            return True
+        except Exception:  # noqa: BLE001
+            logger.exception("could not clear unverified entry %s", coid)
+            return False
+
+    def _unverified_alert(self, coid: str, info: dict, outcome: str, detail: str) -> None:
+        resolved = outcome in ("verified", "corrected")
+        self._queue_alert(
+            ("unverified", coid, outcome), kind="unverified", title=f"unverified fill {outcome}: {detail}",
+            symbol=info.get("symbol"), side=info.get("side"), amount=info.get("booked_base_amount"),
+            client_order_id=coid,
+            bot_action=("Resolved automatically." if resolved else "Nothing changed in the ledger automatically.")
+            + self._action_suffix(),
+            operator_check=(
+                f"Check clientOrderId {coid} on the exchange." + (
+                    "" if resolved else
+                    f" The entry to resolve is \"unverified\" -> \"{coid}\" in logs/{ORDER_STATE_NAME}: fix "
+                    "logs/trades.csv and logs/trade_plans_current.json to the exchange's figures by hand, then "
+                    "remove that entry")
+                + f"; then delete logs/{HALT_MARKER_NAME} and restart."
+            ),
+        )
 
     def _result(self, entry: dict, outcome: str, detail: str, **kw: object) -> ReconcileResult:
         return ReconcileResult(
@@ -1445,6 +1605,11 @@ class LiveBroker:
         if how == "not_executed":
             self._retire_unexecuted(coid, symbol, "buy", base_amount_estimate, order)
             raise LiveOrderNotExecuted(f"buy {symbol}: the exchange reports the order not executed; nothing booked")
+        if how == "unconfirmed_zero":
+            self._unconfirmed_zero(symbol, "buy", coid, base_amount_estimate)
+        contradicted = how == "verified_contradicted"
+        if contradicted:
+            how = "verified"  # booked from the exchange's own record, and halted below
         halt_reason = None
         unverified = how in ("unverified", "unusable")
         try:
@@ -1456,7 +1621,10 @@ class LiveBroker:
             garbage = not isinstance(response, dict) or (
                 response.get("filled") is not None and not _response_usable(response, base_amount_estimate, price_hint)
             )
-            if how == "verified" and garbage:
+            if contradicted:
+                halt_reason = (f"buy {symbol}: the response said nothing was filled but the exchange's own record "
+                               f"shows {filled_amount!r} filled; booked that")
+            elif how == "verified" and garbage:
                 # The response itself was garbage (an ack-only one is not): still a halt.
                 halt_reason = (f"buy {symbol}: unusable exchange response "
                                f"({_unusable_reason(response, base_amount_estimate, price_hint)}); booked the "
@@ -1672,6 +1840,11 @@ class LiveBroker:
         if how == "not_executed":
             self._retire_unexecuted(coid, symbol, "sell", sent, order)
             raise LiveOrderNotExecuted(f"sell {symbol}: the exchange reports the order not executed; nothing booked")
+        if how == "unconfirmed_zero":
+            self._unconfirmed_zero(symbol, "sell", coid, sent)
+        contradicted = how == "verified_contradicted"
+        if contradicted:
+            how = "verified"
         try:
             if how == "unusable":
                 raise _UnusableFill(_unusable_reason(response, sent, price_hint))
@@ -1697,7 +1870,10 @@ class LiveBroker:
             ) from exc
 
         halt_reason = None
-        if how == "unverified":
+        if contradicted:
+            halt_reason = (f"sell {symbol}: the response said nothing was filled but the exchange's own record shows "
+                           f"{sale.filled!r} filled; booked that")
+        elif how == "unverified":
             halt_reason = (f"sell {symbol}: the exchange response carried no fill and the lookup failed; booked "
                            f"{sale.filled!r} @ {sale.price!r} UNVERIFIED -- verify against the exchange")
         elif sale.partial:
@@ -1709,7 +1885,9 @@ class LiveBroker:
                 bot_action=(
                     f"Booked the filled part; the remainder {sale.left!r} stays OPEN with its stop-loss/target "
                     "and is persisted to the plan store. HALTED new buys and new plans."
-                    if sale.partial else "Booked the fill UNVERIFIED (re-checked every cycle). HALTED new buys."
+                    if sale.partial else
+                    "Booked the fill from the exchange's own record of the order. HALTED new buys." if contradicted
+                    else "Booked the fill UNVERIFIED (re-checked every cycle). HALTED new buys."
                 ),
             )
         order_id = _order_id(order) or _order_id(response)

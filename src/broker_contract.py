@@ -27,6 +27,8 @@ class LiveBrokerContract(Protocol):
 
     def settle_order(self, client_order_id: str) -> bool: ...
 
+    def settle_unverified(self, client_order_id: str) -> bool: ...
+
     def report_unmatched(self, client_order_id: str, reason: str) -> None: ...
 
     def report_store_failure(self, symbol: str, detail: str) -> None: ...
@@ -39,6 +41,6 @@ class LiveBrokerContract(Protocol):
 
 
 LIVE_BROKER_ATTRIBUTES = (
-    "TRACKS_ORDER_REFS", "halted", "reconcile", "settle", "settle_order", "report_unmatched",
+    "TRACKS_ORDER_REFS", "halted", "reconcile", "settle", "settle_order", "settle_unverified", "report_unmatched",
     "report_store_failure", "order_in_flight", "pop_alerts", "requeue_alerts",
 )

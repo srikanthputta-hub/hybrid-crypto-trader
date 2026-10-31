@@ -41,6 +41,7 @@ DEBUG = os.environ.get("RR_DEBUG") == "1"
 TRACE = os.environ.get("RR_TRACE") == "1"
 DEBUG_EXC = set(os.environ.get("RR_DEBUG_EXC", "KeyError").split(","))
 START_USDT = 10_000.0
+LOT_STEP = 1e-8  # the fake exchange's amount precision (amount_to_precision truncates to it)
 
 
 class Crash(BaseException):
@@ -71,7 +72,7 @@ class FakeCcxt:
         return {}
 
     def amount_to_precision(self, symbol, amount):
-        return f"{math.floor(float(amount) * 1e8) / 1e8:.8f}"
+        return f"{math.floor(float(amount) * 1e8) / 1e8:.8f}"  # lot step LOT_STEP = 1e-8
 
     # -- trading
     def create_order(self, symbol, type, side, amount, params=None):
@@ -139,6 +140,10 @@ class FakeCcxt:
         if self._f("crash_after"):
             raise Crash("killed after the order reached the exchange")
         resp = json.loads(json.dumps(order))
+        if self._f("ack_only"):
+            # RO round 2 (N1): Kraken's create_order answers with the txid only -- no fill, no
+            # status. The broker must look the order up (and book it unverified if it can't).
+            return {"id": order["id"], "info": {"txid": [order["id"]]}}
         if self._f("garbage"):
             resp = self._corrupt(resp)
         return resp
@@ -259,6 +264,7 @@ def build(root: Path, ec):
                  if r.status == "OPEN" and r.fill_amount and r.fill_price}
     portfolio = Portfolio(cash=cash, positions=positions, trade_log_path=trade_log)
     broker = bl.LiveBroker(ec, portfolio, "live", True)
+    broker._sleep = lambda seconds: None  # the bounded verify re-poll never really sleeps here
     return broker, portfolio, store
 
 
@@ -378,13 +384,23 @@ def run_episode(seed: int, cycles: int, p: dict) -> dict:
                 continue
             if n > 1:
                 violations.append(f"DOUBLE BOOKING in trades.csv: order {oid} booked {n} times")
+            if oid.startswith("corr:"):  # N1 correction row: folded into its order below
+                stats["unverified_corrected"] += 1
+                if not any(x["clientOrderId"] == oid[5:] for x in fake.orders):
+                    violations.append(f"trades.csv corrects order {oid} that the exchange never had")
+                continue
             o = fills.get(oid) or next((x for x in fake.orders if f"coid:{x['clientOrderId']}" == oid), None)
             if o is None:
                 violations.append(f"trades.csv books order {oid} that the exchange never had")
             else:
-                booked = sum(float(r["base_amount"]) for r in rows if r["order_id"] == oid)
+                corr = f"corr:{o['clientOrderId']}"
+                booked = sum(float(r["base_amount"]) for r in rows if r["order_id"] in (oid, corr))
                 if booked > o["filled"] * (1 + 1e-9) + 1e-12:
-                    if o["clientOrderId"] in _unverified(root) and halted_now(root):
+                    if booked - o["filled"] < LOT_STEP:
+                        # N1: an unverified fallback booked the unrounded request; the exchange
+                        # truncated it to its lot step. Less than one lot = a match (entry cleared).
+                        stats["overbooked_within_one_lot"] += 1
+                    elif o["clientOrderId"] in _unverified(root) and halted_now(root):
                         stats["overbooked_flagged_unverified"] += 1
                     else:
                         violations.append(f"OVER-BOOKED order {oid}: booked {booked} > filled {o['filled']}")
@@ -395,6 +411,7 @@ def run_episode(seed: int, cycles: int, p: dict) -> dict:
         stats["halted_end"] += int(halted)
         inflight = _inflight(root)
         stats["inflight_end"] += len(inflight)
+        stats["unverified_end"] += len(_unverified(root))
         diffs = []
         for s in SYMS:
             base = s.split("/")[0]
@@ -467,13 +484,15 @@ def check_orders(fake, plan_refs, violations, cyc):
 
 PROFILES = {
     "exchange_faults": dict(crash_before=0.03, timeout_before=0.04, reject=0.04, partial=0.1, timeout_after=0.05,
-                            bare_error_after=0.02, crash_after=0.04, garbage=0.08, lookup_err=0.15,
+                            bare_error_after=0.02, crash_after=0.04, garbage=0.08, lookup_err=0.15, ack_only=0.15,
                             balance_err=0.1, balance_omit=0.05),
     "disk_faults": dict(state_oserr=0.03, state_crash_before=0.02, state_crash_after=0.02, halt_oserr=0.1,
                         trades_oserr=0.04, trades_crash_before=0.01, trades_crash_after=0.02,
                         store_crash_before=0.01, store_crash_after=0.02, hist_crash_after=0.01, partial=0.05),
+    # RO round 2 (N1): Kraken -- every create_order answer is txid-only and lookups often fail.
+    "kraken_ack_only": dict(ack_only=1.0, lookup_err=0.3, partial=0.1, timeout_after=0.03, crash_after=0.02),
     "everything": dict(crash_before=0.02, timeout_before=0.03, reject=0.03, partial=0.08, timeout_after=0.04,
-                       bare_error_after=0.02, crash_after=0.03, garbage=0.06, lookup_err=0.1, balance_err=0.08,
+                       bare_error_after=0.02, crash_after=0.03, garbage=0.06, lookup_err=0.1, ack_only=0.1, balance_err=0.08,
                        balance_omit=0.04, state_oserr=0.02, state_crash_before=0.01, state_crash_after=0.02,
                        halt_oserr=0.05, trades_oserr=0.03, trades_crash_after=0.02, store_crash_after=0.02),
 }

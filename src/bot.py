@@ -584,12 +584,21 @@ def _plan_ref(record) -> str:
     return f"{record.symbol}|{record.created_at}"
 
 
+# Flags that BLOCK something when set: a broken property must count as set (fail closed).
+_FAIL_CLOSED_FLAGS = frozenset({"halted"})
+
+
 def _flag(broker, name: str) -> bool:
     """A live-broker capability/state flag, True ONLY for a real `True` (review S1): an object
-    that merely answers every attribute (a MagicMock) never blocks planning or gets order refs."""
+    that merely answers every attribute (a MagicMock) never blocks planning or gets order refs.
+    A property that RAISES counts as not set -- except a blocking flag (`halted`), which then
+    counts as set (RO round 2, minor a: if the broker can't say it isn't halted, don't plan)."""
     try:
         return getattr(broker, name, False) is True
-    except Exception:  # noqa: BLE001 -- a broken property counts as "not set"
+    except Exception:  # noqa: BLE001
+        if name in _FAIL_CLOSED_FLAGS:
+            logger.exception("broker.%s raised -- treated as set (fail closed)", name)
+            return True
         return False
 
 
@@ -670,6 +679,19 @@ def _apply_reconcile_result(broker, store: TradePlanStore, result) -> None:
     symbol = result.symbol
     record = store.get(symbol)
     matches = record is not None and _plan_ref(record) == result.plan_ref
+    if result.outcome == "corrected":
+        # RO round 2 (N1): an unverified buy's booking was corrected to the exchange's figure
+        # (trades.csv + memory already done); move the OPEN plan to it, verify, then clear.
+        if not (matches and record.status == "OPEN"):
+            broker.report_unmatched(result.client_order_id, "no OPEN plan matches the corrected fill")
+            return
+        if not _persisted_as_expected(store, symbol, "OPEN", result.remaining_amount, result.plan_ref):
+            store.update_open_amount(symbol, result.remaining_amount)
+        if not _persisted_as_expected(store, symbol, "OPEN", result.remaining_amount, result.plan_ref):
+            _store_failed(broker, symbol, "current.json does not show the corrected amount")
+            return
+        broker.settle_unverified(result.client_order_id)
+        return
     if result.side == "buy":
         if matches and record.status == "PENDING":
             store.mark_open(symbol, fill_price=fill.price, fill_amount=fill.base_amount)
