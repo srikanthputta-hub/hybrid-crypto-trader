@@ -56,10 +56,11 @@ MUTATIONS = [
     ("M10", "item 4: halted gate on planning removed", BOT,
      "    if _flag(c.broker, \"halted\"):", "    if False:"),
     ("M11", "item 2: halt alert never queued", BL,
-     "        self._alert_last[key] = now\n        self._alerts.append({**alert, \"reminder\": last is not None})",
+     "        self._alert_last[key] = now\n"
+     "        self._alerts.append({**alert, \"reminder\": last is not None, \"_key\": repr(key)})",
      "        self._alert_last[key] = now"),
     ("M12", "item 2: queued alerts never sent to Telegram", BOT,
-     "        if bot_token and chat_id and notifier.send_telegram_message(bot_token, chat_id, text) is not True:",
+     "        if notifier.send_telegram_message(bot_token, chat_id, text, timeout=max(0.5, left)) is not True:",
      "        if False:"),
     ("M13", "item 5: filled-only sell response treated as a full close again", BL,
      "            ordered is None and remaining is None and order.get(\"filled\") is not None",
@@ -91,8 +92,8 @@ MUTATIONS = [
      "        fill = broker.buy(action.symbol, quote_amount, action.price, **_order_kwargs(broker, record))\n"
      "        _settle(broker, action.symbol)\n"),
     ("M24", "item 2: run_cycle no longer reconciles before acting", BOT,
-     "        _reconcile_live_orders(broker, store)\n        _send_broker_alerts(cfg, broker)\n        _run_cycle_body",
-     "        _send_broker_alerts(cfg, broker)\n        _run_cycle_body"),
+     "        _reconcile_live_orders(broker, store)\n        _run_cycle_body",
+     "        _run_cycle_body"),
     # review survivors (Architect X03/X05/X06/X08/X09/X11/X15)
     ("M25", "X03: not-found grace period 120 s -> 30 s", BL,
      "            if (now - created).total_seconds() < RECONCILE_NOT_FOUND_GRACE_SECONDS:",
@@ -162,7 +163,8 @@ MUTATIONS = [
     ("N17", "F8a: Kraken lookup without the server-side clientOrderId filter", EX,
      "and self.exchange_id in _SERVER_SIDE_CLIENT_ID:", "and False:"),
     ("N18", "F8b: ack-only / unusable responses booked without an exchange lookup", BL,
-     "        looked = self._lookup(symbol, coid,", "        looked = None and self._lookup(symbol, coid,"),
+     "        looked = self._lookup(symbol, coid, eid, side, created_at)\n        polls = 0",
+     "        looked = None\n        polls = 0"),
     ("N19", "F8c: dust sells sent to the exchange", BL,
      "        self._check_exit_size(symbol, sent, price_hint)", "        pass"),
     ("N20", "F8d: a precision-truncated full fill labelled partial", BL,
@@ -186,12 +188,61 @@ MUTATIONS = [
     ("N28", "RO f6: free balance 0 -> the protective sell is never sent", BL,
      "            return held\n        if free < held * (1 - _SELL_SHORTFALL_TOLERANCE):",
      "            raise LiveOrderUnreconciled(\"no free balance\")\n        if free < held * (1 - _SELL_SHORTFALL_TOLERANCE):"),
+    # ---- review round 2 (Architect + Risk Officer re-verification of 624c7954)
+    ("P01", "Arch 1: a failed Telegram send does not stop the cycle's delivery pass", BOT,
+     "            sending = False  # first failure", "            sending = True  # first failure"),
+    ("P02", "Arch 1 / RO N2: undelivered alerts neither deduplicated nor capped", BL,
+     "        newest: dict = {}\n", "        return\n        newest: dict = {}\n"),
+    ("P03", "Arch 1: alert delivery has no time budget", BOT,
+     "        if not sending or left <= 0:", "        if not sending:"),
+    ("P04", "Arch 2: reconcile alert claims NOT halted while halted", BL,
+     "            if self.halted else \\\n", "            if False else \\\n"),
+    ("P05", "Arch 4: no bounded re-poll of a still-working Kraken order", BL,
+     "and polls < VERIFY_REPOLLS:", "and polls < 0:"),
+    ("P06", "Arch 5: halt_durable never flipped once the marker is written", BL,
+     "                    s[\"inflight\"][coid][\"halt_durable\"] = True", "                    pass"),
+    ("P07", "Arch 6 (X02): partial-sell settle without on-disk verification", BOT,
+     "                _settle(broker, action.symbol, store, \"OPEN\", remaining, _plan_ref(record))",
+     "                _settle(broker, action.symbol)"),
+    ("P08", "RO N1: unverified re-check compares exactly (precision dust never matches)", BL,
+     "        if _same_amount(actual, booked) or _same_amount(actual, self._sent_reference(symbol, booked)):\n"
+     "            return True\n        return abs(actual - booked) <= abs(booked) * UNVERIFIED_ROUNDING_TOLERANCE",
+     "        return _same_amount(actual, booked)"),
+    ("P09", "RO N1: a real difference on an unverified buy is never corrected", BL,
+     "            result = self._correct_unverified_buy(coid, info, price, actual, cost)",
+     "            result = None"),
+    ("P10", "RO N1: the correction's cash is applied again after a restart", BL,
+     "        if key not in self._boot_trade_keys and key not in self._applied:",
+     "        if True:"),
+    ("P11", "RO N1: unverified entry cleared without the plan store read back from disk", BOT,
+     "        if not _persisted_as_expected(store, symbol, \"OPEN\", result.remaining_amount, result.plan_ref):\n"
+     "            _store_failed(broker, symbol, \"current.json does not show the corrected amount\")\n"
+     "            return\n",
+     ""),
+    ("P12", "RO N1: correction recorded without its write-ahead corrected_to", BL,
+     "        if corrected_to is None:\n            try:\n                self._mutate_state(",
+     "        if False:\n            try:\n                self._mutate_state("),
+    ("P13", "RO N3: a terminal zero-fill response is trusted without a lookup", BL,
+     "            looked = self._lookup_terminal(symbol, coid, exchange_id, side, entry.get(\"created_at\"))\n"
+     "            if looked is not None and _terminal_zero_fill(looked):",
+     "            return order, \"not_executed\"\n"
+     "            if looked is not None and _terminal_zero_fill(looked):"),
+    ("P14", "RO N3: an unconfirmable zero-fill is retired anyway", BL,
+     "            return order, \"unconfirmed_zero\"", "            return order, \"not_executed\""),
+    ("P15", "RO minor a: a raising `halted` counts as not halted", BOT,
+     "        if name in _FAIL_CLOSED_FLAGS:", "        if False:"),
+    ("R06", "RO minor b (G3): a booked record's cash is never re-applied", BL,
+     "        cash_applied = coid in self._applied or trade_key in self._boot_trade_keys",
+     "        cash_applied = True"),
+    ("R19", "RO minor b (G4): `halted` ignores unverified fills", BL,
+     "            or bool(self._state.get(\"unverified\"))\n        )", "        )"),
 ]
 
 TEST_FILES = [
     "tests/test_live_review_fixes.py", "tests/test_live_readiness.py", "tests/test_live_reconcile.py",
     "tests/test_trade_plan_store.py", "tests/test_exchange.py", "tests/test_paper_isolation.py",
     "tests/test_live_smoke.py", "tests/test_broker_live.py", "tests/test_bot.py", "tests/test_live_fuzz.py",
+    "tests/test_live_review_round2.py", "tests/test_live_review_round2_ro.py",
 ]
 COPY_DIRS = ("src", "tests", "config", "scripts", ".github")
 LINK_DIRS = ("docs", "research", "strategy_pack_run", "web", "deploy")
