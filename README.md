@@ -332,6 +332,43 @@ If you'd rather deploy from the command line instead of GitHub integration,
 `wrangler pages deploy web --project-name=hybrid-crypto-trader` works too
 (requires `wrangler` authenticated with your Cloudflare account).
 
+### Keeping the bot cycling reliably (Cloudflare Cron Trigger)
+
+`.github/workflows/refresh-dashboard.yml` runs one bot cycle and regenerates
+`web/data.json`. Its own `schedule:` trigger is GitHub's native cron, which
+is **not reliable** — in practice, gaps of an hour or more between runs are
+common even at a `*/5 * * * *` setting, since GitHub doesn't guarantee
+scheduled-workflow timing.
+
+`worker/index.js` (the same Worker that serves the dashboard) fixes this: on
+a Cloudflare Cron Trigger (`triggers.crons` in `wrangler.jsonc`, currently
+every minute), it calls GitHub's API to fire that workflow's
+`workflow_dispatch` event directly. Cloudflare Cron Triggers don't have
+GitHub's reliability problem, so this is what actually keeps cycles running
+close to continuously. The workflow's own `concurrency` block queues
+back-to-back dispatches safely rather than clashing.
+
+This needs one secret the repo doesn't ship with: **`GITHUB_DISPATCH_TOKEN`**
+— a GitHub fine-grained personal access token scoped to *only this repo*,
+with **Actions: Read and write** permission (that's the minimum needed to
+call the dispatch endpoint). Create one under GitHub → Settings → Developer
+settings → Personal access tokens → Fine-grained tokens, then set it as a
+Cloudflare Worker secret:
+
+```bash
+npx wrangler secret put GITHUB_DISPATCH_TOKEN
+```
+
+— or via the Cloudflare dashboard: **Workers & Pages → hybrid-crypto-trader →
+Settings → Variables and Secrets → Add → type "Secret"**. Never commit this
+token.
+
+Note that triggering a private repo's Actions workflow this often uses real
+GitHub Actions minutes (2,000/month free, then billed) — this project's repo
+is public specifically so those minutes are unlimited/free. If you fork this
+privately, either widen the cron interval in `wrangler.jsonc` or budget for
+the extra Actions usage.
+
 ## Running this repo like a trading brokerage (CLAUDE.md)
 
 `CLAUDE.md` sets up Claude Code to work on this repo the way a small trading
