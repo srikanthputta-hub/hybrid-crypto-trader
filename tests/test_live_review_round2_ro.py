@@ -174,6 +174,20 @@ def test_n1_correction_interrupted_before_the_store_is_finished_next_cycle_exact
     assert p2.positions[BTC].amount == pytest.approx(actual) and s2.get(BTC).fill_amount == pytest.approx(actual)
 
 
+def test_n1_entry_is_not_cleared_when_the_store_does_not_show_the_corrected_amount(tmp_path):
+    """The plan store is read back from disk before the unverified entry is cleared: a store
+    update that silently did not land keeps the entry (and reports the store failure)."""
+    broker, portfolio, store, exchange, coid, booked, ack = _ack_only_unverified_buy(tmp_path, price=50_000.0)
+    actual = round(booked * 0.5, 8)
+    exchange.find_override[coid] = {**ack, "status": "canceled", "amount": booked, "filled": actual,
+                                    "remaining": booked - actual, "average": 50_000.0}
+    store.update_open_amount = lambda *a, **k: None  # "succeeds" but nothing reaches current.json
+    broker.pop_alerts()
+    _reconcile_live_orders(broker, store)
+    assert coid in _state(tmp_path)["unverified"]
+    assert any("corrected amount" in str(a.get("title")) + str(a.get("bot_action")) for a in broker.pop_alerts())
+
+
 def test_n1_uncorrectable_mismatch_alert_names_the_exact_entry(tmp_path):
     """A sell / a changed position / nothing filled is never corrected automatically: the alert
     (with reminders) says exactly which entry of which file to resolve."""
@@ -358,7 +372,9 @@ def test_g4_unverified_alone_keeps_buys_halted_after_marker_deleted(tmp_path):
     (logs_dir(tmp_path) / HALT_MARKER_NAME).unlink()
     b2, p2, s2 = start(tmp_path, exchange)
     assert b2.halted
-    b2._halt_reason = None  # even with no in-memory reason at all, the entry alone halts
+    # Even with no in-memory reason and no marker at all, the unverified entry alone halts.
+    b2._halt_reason = None
+    (logs_dir(tmp_path) / HALT_MARKER_NAME).unlink(missing_ok=True)
     assert b2.halted
     with pytest.raises(LiveBrokerHalted):
         b2.buy(ETH, 50.0, 2_000.0)
