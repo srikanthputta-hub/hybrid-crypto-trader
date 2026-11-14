@@ -34,6 +34,7 @@ from src.broker_live import (
     LivePartialFill,
     LiveTradingDisabled,
 )
+from src.exchange import MarketLimits
 from src.portfolio import Portfolio, Position
 
 NAN, INF = float("nan"), float("inf")
@@ -88,6 +89,13 @@ class FakeExchange:
         if self.lookup_error is not None:
             raise self.lookup_error
         return copy.deepcopy(self.book.get(client_order_id))
+
+    # Issue #81: the buy guard reads the market's minimums (none published here) and precision (exact).
+    def market_limits(self, symbol):
+        return MarketLimits(symbol, None, None)
+
+    def amount_to_precision(self, symbol, amount):
+        return float(amount)
 
 
 def _full_fill(symbol, side, amount, price=50_000.0):
@@ -835,6 +843,7 @@ def _live_replay(tmp_path, label, module, poison_order: int | None = None):
     from src.bot import run_cycle
     from tests import test_bot_universe_wiring as wiring
     from src.config import load_config
+    from tests._live_fakes import published_markets
 
     # The pre-trial 1h config (hourly fixtures, bar parity off): this replay is about the broker path,
     # not the shipped trial values (tests/test_paper_trial_config.py pins those).
@@ -848,6 +857,12 @@ def _live_replay(tmp_path, label, module, poison_order: int | None = None):
     exchange_book: dict = {}
 
     class OrderingFake(wiring.FakeCcxt):
+        def load_markets(self):  # issue #81: every symbol listed, no minimums published
+            return published_markets(self.hourly)
+
+        def amount_to_precision(self, symbol, amount):
+            return amount
+
         def create_order(self, symbol, type, side, amount, price=None, params=None):  # noqa: A002 -- ccxt's own signature
             orders.append((symbol, side, amount))
             last = [r for r in self.hourly[symbol] if r[0] + 3_600_000 <= self.now_ms][-1][4]

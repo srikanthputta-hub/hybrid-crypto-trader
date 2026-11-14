@@ -638,8 +638,9 @@ def test_f8b_ack_only_with_failed_lookup_is_booked_unverified_halted_and_recheck
 
 def test_f8c_dust_sell_is_not_sent_and_is_alerted(tmp_path):
     ex = FaultyExchange()
-    ex.min_order_amount = lambda symbol: 0.01
     broker, portfolio, store = _opened(tmp_path, ex)
+    # Set AFTER the buy: since issue #81 the same minimum also refuses a buy below it.
+    ex.min_order_amount = lambda symbol: 0.01
     n = len(ex.orders)
     with pytest.raises(broker_live.LiveExitBlocked):
         _act(STOP, broker, store)

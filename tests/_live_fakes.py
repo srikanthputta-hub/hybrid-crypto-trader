@@ -12,6 +12,7 @@ from pathlib import Path
 
 import ccxt
 
+from src.exchange import MarketLimits
 from src.portfolio import Portfolio, Position, reconstruct_cash
 from src.trade_plan_store import TradePlanStore
 
@@ -47,7 +48,16 @@ class FaultyExchange:
         self.reject_duplicate_ids = False
         # --- other faults ---
         self.balance_error: BaseException | None = None
-        self.precision = None                               # callable(symbol, amount) -> float; None = unsupported
+        # callable(symbol, amount) -> float; None = no truncation (the amount itself). Before issue #81
+        # None meant "unsupported" (NotSupported); every sell-side use falls back to the raw amount
+        # then, which is exactly what the identity returns, so that change is behaviour-neutral --
+        # and the #81 buy guard refuses when precision is unavailable (precision_error simulates it).
+        self.precision = None
+        self.precision_error: BaseException | None = None
+        # --- per-pair minimums (issue #81) ---
+        self.min_amount: dict[str, float] = {}              # symbol -> limits.amount.min (missing = not published)
+        self.min_cost: dict[str, float] = {}                # symbol -> limits.cost.min (missing = not published)
+        self.limits_error: BaseException | None = None      # market_limits raises (markets can't be loaded)
         self.find_error: BaseException | None = None
         self.find_override: dict[str, object] = {}          # clientOrderId -> dict | None | BaseException
         self.lookups: list[tuple] = []
@@ -102,9 +112,23 @@ class FaultyExchange:
         return self.free.get(asset)
 
     def amount_to_precision(self, symbol, amount):
+        if self.precision_error is not None:
+            raise self.precision_error
         if self.precision is None:
-            raise ccxt.NotSupported("no market precision in this fake")
+            return float(amount)
         return self.precision(symbol, amount)
+
+    def min_order_amount(self, symbol):
+        return self.min_amount.get(symbol)
+
+    def min_order_cost(self, symbol):
+        return self.min_cost.get(symbol)
+
+    def market_limits(self, symbol):
+        """ExchangeClient.market_limits: the buy guard's (fail-closed) view of the same minimums."""
+        if self.limits_error is not None:
+            raise self.limits_error
+        return MarketLimits(symbol, self.min_order_amount(symbol), self.min_order_cost(symbol))
 
     def find_order(self, symbol, client_order_id, exchange_order_id=None, since_ms=None, side=None):
         self.lookups.append((symbol, client_order_id, exchange_order_id, since_ms, side))
@@ -151,3 +175,10 @@ def start(tmp_path: Path, exchange: FaultyExchange, starting_cash: float = 10_00
 
 PLAN = {"approved_quote_amount": 100.0, "entry_zone": (49_000.0, 50_500.0), "invalidation": 40_000.0,
         "stop_loss": 45_000.0, "take_profit": 60_000.0}
+
+
+def published_markets(symbols, amount_min: float | None = None, cost_min: float | None = None) -> dict:
+    """A ccxt-shaped load_markets() result for fake ccxt clients behind the REAL ExchangeClient:
+    every symbol listed, with the given minimums (None = not published)."""
+    return {s: {"symbol": s, "limits": {"amount": {"min": amount_min}, "cost": {"min": cost_min}},
+                "precision": {"amount": None}} for s in symbols}

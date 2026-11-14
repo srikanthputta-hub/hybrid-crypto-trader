@@ -6,6 +6,8 @@ only ever uses the read side of this class — see broker_paper.py.
 from __future__ import annotations
 
 import logging
+import math
+from dataclasses import dataclass
 from typing import Any
 
 import ccxt
@@ -183,11 +185,24 @@ class ExchangeClient:
         self.client.load_markets()
         return float(self.client.amount_to_precision(symbol, amount))
 
+    def market_limits(self, symbol: str) -> "MarketLimits":
+        """The market's published minimum order size (issue #81), for a BUY that must fail
+        closed: raises MarketLimitsUnavailable (or whatever load_markets raised) when the
+        markets can't be loaded, the symbol isn't listed, or its limits are malformed. Read-only."""
+        markets = self.client.load_markets()
+        if not isinstance(markets, dict) or symbol not in markets:
+            raise MarketLimitsUnavailable(f"{self.exchange_id} lists no market {symbol!r}; its limits are unknown")
+        return parse_market_limits(symbol, markets[symbol])
+
     def _market_limit(self, symbol: str, kind: str) -> float | None:
+        # The sell-side dust check's view of the same parser (market_limit): a symbol that
+        # isn't listed has no published minimum (None, as before) -- the exchange is the arbiter
+        # of a protective exit. Malformed limits raise; the sell path treats that as unknown too.
         markets = self.client.load_markets()
         market = markets.get(symbol) if isinstance(markets, dict) else None
-        value = (((market or {}).get("limits") or {}).get(kind) or {}).get("min")
-        return None if value is None else float(value)
+        if market is None:
+            return None
+        return market_limit(symbol, market, kind, require_limits=False)
 
     def min_order_amount(self, symbol: str) -> float | None:
         """The market's minimum order amount (base units), or None when not published."""
@@ -196,6 +211,80 @@ class ExchangeClient:
     def min_order_cost(self, symbol: str) -> float | None:
         """The market's minimum order cost (quote units), or None when not published."""
         return self._market_limit(symbol, "cost")
+
+
+# ---------------------------------------------------------------------- per-pair minimums (issue #81)
+
+
+class MarketLimitsUnavailable(RuntimeError):
+    """A market's minimum order size could not be determined: a live BUY must be refused."""
+
+
+@dataclass(frozen=True)
+class MarketLimits:
+    """ccxt `limits.amount.min` (base units) and `limits.cost.min` (quote units) of one market.
+    None = the exchange publishes no such minimum (a published 0 is also no constraint)."""
+
+    symbol: str
+    amount_min: float | None
+    cost_min: float | None
+
+
+def _limit_value(symbol: str, kind: str, value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise MarketLimitsUnavailable(f"{symbol}: limits.{kind}.min={value!r} is not a number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise MarketLimitsUnavailable(f"{symbol}: limits.{kind}.min={value!r} is not a number") from exc
+    if not (math.isfinite(number) and number >= 0):
+        raise MarketLimitsUnavailable(f"{symbol}: limits.{kind}.min={value!r} is not a finite number >= 0")
+    return number
+
+
+def market_limit(symbol: str, market: object, kind: str, require_limits: bool = True) -> float | None:
+    """One minimum (`kind` "amount" or "cost") of one ccxt market dict, or MarketLimitsUnavailable.
+    Pure. ccxt always fills `limits` for a loaded market; a market without it (require_limits) or
+    with a non-dict / non-finite / negative / non-numeric minimum is UNKNOWN, never 'no minimum'.
+    An absent `limits.<kind>` entry, or min None, means the exchange publishes none."""
+    if not isinstance(market, dict):
+        raise MarketLimitsUnavailable(f"{symbol}: market is {type(market).__name__}, not a dict")
+    limits = market.get("limits")
+    if limits is None and not require_limits:
+        limits = {}
+    if not isinstance(limits, dict):
+        raise MarketLimitsUnavailable(f"{symbol}: market has no usable 'limits' ({type(limits).__name__})")
+    entry = limits.get(kind)
+    if entry is None:
+        return None
+    if not isinstance(entry, dict):
+        raise MarketLimitsUnavailable(f"{symbol}: limits.{kind} is {type(entry).__name__}, not a dict")
+    return _limit_value(symbol, kind, entry.get("min"))
+
+
+def parse_market_limits(symbol: str, market: object) -> MarketLimits:
+    """Both minimums of one ccxt market dict (market_limit), or MarketLimitsUnavailable. Pure."""
+    return MarketLimits(symbol, market_limit(symbol, market, "amount"), market_limit(symbol, market, "cost"))
+
+
+def order_minimum_violation(
+    amount: float, price: float, amount_min: float | None, cost_min: float | None, truncated: float | None,
+) -> str | None:
+    """Why an order of `amount` (base) at `price` is below the market's minimum, else None. Pure.
+
+    `truncated` is the amount at the market's precision when known (None = unknown). Shared by
+    the live BUY guard (issue #81: amount = the precision-truncated amount) and the sell dust
+    check (review F8c: amount = the amount sent). Only ever a reason to REFUSE an order; nothing
+    here can resize one."""
+    if truncated is not None and math.isfinite(truncated) and truncated == 0:
+        return f"{amount!r} truncates to 0 at the market's precision"
+    if amount_min is not None and math.isfinite(amount_min) and amount_min > 0 and amount < amount_min:
+        return f"{amount!r} is below the exchange minimum amount {amount_min!r}"
+    if cost_min is not None and math.isfinite(cost_min) and cost_min > 0 and amount * price < cost_min:
+        return f"{amount!r} x {price!r} is below the exchange minimum cost {cost_min!r}"
+    return None
 
 
 # Exchanges whose ccxt fetch_open_orders/fetch_closed_orders filter by params.clientOrderId

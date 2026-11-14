@@ -37,6 +37,7 @@ import ccxt
 
 import src.broker_live as bl
 from src.bot import _execute_monitor_action, _reconcile_live_orders
+from src.exchange import MarketLimits
 from src.monitor import MonitorAction
 from src.portfolio import Portfolio, reconstruct_cash
 from src.trade_plan_store import TradePlanStore
@@ -123,7 +124,12 @@ class Book:
         return v
 
     def amount_to_precision(self, symbol, amount):
-        raise ccxt.NotSupported("no precision")
+        # Exact (no truncation). Was NotSupported before issue #81; every sell-side use fell back to
+        # the raw amount then, which is what this returns -- the #81 buy guard needs a precision.
+        return float(amount)
+
+    def market_limits(self, symbol):  # issue #81: no minimums published
+        return MarketLimits(symbol, None, None)
 
     def find_order(self, symbol, client_order_id, exchange_order_id=None, since_ms=None, side=None):
         if self.rng.random() < self.lookup_fail_p:
