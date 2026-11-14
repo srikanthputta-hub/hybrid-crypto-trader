@@ -1,7 +1,19 @@
-# Project status (as of 2026-10-20)
+# Project status (as of 2026-11-14)
 
 Read this first when picking the repo up cold. It summarises the "system redesign" work and what is
 waiting on whom. The detail lives in the linked docs; the PR/issue numbers are GitHub numbers.
+
+> **Current state (2026-11-14).**
+> - **Paper daily-bar trial:** running since 2026-10-20 00:05 UTC on the VM. Every daily bar decided for all 16
+>   symbols, 0 stale-bar skips, 0 errors; **no entries yet** (mostly bearish signals the long-only bot only logs).
+>   Weekly parity checks: PASS (vacuous, no decisions to compare). Kill rule not yet applicable (0 closed trades).
+> - **Live-readiness (#99):** hardening merged in #119 after three rounds of independent Opus review; live trading
+>   is still **not** enabled and **not ready**: the conditions in `docs/live_readiness_design.md` section 11 remain.
+>   #99 stays open for them. Kraken per-pair minimums (#81) in progress.
+> - **Dashboard:** redesigned (#111); VM pushes throttled to content changes + hourly heartbeat (#117); optional
+>   direct deploy from the VM without Cloudflare build minutes (#118, needs Node/wrangler and a token on the VM).
+> - **Intraday research:** all three pre-registered families FAIL (#115/#116); nothing intraday ships.
+> - **Awaiting the owner's decision:** the Daily Backtester Routine PRs #78, #82, #83, #85, #88 and PR #29.
 
 > **TRIAL RUNNING (day 0 = 2026-10-20 00:05 UTC).** PR #106 was merged on 2026-10-19 after the 1h bot was stopped and
 > archived; the paper bot has run the daily-bar config since. First-cycle check (20:14 UTC): 16 `*/USD` symbols, every
@@ -33,7 +45,7 @@ below; merged, #104). It moved the harness baselines; the current numbers are in
   (`mode: live` + `LIVE_TRADING_CONFIRM`) without the user. See `CLAUDE.md`.
 - **No live/paper config or strategy change without the user's explicit approval**, and without a
   written reason plus an out-of-sample test (`CLAUDE.md` trading rules).
-- **CI is dead until 2026-11-01** (GitHub Actions minutes are exhausted). Run `python -m pytest -q`
+- **CI:** GitHub Actions minutes were exhausted until 2026-11-01, so October work was verified locally. Still run `python -m pytest -q`
   and `PYTHONPATH=. python scripts/validate_invariants.py` locally, and say so in the PR description.
   `ci.yml` already skips dashboard-data-only commits (#93).
 - The "daily backtest sweep" promotion PRs **#78, #82, #83, #85, #88** and PR **#29** (Cloudflare
