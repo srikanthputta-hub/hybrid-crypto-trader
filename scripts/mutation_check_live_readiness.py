@@ -272,6 +272,7 @@ TEST_FILES = [
     "tests/test_live_smoke.py", "tests/test_broker_live.py", "tests/test_bot.py", "tests/test_live_fuzz.py",
     "tests/test_live_review_round2.py", "tests/test_live_review_round2_ro.py",
     "tests/test_live_review_round3_ro.py", "tests/test_pair_minimums.py",
+    "tests/test_check_pair_minimums.py", "tests/test_run_live.py",
 ]
 COPY_DIRS = ("src", "tests", "config", "scripts", ".github")
 LINK_DIRS = ("docs", "research", "strategy_pack_run", "web", "deploy")
