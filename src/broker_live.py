@@ -76,6 +76,21 @@ Review round (docs/live_readiness_design.md §10):
   booking; a terminal zero-fill order is NOT executed; a fill that could not be verified is
   booked conservatively, marked `unverified`, halted, alerted and re-checked every cycle.
 * One live process per logs/ directory (exclusive flock on LOCK_NAME, taken AFTER the gate).
+
+Per-pair exchange minimums (issue #81; the flat risk.min_order_quote_usd floor in risk_engine.py
+already rejects small buys before they get here):
+
+* Before a BUY (after every check above, before the write-ahead record -- so a refusal leaves no
+  record and places nothing) the order is checked against the market's own minimums: ccxt
+  `limits.amount.min` against the amount AFTER amount_to_precision (what ccxt would really send),
+  and `limits.cost.min` against that amount x price_hint. Below either -> LiveOrderBelowMinimum.
+  The amount is NEVER resized up to the minimum.
+* Fail closed: limits or precision that cannot be loaded (network, unknown symbol, malformed
+  limits) -> LiveMarketLimitsUnavailable. Both refusals queue an alert; neither halts (no order
+  exists) and the plan stays PENDING, so the next cycle checks again.
+* Sells keep the review-F8c dust check (_check_exit_size): same decision function
+  (src.exchange.order_minimum_violation) over the same ccxt limits fields, but UNKNOWN limits there
+  still let the protective exit go out -- the exchange is the arbiter of a stop-loss.
 """
 from __future__ import annotations
 
@@ -92,7 +107,7 @@ from pathlib import Path
 
 import ccxt
 
-from src.exchange import ExchangeClient
+from src.exchange import ExchangeClient, order_minimum_violation
 from src.portfolio import Portfolio, Position, _is_finite_number, now_iso
 
 logger = logging.getLogger(__name__)
@@ -275,6 +290,16 @@ class LiveOrderNotExecuted(RuntimeError):
 
 class LiveExitBlocked(RuntimeError):
     """A sell was not sent because the exchange would refuse it (below its minimum order size)."""
+
+
+class LiveOrderBelowMinimum(RuntimeError):
+    """Issue #81: a BUY was not sent because it is below the market's own minimum order size
+    (limits.amount.min after precision, or limits.cost.min). Nothing placed, nothing recorded."""
+
+
+class LiveMarketLimitsUnavailable(RuntimeError):
+    """Issue #81: a BUY was not sent because the market's minimum order size / precision could not
+    be determined (fail closed). Nothing placed, nothing recorded."""
 
 
 class LiveBrokerLocked(RuntimeError):
@@ -1565,6 +1590,50 @@ class LiveBroker:
             existing.entry_price = new_entry_price
             existing.amount = new_amount
 
+    def _buy_refused(self, symbol: str, amount: float, kind: str, why: str) -> None:
+        self._queue_alert(
+            ("buy-refused", symbol, kind),
+            kind="buy_refused", title=f"buy {symbol} REFUSED: {why}",
+            symbol=symbol, side="buy", amount=amount, client_order_id=None,
+            bot_action="Placed NO order and wrote no order record; nothing was resized. The plan stays PENDING and "
+                       "is checked again next cycle." + self._action_suffix(),
+            operator_check=(
+                f"Compare the {symbol} market's minimum order (amount/cost) with risk.min_order_quote_usd and "
+                "the plan's size (scripts/check_pair_minimums.py prints the table)."
+                if kind == "below_minimum" else
+                f"Check that the exchange's market list loads and still lists {symbol} "
+                "(scripts/check_pair_minimums.py); no order is placed until it does."
+            ),
+        )
+
+    def _check_buy_minimums(self, symbol: str, amount: float, price_hint: float) -> None:
+        """Issue #81: refuse (never resize) a BUY below the market's own minimum order size, and
+        refuse when that minimum can't be determined (fail closed). Places nothing, records nothing."""
+        try:
+            limits = self.exchange.market_limits(symbol)
+            amount_min, cost_min = limits.amount_min, limits.cost_min
+            for name, value in (("amount.min", amount_min), ("cost.min", cost_min)):
+                if value is not None and not (_is_finite_number(value) and value >= 0):
+                    raise ValueError(f"limits.{name}={value!r} is not a finite number >= 0")
+            try:
+                truncated = self.exchange.amount_to_precision(symbol, amount)
+            except ccxt.InvalidOrder:
+                truncated = 0.0  # ccxt: the amount is below the market's precision step
+            if not (_is_finite_number(truncated) and 0 <= truncated <= amount * (1 + _OVERFILL_TOLERANCE)):
+                raise ValueError(f"amount_to_precision({amount!r}) returned {truncated!r}")
+        except Exception as exc:  # noqa: BLE001 -- unknown minimum = unknown whether the order is valid
+            why = f"the market's minimum order size could not be determined ({type(exc).__name__})"
+            self._buy_refused(symbol, amount, "limits_unavailable", why)
+            raise LiveMarketLimitsUnavailable(f"refusing to buy {symbol}: {why}; no order placed") from exc
+        truncated = float(truncated)
+        if truncated == 0:  # report the amount that was asked for, not the 0 it truncates to
+            why = order_minimum_violation(amount, price_hint, None, None, truncated)
+        else:  # amount.min is checked AFTER precision: what ccxt would really send
+            why = order_minimum_violation(truncated, price_hint, amount_min, cost_min, truncated)
+        if why is not None:
+            self._buy_refused(symbol, amount, "below_minimum", why)
+            raise LiveOrderBelowMinimum(f"refusing to buy {symbol}: {why}; no order placed")
+
     def buy(self, symbol: str, quote_amount: float, price_hint: float, order_ref: str | None = None) -> FillResult:
         if self.halted:
             raise LiveBrokerHalted(
@@ -1589,6 +1658,7 @@ class LiveBroker:
                 f"the ledger non-finite (cash={self.portfolio.cash!r}); no order placed"
             )
         self._check_can_place(symbol, "buy")
+        self._check_buy_minimums(symbol, float(base_amount_estimate), float(price_hint))
         # Write-ahead: no record on disk -> no order.
         coid = self._record_intent(
             symbol, "buy", order_ref or f"{symbol}|adhoc",
@@ -1741,13 +1811,13 @@ class LiveBroker:
             truncated = self.exchange.amount_to_precision(symbol, sent)
         except Exception:  # noqa: BLE001
             truncated = None
-        why = None
-        if _is_finite_number(truncated) and truncated == 0:
-            why = f"{sent!r} truncates to 0 at the market's precision"
-        elif _is_finite_number(minimum) and minimum > 0 and sent < minimum:
-            why = f"{sent!r} is below the exchange minimum amount {minimum!r}"
-        elif _is_finite_number(min_cost) and min_cost > 0 and sent * price_hint < min_cost:
-            why = f"{sent!r} x {price_hint!r} is below the exchange minimum cost {min_cost!r}"
+        # Same decision as the buy guard (issue #81), on the amount actually sent; unknown -> None.
+        why = order_minimum_violation(
+            sent, price_hint,
+            minimum if _is_finite_number(minimum) else None,
+            min_cost if _is_finite_number(min_cost) else None,
+            truncated if _is_finite_number(truncated) else None,
+        )
         if why is None:
             return
         self._exit_failed(symbol, sent, None, f"cannot exit: {why}",
