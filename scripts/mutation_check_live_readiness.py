@@ -236,6 +236,34 @@ MUTATIONS = [
      "        cash_applied = True"),
     ("R19", "RO minor b (G4): `halted` ignores unverified fills", BL,
      "            or bool(self._state.get(\"unverified\"))\n        )", "        )"),
+    # ---- Risk Officer round-3 survivors (#99 review; code correct, tests added in issue #81)
+    ("D02", "N1: correction ignores whether the tracked position still equals booked/corrected", BL,
+     "        if actual <= 0 or pos is None or not (", "        if actual <= 0 or pos is None or 0 and not ("),
+    ("D03", "N1: a SELL's unverified fill is corrected like a buy", BL,
+     "            if side != \"buy\":\n                self._unverified_alert(", "            if False:\n                self._unverified_alert("),
+    ("D04", "N1: correction while its own order record is still in flight", BL,
+     "            if coid in self._state[\"inflight\"]:\n                continue",
+     "            if False:\n                continue"),
+    ("D07", "N3: a contradicted zero-fill buy is booked WITHOUT a halt", BL,
+     "            if contradicted:\n                halt_reason = (f\"buy {symbol}: the response said",
+     "            if False:\n                halt_reason = (f\"buy {symbol}: the response said"),
+    # ---- issue #81: per-pair exchange minimums on the live BUY path
+    ("Q01", "#81: buy sent without the per-pair minimum check", BL,
+     "        self._check_buy_minimums(symbol, float(base_amount_estimate), float(price_hint))\n", ""),
+    ("Q02", "#81: unknown limits fail OPEN (buy sent anyway)", BL,
+     "            raise LiveMarketLimitsUnavailable(f\"refusing to buy {symbol}: {why}; no order placed\") from exc",
+     "            return"),
+    ("Q03", "#81: amount.min checked on the raw amount, not after precision", BL,
+     "            why = order_minimum_violation(truncated, price_hint, limits.amount_min",
+     "            why = order_minimum_violation(amount, price_hint, limits.amount_min"),
+    ("Q04", "#81: ccxt InvalidOrder from amount_to_precision ignored", BL,
+     "                truncated = 0.0  # ccxt:", "                truncated = amount  # ccxt:"),
+    ("Q05", "#81: cost.min never checked", EX,
+     "and amount * price < cost_min:", "and False:"),
+    ("Q06", "#81: below-minimum refusal not alerted", BL,
+     "            self._buy_refused(symbol, amount, \"below_minimum\", why)\n", ""),
+    ("Q07", "#81: sell dust check no longer blocks below cost.min", BL,
+     "            min_cost if _is_finite_number(min_cost) else None,", "            None,"),
 ]
 
 TEST_FILES = [
@@ -243,6 +271,7 @@ TEST_FILES = [
     "tests/test_trade_plan_store.py", "tests/test_exchange.py", "tests/test_paper_isolation.py",
     "tests/test_live_smoke.py", "tests/test_broker_live.py", "tests/test_bot.py", "tests/test_live_fuzz.py",
     "tests/test_live_review_round2.py", "tests/test_live_review_round2_ro.py",
+    "tests/test_live_review_round3_ro.py", "tests/test_pair_minimums.py",
 ]
 COPY_DIRS = ("src", "tests", "config", "scripts", ".github")
 LINK_DIRS = ("docs", "research", "strategy_pack_run", "web", "deploy")
