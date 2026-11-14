@@ -246,6 +246,51 @@ monitoring service alerts you the moment those pings stop arriving.
 Leave `HEALTHCHECK_PING_URL` blank to disable -- `send_heartbeat_ping()` is a
 no-op with no URL set, same fail-safe pattern as the Telegram notifier.
 
+## Per-pair exchange minimums check (issue #81)
+
+Kraken sets a minimum order per pair, in BASE units (e.g. SHIB/USD: 770,000
+SHIB), so a pair's minimum in dollars rises with its price. The bot's own floor
+is `risk.min_order_quote_usd` ($10). If a pair's exchange minimum ever climbs
+above that, a live buy that the risk engine approved would be refused by the
+live broker (`LiveOrderBelowMinimum`; it never sizes the order up). Paper
+trading is not affected either way.
+
+`scripts/check_pair_minimums.py` catches that drift early. It is read-only: it
+uses public market data only (`load_markets` and tickers through ccxt), builds
+the exchange client WITHOUT credentials, never loads `.env`, and each request
+has a timeout (`--timeout`, default 15 s). It prints one row per configured
+symbol (price, `amount.min`, `cost.min`, minimum order in USD) and exits:
+
+* `0` when every pair's minimum is below 80% of the floor,
+* `1` when a pair's minimum is above the floor or within 20% of it (`--margin`),
+* `2` when a pair could not be checked (markets/tickers would not load, the pair
+  is not listed, or its limits are malformed). An unknown result is never
+  reported as OK.
+
+Run it by hand on the VM at any time:
+
+```bash
+cd ~/hybrid-crypto-trader && .venv/bin/python scripts/check_pair_minimums.py
+```
+
+`scripts/run_live.py` also runs it automatically, at most once per UTC day
+(the first loop pass of each day; a restart can trigger one more run). It runs
+as a separate process with no secrets in its environment, and is polled on
+later passes, so it never blocks or crashes the loop and never changes a
+trading decision. A run longer than 180 s is killed. If it exits non-zero,
+times out or cannot start, the loop logs a warning and sends a Telegram
+message ("Pair minimums check") with the table (escaped, token redacted). No
+Telegram configured means the warning only goes to the log. If you get the
+warning:
+
+1. Read the table to see which pair is `ABOVE`/`NEAR` (or `UNKNOWN`, and why).
+2. For `ABOVE`/`NEAR`, either raise `risk.min_order_quote_usd` (a Risk Officer
+   decision; see `docs/min_order_floor_study.md`) or drop the pair from
+   `market.symbols`. Until you do, live buys of that pair below its minimum are
+   refused, and the live broker sends its own `buy ... REFUSED` alert for each one.
+3. For `UNKNOWN` because of a network error, run it by hand again later. If a
+   pair stays unlisted, Kraken has changed its listings.
+
 ## Before you flip this on: disable GitHub Actions' own schedule
 
 `.github/workflows/refresh-dashboard.yml`'s `schedule:` trigger (and, if

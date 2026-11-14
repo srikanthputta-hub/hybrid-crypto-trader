@@ -68,8 +68,8 @@ class FakeCcxt:
             print("   [exchange fault]", name)
         return hit
 
-    def load_markets(self):
-        return {}
+    def load_markets(self):  # issue #81: both pairs listed, no minimums published (dust: InvalidOrder below)
+        return {s: {"symbol": s, "limits": {"amount": {"min": None}, "cost": {"min": None}}} for s in self.prices}
 
     def amount_to_precision(self, symbol, amount):
         return f"{math.floor(float(amount) * 1e8) / 1e8:.8f}"  # lot step LOT_STEP = 1e-8

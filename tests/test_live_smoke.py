@@ -16,7 +16,7 @@ from src.bot import run_cycle
 from src.config import load_config
 from src.portfolio import reconstruct_cash
 from tests import test_bot_universe_wiring as wiring
-from tests._live_fakes import SimulatedCrash
+from tests._live_fakes import SimulatedCrash, published_markets
 
 
 class LiveFakeCcxt(wiring.FakeCcxt):
@@ -59,6 +59,12 @@ class LiveFakeCcxt(wiring.FakeCcxt):
 
     def fetch_balance(self):
         return {"free": dict(self.free)}
+
+    def load_markets(self):  # issue #81: every symbol listed, no minimums published
+        return published_markets(self.hourly)
+
+    def amount_to_precision(self, symbol, amount):
+        return amount
 
 
 @pytest.fixture(autouse=True)
