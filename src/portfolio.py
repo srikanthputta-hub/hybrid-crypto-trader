@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import math
 import numbers
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -164,15 +165,61 @@ class Portfolio:
         return net
 
     def log_trade(self, row: dict) -> None:
+        """Append one row and fsync it (issue #99 review F3: the live broker writes this row
+        BEFORE its in-memory ledger moves, so it must be durable when this returns).
+
+        Columns follow the file's existing header. A row with a column the header lacks (a
+        live row's `order_id` in a file the paper broker created) first rewrites the file
+        atomically with the extended header -- existing rows get an empty value -- so the
+        new column is never silently dropped. Paper rows always match their own header, so
+        the paper broker's output is unchanged."""
         if self.trade_log_path is None:
             return
-        self.trade_log_path.parent.mkdir(parents=True, exist_ok=True)
-        write_header = not self.trade_log_path.exists()
-        with open(self.trade_log_path, "a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+        path = self.trade_log_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        header: list[str] | None = None
+        if path.exists() and path.stat().st_size > 0:
+            with open(path, newline="") as f:
+                header = next(csv.reader(f), None) or None
+        if header is not None:
+            missing = [k for k in row if k not in header]
+            if missing:
+                header = header + missing
+                _rewrite_with_header(path, header)
+        write_header = header is None
+        fieldnames = list(row.keys()) if header is None else header
+        with open(path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
             if write_header:
                 writer.writeheader()
             writer.writerow(row)
+            f.flush()
+            os.fsync(f.fileno())
+
+
+def _rewrite_with_header(path: Path, header: list[str]) -> None:
+    """Atomically rewrite a CSV with a wider header (tmp + fsync + replace + dir fsync)."""
+    with open(path, newline="") as f:
+        reader = csv.reader(f)
+        next(reader, None)
+        rows = list(reader)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        for values in rows:
+            writer.writerow(values + [""] * (len(header) - len(values)))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    try:
+        fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:  # pragma: no cover - platforms without directory fds
+        pass
 
 
 def now_iso() -> str:
