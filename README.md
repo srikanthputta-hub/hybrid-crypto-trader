@@ -312,61 +312,46 @@ tests/                        pytest suite covering every module above
 
 ## Dashboard
 
-`web/` is a static, framework-free dashboard: an "office" view of the pipeline
-stages (styled after a trading-desk swarm-office layout, one desk per role,
-colored by model tier), a live trade-plan chart using TradingView's
-open-source [lightweight-charts](https://github.com/tradingview/lightweight-charts)
-library (vendored in `web/vendor/`, no external CDN or API key needed), and
-data tables for open positions, pending plans, recent scanner activity, and
-recent risk decisions. Prices and chart candles come from
-`logs/market_snapshot.json` (written by the bot's `MarketDataCache` each cycle),
-so the export makes no exchange calls of its own.
+`web/` is a static, framework-free dashboard (no build step, no runtime CDN or external requests; a strict
+Content-Security-Policy in `web/_headers`). Redesigned in #111: mobile-first with a dark/light toggle, a status
+strip (instance, `PAPER TRIAL` label, data freshness that turns amber/red when the data is stale), a KPI row, a
+kill-rule panel (mean re-costed R against the frozen thresholds and drawdown against the 30% line), equity and
+drawdown charts, a per-symbol "today's decision" grid, open/pending/closed trade tables and a system-health block.
+It supports more than one bot instance (`web/instances.json`, one tab per instance). Details, screenshots and how
+to add an instance: [docs/dashboard/README.md](docs/dashboard/README.md).
 
-It's a **snapshot** dashboard, not a live-streaming one: it reads
-`web/data.json`, which you regenerate from the bot's own log files —
+It is a **snapshot** dashboard: it reads `web/data.json`, regenerated from the bot's own logs by
 
 ```bash
-python scripts/export_dashboard_data.py   # writes web/data.json
+python scripts/export_dashboard_data.py   # writes web/data.json (additive `ops` block, bounded-memory tail reads)
 ```
 
-— and it only updates for visitors once that new `data.json` is deployed.
-Re-run the export script (a cron job, or right before you push) and redeploy
-to refresh it. A sample `web/data.json` ships in the repo so the dashboard
-isn't blank before you've run the bot yourself.
+On the always-on VM, `scripts/run_live.py` exports after every cycle and publishes it in one of two ways
+(see `deploy/README.md`):
 
-For near-zero-gap coverage — the bot cycling continuously and the dashboard
-updating after every cycle, rather than on whatever a scheduler's next tick
-happens to be — see `deploy/README.md` for running `scripts/run_live.py` as
-a systemd service on an always-on host.
+- **Git push (default):** commits `web/data.json` only when the dashboard content changed or an hourly heartbeat
+  is due (`HCT_DASHBOARD_PUSH_MINUTES`, #117); each push triggers a Cloudflare Workers Build. The 5-minute pushes
+  used before exhausted the monthly build minutes, which is why this is throttled.
+- **Direct deploy (optional, #118):** with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the VM's `.env`,
+  the VM runs `wrangler deploy` itself (no build minutes) on a content change or a 15-minute heartbeat. Off unless
+  both variables are set.
 
-To preview it locally (a plain `file://` open won't work because the page
-`fetch()`es `data.json`):
+The page's freshness thresholds follow the active cadence (`ops.health.deploy_interval_minutes` or
+`push_interval_minutes` in `data.json`).
+
+To preview it locally (a plain `file://` open won't work because the page `fetch()`es `data.json`):
 
 ```bash
 cd web && python3 -m http.server 8080
 # open http://localhost:8080
 ```
 
-### Deploying to Cloudflare Pages (GitHub auto-deploy)
+### Hosting
 
-1. Push this repo to GitHub (see the note in your original setup, or
-   `gh repo create ... --push`).
-2. In the Cloudflare dashboard: **Workers & Pages → Create → Pages → Connect
-   to Git**, pick this repository.
-3. Build settings — this is a static site, so:
-   - Framework preset: `None`
-   - Build command: *(leave empty)*
-   - Build output directory: `web`
-4. Deploy. Every push to your default branch rebuilds and redeploys
-   automatically, including whenever you commit a freshly regenerated
-   `web/data.json`.
-
-`web/_headers` tells Cloudflare not to cache `data.json`, so a redeploy is
-visible immediately rather than waiting out a cache TTL.
-
-If you'd rather deploy from the command line instead of GitHub integration,
-`wrangler pages deploy web --project-name=hybrid-crypto-trader` works too
-(requires `wrangler` authenticated with your Cloudflare account).
+`wrangler.jsonc` defines a static-assets-only Cloudflare Worker (`hybrid-crypto-trader`, assets directory `./web`).
+Cloudflare Workers Builds deploys it on every push to `main`; set **Build watch paths -> Exclude `web/data.json`**
+in the Worker's build settings so data-only commits do not consume build minutes once direct deploy is enabled.
+A manual deploy from any machine with `wrangler` authenticated: `wrangler deploy` from the repo root.
 
 ## Running this repo like a trading brokerage (CLAUDE.md)
 

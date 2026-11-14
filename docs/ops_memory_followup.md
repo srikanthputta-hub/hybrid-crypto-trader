@@ -1,5 +1,10 @@
 # Ops memory follow-up: bounded-memory export and parity check, dashboard at a daily bar
 
+> **Historical note (2026-11-14):** this records the #107 work. The dashboard it describes was replaced by the
+> redesign in #111, and the VM publishing path changed in #117 (push throttle) and #118 (direct deploy). The
+> bounded-memory tail reads it introduced are still in use. Current behaviour: README "Dashboard" and `deploy/README.md`.
+
+
 - **Role:** Platform Engineer (Sonnet). Branch `claude/ops-memory-and-1d-dashboard`, based on `origin/main`
   (`b7e8941`). Local only: not pushed, no PR, not merged. Paper only; no change to `src/risk_engine.py`,
   `src/broker_live.py`, the two-switch gate, any config value, or any decision the bot makes.
