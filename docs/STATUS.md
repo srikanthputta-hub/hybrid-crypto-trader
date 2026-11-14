@@ -68,6 +68,16 @@ Background research: [crypto_bot_upgrade_playbook.md](crypto_bot_upgrade_playboo
 
 ## Pending (not done, not scheduled by this doc)
 
+- **Issue #99 live-readiness blockers** - branch `claude/live-readiness-99` (not merged; needs an Opus Architect +
+  Risk Officer review of the `src/broker_live.py` / `src/bot.py` changes). Write-ahead order record + clientOrderId,
+  every-cycle reconcile + Telegram halt alerts, sells capped at the free balance, persisted partial-sell remainder,
+  live fees, halted bot plans nothing, filled-only partial sells; `LIVE_TRADING_CONFIRM` removed from
+  `refresh-dashboard.yml`. Paper behaviour unchanged. Makes live **safer, not ready**: see
+  [live_readiness_design.md](live_readiness_design.md) §9. A review round (two Opus reviews of 2168b7ae) fixed
+  F1-F10 + S1/S2 (§10: trades.csv-first booking, durable plan store, lookup-verified fills, Kraken server-side
+  order filter, single-instance lock, repeating alerts); both review fuzz harnesses now run in the suite. §11
+  lists the conditions before ANY real-money use -- none is met yet.
+
 - **P6 harness fix** - done (`count_same_bar_approvals`), see [p6_harness_exposure_fix.md](p6_harness_exposure_fix.md).
 - **#87** - `risk_engine` fails open on NaN `portfolio_equity` / `cash_available` (open issue). It should fail closed.
   Touches `src/risk_engine.py`: Opus-level review required.

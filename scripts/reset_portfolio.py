@@ -29,11 +29,20 @@ Usage (run on the VM, from the repo root):
 
     python3 scripts/reset_portfolio.py
     python3 scripts/reset_portfolio.py --logs-dir logs   # (default)
+
+Live-broker state (issue #99): logs/live_order_state.json (write-ahead order records) and
+logs/live_broker_halt.json (the halt marker) describe orders that may be REAL on the exchange.
+While either holds anything unresolved (a halt, an in-flight or unverified order record, or an
+unreadable file) this script REFUSES to reset, by default: archiving the ledger underneath them
+would lose the only record of those orders. --include-live-state archives them too, with a loud
+warning -- only after the exchange account has been reconciled by hand.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -43,11 +52,35 @@ ARCHIVE_FILES = [
     "trade_plans_history.jsonl",
     "audit_log.jsonl",
 ]
+# Names mirror src/broker_live.py (ORDER_STATE_NAME, HALT_MARKER_NAME); not imported, so this
+# script never loads the live broker module.
+LIVE_STATE_FILES = ["live_order_state.json", "live_broker_halt.json"]
+
+
+def _unresolved_live_state(logs_dir: Path) -> list[str]:
+    """Why the live state can't be dropped silently ([] = nothing unresolved)."""
+    reasons = []
+    if (logs_dir / "live_broker_halt.json").exists():
+        reasons.append("the live broker is HALTED (live_broker_halt.json exists)")
+    state = logs_dir / "live_order_state.json"
+    if state.exists():
+        try:
+            raw = json.loads(state.read_text())
+            if raw.get("inflight"):
+                reasons.append(f"{len(raw['inflight'])} in-flight live order record(s)")
+            if raw.get("unverified"):
+                reasons.append(f"{len(raw['unverified'])} unverified live fill(s)")
+        except Exception as exc:  # noqa: BLE001 -- unreadable = unknown = refuse
+            reasons.append(f"live_order_state.json is unreadable ({type(exc).__name__})")
+    return reasons
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--logs-dir", default="logs")
+    ap.add_argument("--include-live-state", action="store_true",
+                    help="also archive live_order_state.json and live_broker_halt.json (DANGEROUS: only after "
+                         "reconciling the exchange account by hand)")
     a = ap.parse_args()
 
     logs_dir = Path(a.logs_dir)
@@ -55,11 +88,24 @@ def main() -> None:
         print(f"{logs_dir} doesn't exist -- nothing to reset (a fresh start already).")
         return
 
+    unresolved = _unresolved_live_state(logs_dir)
+    names = list(ARCHIVE_FILES)
+    if unresolved and not a.include_live_state:
+        print("REFUSING to reset: " + "; ".join(unresolved) + ". These may be REAL orders on the exchange. "
+              "Reconcile the exchange account by hand first, then re-run with --include-live-state.",
+              file=sys.stderr)
+        sys.exit(2)
+    if a.include_live_state:
+        names += LIVE_STATE_FILES
+        print("WARNING: archiving the LIVE broker's order records and halt marker"
+              + (" (" + "; ".join(unresolved) + ")" if unresolved else "")
+              + ". If any order is still unresolved on the exchange, the bot will no longer know about it.")
+
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     archive_dir = logs_dir / "archive" / stamp
 
     moved = []
-    for name in ARCHIVE_FILES:
+    for name in names:
         src = logs_dir / name
         if not src.exists():
             continue
