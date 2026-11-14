@@ -1611,6 +1611,10 @@ class LiveBroker:
         refuse when that minimum can't be determined (fail closed). Places nothing, records nothing."""
         try:
             limits = self.exchange.market_limits(symbol)
+            amount_min, cost_min = limits.amount_min, limits.cost_min
+            for name, value in (("amount.min", amount_min), ("cost.min", cost_min)):
+                if value is not None and not (_is_finite_number(value) and value >= 0):
+                    raise ValueError(f"limits.{name}={value!r} is not a finite number >= 0")
             try:
                 truncated = self.exchange.amount_to_precision(symbol, amount)
             except ccxt.InvalidOrder:
@@ -1625,7 +1629,7 @@ class LiveBroker:
         if truncated == 0:  # report the amount that was asked for, not the 0 it truncates to
             why = order_minimum_violation(amount, price_hint, None, None, truncated)
         else:  # amount.min is checked AFTER precision: what ccxt would really send
-            why = order_minimum_violation(truncated, price_hint, limits.amount_min, limits.cost_min, truncated)
+            why = order_minimum_violation(truncated, price_hint, amount_min, cost_min, truncated)
         if why is not None:
             self._buy_refused(symbol, amount, "below_minimum", why)
             raise LiveOrderBelowMinimum(f"refusing to buy {symbol}: {why}; no order placed")

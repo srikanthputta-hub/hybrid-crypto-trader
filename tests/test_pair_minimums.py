@@ -263,6 +263,20 @@ def test_unknown_limits_or_precision_refuse_the_buy_fail_closed(tmp_path, fault)
     _assert_refused_cleanly(tmp_path, ex, broker, portfolio, store, "unavailable")
 
 
+@pytest.mark.parametrize(
+    "limits",
+    [MarketLimits(BTC, float("nan"), None), MarketLimits(BTC, None, -1.0), MarketLimits(BTC, True, None),
+     {"amount_min": None, "cost_min": None}, None],
+)
+def test_garbage_from_market_limits_refuses(tmp_path, limits):
+    ex = FaultyExchange()
+    ex.market_limits = lambda symbol: limits             # bypasses the parser: the broker re-checks
+    broker, portfolio, store = _pending(tmp_path, ex)
+    with pytest.raises(LiveMarketLimitsUnavailable):
+        _act(FILL, broker, store)
+    _assert_refused_cleanly(tmp_path, ex, broker, portfolio, store, "unavailable")
+
+
 def test_missing_market_limits_method_refuses(tmp_path):
     ex = FaultyExchange()
     ex.market_limits = None                            # not callable -> unknown -> refuse
