@@ -28,6 +28,12 @@ since=$(systemctl show "$SERVICE" -p ActiveEnterTimestamp --value 2>/dev/null)
 [ "$enabled" = "enabled" ] && ok "service enabled (starts on boot)" || warn "service is '$enabled' (expected enabled)"
 n=$(pgrep -fc "scripts/run_live.py" 2>/dev/null); n=${n:-0}
 [ "$n" = "1" ] && ok "exactly one bot process" || warn "$n bot processes running (expected 1)"
+started=""; [ -n "$since" ] && started=$(date -d "$since" +%s 2>/dev/null)
+code_ts=$(git log -1 --format=%ct HEAD -- src scripts/run_live.py config 2>/dev/null)
+if [ -n "$started" ] && [ -n "$code_ts" ]; then
+  [ "$code_ts" -le "$started" ] && ok "running code is the code on disk" \
+    || warn "code on disk changed after the service started ($(date -u -d "@$code_ts" '+%Y-%m-%d %H:%M UTC')): sudo systemctl restart $SERVICE"
+fi
 
 echo "--- config"
 mode=$(grep -E '^mode:' config/config.yaml | awk '{print $2}' | tr -d '"')
@@ -41,7 +47,7 @@ perm=$(stat -c '%a' .env 2>/dev/null)
 [ -z "$perm" ] && warn ".env missing" || { [ "$perm" = "600" ] && ok ".env permissions 600" || warn ".env permissions $perm (run: chmod 600 .env)"; }
 
 echo "--- bot activity (logs/)"
-"$PY" - <<'PYEOF'
+PYOUT=$("$PY" - <<'PYEOF'
 import json, os, time, glob, datetime as dt
 def out(tag, msg): print(f"{tag:<5} {msg}")
 now = dt.datetime.now(dt.timezone.utc)
@@ -99,12 +105,15 @@ if reps:
         r = json.load(open(reps[-1])); st = r.get("status") or r.get("verdict")
         out("OK" if st in ("PASS", "INSUFFICIENT DATA") else "WARN", f"latest parity report {os.path.basename(reps[-1])}: {st}")
         age_d = (time.time() - os.path.getmtime(reps[-1])) / 86400
-        if age_d > 8: out("WARN", f"latest parity report is {age_d:.0f} days old: run the weekly check")
+        if age_d > 8: out("WARN", f"latest parity report is {age_d:.0f} days old: run the weekly check (deploy/README.md)")
     except Exception as e:
         out("WARN", f"cannot read {reps[-1]} ({type(e).__name__})")
 else:
     out("WARN", "no logs/parity_*.json report yet: run the weekly parity check")
 PYEOF
+)
+printf '%s\n' "$PYOUT"
+WARNS=$((WARNS + $(printf '%s\n' "$PYOUT" | grep -c '^WARN')))
 
 echo "--- journal (last 24 h)"
 J=$(journalctl -u "$SERVICE" --since "24 hours ago" --no-pager 2>/dev/null || sudo -n journalctl -u "$SERVICE" --since "24 hours ago" --no-pager 2>/dev/null)
