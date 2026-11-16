@@ -702,3 +702,25 @@ inside the safe window (runbook), then confirm the next daily bar is decided nor
 4. **Cadence:** keep the trial's daily strategy (recommended; few orders, about one decision burst a day, and
    `demo_smoke.py` gives immediate order coverage), or run the demo at 1h purely to generate more order traffic (a
    different strategy cadence, explicitly not evidence)?
+
+## 12. Decisions on section 11 (orchestrator, 2026-11-16)
+
+These override the corresponding text above where they differ.
+
+1. **Venue: `myokx` (OKX EEA, `eea.okx.com`).** The user's account is on `my.okx.com/en-eu`. ccxt 4.5.90 `myokx`
+   `set_sandbox_mode(True)` sets the same `x-simulated-trading: 1` header with host `eea.okx.com` (checked in the
+   installed source). `config/demo.yaml` uses `exchange.id: myokx`; the verifier accepts both ids as specified in §5.
+   Conditional on the user confirming that OKX EEA offers Demo Trading API keys. If it does not, the fallback is Bybit
+   demo trading (`enable_demo_trading(True)`, `api-demo.bybit.com`), which needs its own verifier PR before use.
+2. **Dashboard publication without direct deploy.** The VM health check shows direct deploy (#118) is NOT enabled and
+   Node is not installed. So, instead of relying on direct deploy: the paper process's existing git push
+   (`scripts/dashboard_push.py`) also stages `web/data-demo.json` when that file exists, and its content fingerprint
+   includes it. The demo process still never runs git or wrangler (no index races). Consequently `web/data-demo.json`
+   is NOT gitignored. This is a small, additive change to the paper process's dashboard push only (no trading code);
+   it ships in PR 3 with a test that the push is unchanged when the file is absent. When direct deploy is enabled
+   later, it uploads the same file with no further change.
+3. **Telegram: none for the demo in phase 1** (`notifier` disabled in `config/demo.yaml`; the demo process does not
+   read the Telegram env vars). The user trades the paper trial's alerts by hand, so fake-money alerts must not reach
+   that chat. A separate chat can be added later as opt-in.
+4. **Cadence: daily**, the same strategy and timeframe as the trial; `demo_smoke.py` provides immediate order
+   coverage.
