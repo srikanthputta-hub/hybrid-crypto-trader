@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-19T23:50:48.994511+00:00",
+  "generated_at": "2026-11-20T00:01:07.323417+00:00",
   "mode": "paper",
   "exchange_id": "kraken",
   "symbols": [
@@ -30,16 +30,16 @@
       "id": "boss",
       "label": "CEO / Orchestrator",
       "model_tier": "opus",
-      "status": "idle",
-      "last_active": "2026-11-19T23:50:48.759616+00:00",
-      "detail": "Idle \u2014 waiting for the next scheduled cycle"
+      "status": "working",
+      "last_active": "2026-11-20T00:01:07.087758+00:00",
+      "detail": "Coordinating 1 active role(s) this cycle"
     },
     {
       "id": "market_analyst",
       "label": "Market Analyst",
       "model_tier": "sonnet",
-      "status": "idle",
-      "last_active": "2026-11-19T00:00:41.769298+00:00",
+      "status": "working",
+      "last_active": "2026-11-20T00:01:07.087758+00:00",
       "detail": "XTZ/USD: found a MOMENTUM setup (bearish)"
     },
     {
@@ -89,13 +89,6 @@
   "charts": {
     "BTC/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 63234.0,
-          "high": 65542.1,
-          "low": 63234.0,
-          "close": 63953.6
-        },
         {
           "time": 1782172800,
           "open": 63953.6,
@@ -1138,18 +1131,18 @@
           "high": 64928.1,
           "low": 62000.0,
           "close": 62984.6
+        },
+        {
+          "time": 1795046400,
+          "open": 62984.5,
+          "high": 64014.3,
+          "low": 61353.2,
+          "close": 61913.5
         }
       ]
     },
     "ETH/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 1704.99,
-          "high": 1777.82,
-          "low": 1704.99,
-          "close": 1726.64
-        },
         {
           "time": 1782172800,
           "open": 1726.12,
@@ -2192,18 +2185,18 @@
           "high": 1824.36,
           "low": 1730.92,
           "close": 1774.77
+        },
+        {
+          "time": 1795046400,
+          "open": 1774.76,
+          "high": 1815.52,
+          "low": 1734.23,
+          "close": 1755.29
         }
       ]
     },
     "XRP/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 1.12365,
-          "high": 1.1625,
-          "low": 1.12044,
-          "close": 1.12844
-        },
         {
           "time": 1782172800,
           "open": 1.12835,
@@ -3246,18 +3239,18 @@
           "high": 1.00677,
           "low": 0.95485,
           "close": 0.96649
+        },
+        {
+          "time": 1795046400,
+          "open": 0.96637,
+          "high": 0.9968,
+          "low": 0.952,
+          "close": 0.95904
         }
       ]
     },
     "SOL/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 72.38,
-          "high": 74.91,
-          "low": 71.33,
-          "close": 71.88
-        },
         {
           "time": 1782172800,
           "open": 71.88,
@@ -4300,18 +4293,18 @@
           "high": 75.57,
           "low": 72.14,
           "close": 73.55
+        },
+        {
+          "time": 1795046400,
+          "open": 73.54,
+          "high": 75.56,
+          "low": 72.02,
+          "close": 73.07
         }
       ]
     },
     "ADA/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 0.156531,
-          "high": 0.163,
-          "low": 0.156531,
-          "close": 0.158371
-        },
         {
           "time": 1782172800,
           "open": 0.15834,
@@ -5354,18 +5347,18 @@
           "high": 0.155216,
           "low": 0.148,
           "close": 0.151293
+        },
+        {
+          "time": 1795046400,
+          "open": 0.151254,
+          "high": 0.155753,
+          "low": 0.149682,
+          "close": 0.151751
         }
       ]
     },
     "DOGE/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 0.0821374,
-          "high": 0.0849456,
-          "low": 0.0818195,
-          "close": 0.082384
-        },
         {
           "time": 1782172800,
           "open": 0.0823662,
@@ -6408,18 +6401,18 @@
           "high": 0.0600517,
           "low": 0.0576393,
           "close": 0.0586978
+        },
+        {
+          "time": 1795046400,
+          "open": 0.058705,
+          "high": 0.0598018,
+          "low": 0.0573999,
+          "close": 0.0581411
         }
       ]
     },
     "AVAX/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 6.119,
-          "high": 6.462,
-          "low": 6.112,
-          "close": 6.229
-        },
         {
           "time": 1782172800,
           "open": 6.23,
@@ -7462,18 +7455,18 @@
           "high": 7.286,
           "low": 6.837,
           "close": 7.023
+        },
+        {
+          "time": 1795046400,
+          "open": 7.021,
+          "high": 7.164,
+          "low": 6.88,
+          "close": 6.984
         }
       ]
     },
     "LINK/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 7.77395,
-          "high": 8.14312,
-          "low": 7.77395,
-          "close": 7.86692
-        },
         {
           "time": 1782172800,
           "open": 7.86365,
@@ -8516,18 +8509,18 @@
           "high": 9.31631,
           "low": 8.87651,
           "close": 9.07393
+        },
+        {
+          "time": 1795046400,
+          "open": 9.07272,
+          "high": 9.25928,
+          "low": 8.85305,
+          "close": 8.99121
         }
       ]
     },
     "BNB/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 583.54,
-          "high": 601.62,
-          "low": 583.54,
-          "close": 589.57
-        },
         {
           "time": 1782172800,
           "open": 589.33,
@@ -9570,18 +9563,18 @@
           "high": 597.16,
           "low": 574.93,
           "close": 582.17
+        },
+        {
+          "time": 1795046400,
+          "open": 581.29,
+          "high": 593.36,
+          "low": 575.28,
+          "close": 579.52
         }
       ]
     },
     "LTC/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 44.42,
-          "high": 45.77,
-          "low": 44.27,
-          "close": 44.51
-        },
         {
           "time": 1782172800,
           "open": 44.51,
@@ -10624,18 +10617,18 @@
           "high": 45.34,
           "low": 43.08,
           "close": 44.04
+        },
+        {
+          "time": 1795046400,
+          "open": 44.01,
+          "high": 44.75,
+          "low": 41.65,
+          "close": 42.28
         }
       ]
     },
     "DOT/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 0.9402,
-          "high": 0.977,
-          "low": 0.9286,
-          "close": 0.9357
-        },
         {
           "time": 1782172800,
           "open": 0.9353,
@@ -11678,18 +11671,18 @@
           "high": 0.7447,
           "low": 0.7016,
           "close": 0.7187
+        },
+        {
+          "time": 1795046400,
+          "open": 0.7187,
+          "high": 0.7259,
+          "low": 0.7029,
+          "close": 0.7135
         }
       ]
     },
     "ATOM/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 1.7542,
-          "high": 1.8352,
-          "low": 1.7537,
-          "close": 1.7958
-        },
         {
           "time": 1782172800,
           "open": 1.793,
@@ -12732,18 +12725,18 @@
           "high": 1.3317,
           "low": 1.2717,
           "close": 1.2993
+        },
+        {
+          "time": 1795046400,
+          "open": 1.2986,
+          "high": 1.3229,
+          "low": 1.2553,
+          "close": 1.2615
         }
       ]
     },
     "ALGO/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 0.08925,
-          "high": 0.09328,
-          "low": 0.08868,
-          "close": 0.0896
-        },
         {
           "time": 1782172800,
           "open": 0.0892,
@@ -13786,18 +13779,18 @@
           "high": 0.08012,
           "low": 0.07626,
           "close": 0.07782
+        },
+        {
+          "time": 1795046400,
+          "open": 0.07741,
+          "high": 0.07887,
+          "low": 0.07585,
+          "close": 0.07656
         }
       ]
     },
     "BCH/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 195.29,
-          "high": 205.02,
-          "low": 195.29,
-          "close": 197.3
-        },
         {
           "time": 1782172800,
           "open": 197.31,
@@ -14840,18 +14833,18 @@
           "high": 212.2,
           "low": 204.0,
           "close": 208.46
+        },
+        {
+          "time": 1795046400,
+          "open": 208.21,
+          "high": 210.35,
+          "low": 203.03,
+          "close": 206.19
         }
       ]
     },
     "XTZ/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 0.22938,
-          "high": 0.23783,
-          "low": 0.22687,
-          "close": 0.22829
-        },
         {
           "time": 1782172800,
           "open": 0.22749,
@@ -15894,18 +15887,18 @@
           "high": 0.21275,
           "low": 0.20192,
           "close": 0.20723
+        },
+        {
+          "time": 1795046400,
+          "open": 0.20673,
+          "high": 0.21186,
+          "low": 0.20186,
+          "close": 0.20378
         }
       ]
     },
     "SHIB/USD": {
       "candles": [
-        {
-          "time": 1782086400,
-          "open": 4.64e-06,
-          "high": 4.76e-06,
-          "low": 4.61e-06,
-          "close": 4.64e-06
-        },
         {
           "time": 1782172800,
           "open": 4.63e-06,
@@ -16948,6 +16941,13 @@
           "high": 3.89e-06,
           "low": 3.74e-06,
           "close": 3.8e-06
+        },
+        {
+          "time": 1795046400,
+          "open": 3.79e-06,
+          "high": 3.91e-06,
+          "low": 3.75e-06,
+          "close": 3.79e-06
         }
       ]
     }
@@ -16964,402 +16964,402 @@
     },
     "hourly": [
       {
-        "label": "00:00",
-        "start": "2026-11-18T23:50:48.994511+00:00",
-        "pnl": 0,
-        "trades": 0
-      },
-      {
         "label": "01:00",
-        "start": "2026-11-19T00:50:48.994511+00:00",
+        "start": "2026-11-19T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "02:00",
-        "start": "2026-11-19T01:50:48.994511+00:00",
+        "start": "2026-11-19T01:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "03:00",
-        "start": "2026-11-19T02:50:48.994511+00:00",
+        "start": "2026-11-19T02:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "04:00",
-        "start": "2026-11-19T03:50:48.994511+00:00",
+        "start": "2026-11-19T03:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "05:00",
-        "start": "2026-11-19T04:50:48.994511+00:00",
+        "start": "2026-11-19T04:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "06:00",
-        "start": "2026-11-19T05:50:48.994511+00:00",
+        "start": "2026-11-19T05:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "07:00",
-        "start": "2026-11-19T06:50:48.994511+00:00",
+        "start": "2026-11-19T06:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "08:00",
-        "start": "2026-11-19T07:50:48.994511+00:00",
+        "start": "2026-11-19T07:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "09:00",
-        "start": "2026-11-19T08:50:48.994511+00:00",
+        "start": "2026-11-19T08:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "10:00",
-        "start": "2026-11-19T09:50:48.994511+00:00",
+        "start": "2026-11-19T09:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "11:00",
-        "start": "2026-11-19T10:50:48.994511+00:00",
+        "start": "2026-11-19T10:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "12:00",
-        "start": "2026-11-19T11:50:48.994511+00:00",
+        "start": "2026-11-19T11:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "13:00",
-        "start": "2026-11-19T12:50:48.994511+00:00",
+        "start": "2026-11-19T12:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "14:00",
-        "start": "2026-11-19T13:50:48.994511+00:00",
+        "start": "2026-11-19T13:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "15:00",
-        "start": "2026-11-19T14:50:48.994511+00:00",
+        "start": "2026-11-19T14:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "16:00",
-        "start": "2026-11-19T15:50:48.994511+00:00",
+        "start": "2026-11-19T15:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "17:00",
-        "start": "2026-11-19T16:50:48.994511+00:00",
+        "start": "2026-11-19T16:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "18:00",
-        "start": "2026-11-19T17:50:48.994511+00:00",
+        "start": "2026-11-19T17:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "19:00",
-        "start": "2026-11-19T18:50:48.994511+00:00",
+        "start": "2026-11-19T18:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "20:00",
-        "start": "2026-11-19T19:50:48.994511+00:00",
+        "start": "2026-11-19T19:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "21:00",
-        "start": "2026-11-19T20:50:48.994511+00:00",
+        "start": "2026-11-19T20:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "22:00",
-        "start": "2026-11-19T21:50:48.994511+00:00",
+        "start": "2026-11-19T21:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "23:00",
-        "start": "2026-11-19T22:50:48.994511+00:00",
+        "start": "2026-11-19T22:01:07.323417+00:00",
+        "pnl": 0,
+        "trades": 0
+      },
+      {
+        "label": "00:00",
+        "start": "2026-11-19T23:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       }
     ],
     "daily": [
       {
-        "label": "Oct 21",
-        "start": "2026-10-20T23:50:48.994511+00:00",
-        "pnl": 0,
-        "trades": 0
-      },
-      {
         "label": "Oct 22",
-        "start": "2026-10-21T23:50:48.994511+00:00",
+        "start": "2026-10-21T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 23",
-        "start": "2026-10-22T23:50:48.994511+00:00",
+        "start": "2026-10-22T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 24",
-        "start": "2026-10-23T23:50:48.994511+00:00",
+        "start": "2026-10-23T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 25",
-        "start": "2026-10-24T23:50:48.994511+00:00",
+        "start": "2026-10-24T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 26",
-        "start": "2026-10-25T23:50:48.994511+00:00",
+        "start": "2026-10-25T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 27",
-        "start": "2026-10-26T23:50:48.994511+00:00",
+        "start": "2026-10-26T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 28",
-        "start": "2026-10-27T23:50:48.994511+00:00",
+        "start": "2026-10-27T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 29",
-        "start": "2026-10-28T23:50:48.994511+00:00",
+        "start": "2026-10-28T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 30",
-        "start": "2026-10-29T23:50:48.994511+00:00",
+        "start": "2026-10-29T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Oct 31",
-        "start": "2026-10-30T23:50:48.994511+00:00",
+        "start": "2026-10-30T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 01",
-        "start": "2026-10-31T23:50:48.994511+00:00",
+        "start": "2026-10-31T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 02",
-        "start": "2026-11-01T23:50:48.994511+00:00",
+        "start": "2026-11-01T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 03",
-        "start": "2026-11-02T23:50:48.994511+00:00",
+        "start": "2026-11-02T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 04",
-        "start": "2026-11-03T23:50:48.994511+00:00",
+        "start": "2026-11-03T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 05",
-        "start": "2026-11-04T23:50:48.994511+00:00",
+        "start": "2026-11-04T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 06",
-        "start": "2026-11-05T23:50:48.994511+00:00",
+        "start": "2026-11-05T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 07",
-        "start": "2026-11-06T23:50:48.994511+00:00",
+        "start": "2026-11-06T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 08",
-        "start": "2026-11-07T23:50:48.994511+00:00",
+        "start": "2026-11-07T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 09",
-        "start": "2026-11-08T23:50:48.994511+00:00",
+        "start": "2026-11-08T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 10",
-        "start": "2026-11-09T23:50:48.994511+00:00",
+        "start": "2026-11-09T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 11",
-        "start": "2026-11-10T23:50:48.994511+00:00",
+        "start": "2026-11-10T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 12",
-        "start": "2026-11-11T23:50:48.994511+00:00",
+        "start": "2026-11-11T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 13",
-        "start": "2026-11-12T23:50:48.994511+00:00",
+        "start": "2026-11-12T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 14",
-        "start": "2026-11-13T23:50:48.994511+00:00",
+        "start": "2026-11-13T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 15",
-        "start": "2026-11-14T23:50:48.994511+00:00",
+        "start": "2026-11-14T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 16",
-        "start": "2026-11-15T23:50:48.994511+00:00",
+        "start": "2026-11-15T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 17",
-        "start": "2026-11-16T23:50:48.994511+00:00",
+        "start": "2026-11-16T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 18",
-        "start": "2026-11-17T23:50:48.994511+00:00",
+        "start": "2026-11-17T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
         "label": "Nov 19",
-        "start": "2026-11-18T23:50:48.994511+00:00",
+        "start": "2026-11-18T00:01:07.323417+00:00",
+        "pnl": 0,
+        "trades": 0
+      },
+      {
+        "label": "Nov 20",
+        "start": "2026-11-19T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       }
     ],
     "weekly": [
       {
-        "label": "Sep 03",
-        "start": "2026-08-27T23:50:48.994511+00:00",
+        "label": "Sep 04",
+        "start": "2026-08-28T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
-        "label": "Sep 10",
-        "start": "2026-09-03T23:50:48.994511+00:00",
+        "label": "Sep 11",
+        "start": "2026-09-04T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
-        "label": "Sep 17",
-        "start": "2026-09-10T23:50:48.994511+00:00",
+        "label": "Sep 18",
+        "start": "2026-09-11T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
-        "label": "Sep 24",
-        "start": "2026-09-17T23:50:48.994511+00:00",
+        "label": "Sep 25",
+        "start": "2026-09-18T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
-        "label": "Oct 01",
-        "start": "2026-09-24T23:50:48.994511+00:00",
+        "label": "Oct 02",
+        "start": "2026-09-25T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
-        "label": "Oct 08",
-        "start": "2026-10-01T23:50:48.994511+00:00",
+        "label": "Oct 09",
+        "start": "2026-10-02T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
-        "label": "Oct 15",
-        "start": "2026-10-08T23:50:48.994511+00:00",
+        "label": "Oct 16",
+        "start": "2026-10-09T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
-        "label": "Oct 22",
-        "start": "2026-10-15T23:50:48.994511+00:00",
+        "label": "Oct 23",
+        "start": "2026-10-16T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
-        "label": "Oct 29",
-        "start": "2026-10-22T23:50:48.994511+00:00",
+        "label": "Oct 30",
+        "start": "2026-10-23T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
-        "label": "Nov 05",
-        "start": "2026-10-29T23:50:48.994511+00:00",
+        "label": "Nov 06",
+        "start": "2026-10-30T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
-        "label": "Nov 12",
-        "start": "2026-11-05T23:50:48.994511+00:00",
+        "label": "Nov 13",
+        "start": "2026-11-06T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       },
       {
-        "label": "Nov 19",
-        "start": "2026-11-12T23:50:48.994511+00:00",
+        "label": "Nov 20",
+        "start": "2026-11-13T00:01:07.323417+00:00",
         "pnl": 0,
         "trades": 0
       }
@@ -18170,7 +18170,7 @@
   "display": {
     "timeframe": "1d",
     "label": "PAPER TRIAL",
-    "price_as_of": "2026-11-19T00:00:00+00:00",
+    "price_as_of": "2026-11-20T00:00:00+00:00",
     "pnl_default_period": "daily"
   },
   "ops": {
@@ -18209,149 +18209,149 @@
         "symbol": "BTC/USD",
         "state": "skip",
         "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.736650+00:00",
-        "pattern": "MOMENTUM"
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.056141+00:00",
+        "pattern": "PULLBACK"
       },
       {
         "symbol": "ETH/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.747767+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.066526+00:00",
+        "pattern": null
       },
       {
         "symbol": "XRP/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.765752+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.084190+00:00",
+        "pattern": null
       },
       {
         "symbol": "SOL/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.762127+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.080620+00:00",
+        "pattern": null
       },
       {
         "symbol": "ADA/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.714035+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.033863+00:00",
+        "pattern": null
       },
       {
         "symbol": "DOGE/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.740330+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.059677+00:00",
+        "pattern": null
       },
       {
         "symbol": "AVAX/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.725471+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.045834+00:00",
+        "pattern": null
       },
       {
         "symbol": "LINK/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.751314+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.069946+00:00",
+        "pattern": null
       },
       {
         "symbol": "BNB/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.732984+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.052747+00:00",
+        "pattern": null
       },
       {
         "symbol": "LTC/USD",
         "state": "skip",
         "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.754896+00:00",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.073315+00:00",
         "pattern": "MOMENTUM"
       },
       {
         "symbol": "DOT/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.744005+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.063100+00:00",
+        "pattern": null
       },
       {
         "symbol": "ATOM/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.721773+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.041399+00:00",
+        "pattern": null
       },
       {
         "symbol": "ALGO/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.718063+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.037811+00:00",
+        "pattern": null
       },
       {
         "symbol": "BCH/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.729246+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.049331+00:00",
+        "pattern": null
       },
       {
         "symbol": "XTZ/USD",
         "state": "skip",
         "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.769298+00:00",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.087758+00:00",
         "pattern": "MOMENTUM"
       },
       {
         "symbol": "SHIB/USD",
-        "state": "skip",
-        "reason": "bearish signal logged only (long-only bot)",
-        "bar_close": "2026-11-19T00:00:00+00:00",
-        "timestamp": "2026-11-19T00:00:41.758366+00:00",
-        "pattern": "MOMENTUM"
+        "state": "scan",
+        "reason": "scanned: no setup",
+        "bar_close": "2026-11-20T00:00:00+00:00",
+        "timestamp": "2026-11-20T00:01:07.076951+00:00",
+        "pattern": null
       }
     ],
     "health": {
       "expected_symbols": 16,
       "latest_bar": {
-        "bar_close": "2026-11-19T00:00:00+00:00",
+        "bar_close": "2026-11-20T00:00:00+00:00",
         "symbols_decided": 16,
         "stale_skips": 0,
         "errors": 0
       },
       "window": {
         "days": 7,
-        "since": "2026-11-12T23:51:59.872574+00:00",
+        "since": "2026-11-13T00:02:18.134429+00:00",
         "events": 32272,
         "stale_skips": 0,
         "errors": 0,
         "unavailable": 0
       },
-      "last_event_at": "2026-11-19T23:50:48.759616+00:00",
-      "last_bar_close": "2026-11-19T00:00:00+00:00",
+      "last_event_at": "2026-11-20T00:01:07.087758+00:00",
+      "last_bar_close": "2026-11-20T00:00:00+00:00",
       "poll_interval_seconds": 300,
       "max_entry_delay_minutes": 60,
       "push_interval_minutes": 60.0
@@ -18971,7 +18971,7 @@
           10000
         ],
         [
-          "2026-11-19T23:50:48.994511+00:00",
+          "2026-11-20T00:01:07.323417+00:00",
           10000,
           10000
         ]
