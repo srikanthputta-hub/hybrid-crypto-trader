@@ -1,10 +1,17 @@
 {
-  // Static-assets-only Worker: no "main" script, just the web/ dashboard
-  // served directly. See README.md "Dashboard" for the deploy flow.
+  // Worker with both a script (worker/index.js) and static assets (web/).
+  // fetch() serves the dashboard via the ASSETS binding; scheduled() fires
+  // on the Cron Trigger below to keep the bot's GitHub Actions workflow
+  // cycling reliably (see worker/index.js's header comment for why).
   "name": "hybrid-crypto-trader",
   "compatibility_date": "2026-09-26",
+  "main": "worker/index.js",
   "assets": {
-    "directory": "./web"
+    "directory": "./web",
+    "binding": "ASSETS"
+  },
+  "triggers": {
+    "crons": ["* * * * *"]
   },
   // Cloudflare's Workers Builds pipeline deploys PR/non-production branches
   // with `wrangler preview`, which requires this block to exist (can be
